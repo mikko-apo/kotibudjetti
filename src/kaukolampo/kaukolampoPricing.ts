@@ -1,4 +1,4 @@
-import {ContractPricing} from "./kaukolampoTypes";
+import type { ContractPricing } from "./kaukolampoTypes";
 
 export const tulaPepi: ContractPricing = {
   id: "tula-pepi",
@@ -10,8 +10,8 @@ export const tulaPepi: ContractPricing = {
       month: 1,
       price: {
         monthlyFee: 35.3,
-        mWPrice: 68.57
-      }
+        mWPrice: 68.57,
+      },
     },
     {
       year: 2023,
@@ -19,7 +19,7 @@ export const tulaPepi: ContractPricing = {
       price: {
         monthlyFee: 40.25,
         mWPrice: 78.17,
-      }
+      },
     },
     {
       year: 2024,
@@ -27,7 +27,7 @@ export const tulaPepi: ContractPricing = {
       price: {
         monthlyFee: 45.88,
         mWPrice: 89.12,
-      }
+      },
     },
     {
       year: 2024,
@@ -35,7 +35,7 @@ export const tulaPepi: ContractPricing = {
       price: {
         monthlyFee: 46.44,
         mWPrice: 90.2,
-      }
+      },
     },
     {
       year: 2025,
@@ -43,7 +43,7 @@ export const tulaPepi: ContractPricing = {
       price: {
         monthlyFee: 59.55,
         mWPrice: 90.2,
-      }
+      },
     },
     {
       year: 2025,
@@ -51,7 +51,7 @@ export const tulaPepi: ContractPricing = {
       price: {
         monthlyFee: 59.55,
         mWPrice: 86.04,
-      }
-    }
-  ]
-}
+      },
+    },
+  ],
+};

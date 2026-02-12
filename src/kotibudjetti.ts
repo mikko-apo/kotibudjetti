@@ -1,30 +1,31 @@
-import {div, setElementToId} from "../../ki-frame/src/domBuilder";
+import { div, setElementToId } from "../../ki-frame/src/domBuilder";
 import {
   billSummary,
   evaluatePriceIncreases,
   parseUnderscoreSeparatedYmNumbers,
-  resolveMonthlyPricingLookup
+  resolveMonthlyPricingLookup,
 } from "./kaukolampo/kaukolampo";
-import {tulaPepi} from "./kaukolampo/kaukolampoPricing";
-import {range} from "./kaukolampo/range";
+import { tulaPepi } from "./kaukolampo/kaukolampoPricing";
+import { range } from "./kaukolampo/range";
 
-console.log('kotibudjetti v0.0.1');
+console.log("kotibudjetti v0.0.1");
 
-const usage = "2022-4_1.945_1.33_0.941_0.897_0.876_1.336_1.758_3.038_3.922_3.597_2.869_2.766_1.683_1.21_1.11_0.973_0.904_0.876_2.278_3.017_3.717_4.456_3.313_2.798_2.096_0.926_0.701_0.73_0.683_0.66_1.721_2.438_3.238_3.357_3.177_2.656_1.558_1.196_0.851_0.789_0.778_0.841_2.2_2.485_2.899"
+const usage =
+  "2022-4_1.945_1.33_0.941_0.897_0.876_1.336_1.758_3.038_3.922_3.597_2.869_2.766_1.683_1.21_1.11_0.973_0.904_0.876_2.278_3.017_3.717_4.456_3.313_2.798_2.096_0.926_0.701_0.73_0.683_0.66_1.721_2.438_3.238_3.357_3.177_2.656_1.558_1.196_0.851_0.789_0.778_0.841_2.2_2.485_2.899";
 
 function printPricing() {
-  const contract = tulaPepi
-  const from = {year: 2022, month: 1};
-  const to = {year: 2025, month: 12};
-  const years = range(from.year, to.year)
-  const monthlyPricing = resolveMonthlyPricingLookup(contract, from, to)
-  const powerUsage = parseUnderscoreSeparatedYmNumbers(usage)
+  const contract = tulaPepi;
+  const from = { year: 2022, month: 1 };
+  const to = { year: 2025, month: 12 };
+  const years = range(from.year, to.year);
+  const monthlyPricing = resolveMonthlyPricingLookup(contract, from, to);
+  const powerUsage = parseUnderscoreSeparatedYmNumbers(usage);
   const address = "Jätintie 1 A";
-  const {bills, totalsByYear} = billSummary( address, years, monthlyPricing, powerUsage);
+  const { bills, totalsByYear } = billSummary(address, years, monthlyPricing, powerUsage);
   return div(
-//    pricingSummary(contract, years, monthlyPricing),
+    //    pricingSummary(contract, years, monthlyPricing),
     bills,
-    evaluatePriceIncreases(address, years, totalsByYear, monthlyPricing, powerUsage)
+    evaluatePriceIncreases(address, years, totalsByYear, monthlyPricing, powerUsage),
   );
 }
 

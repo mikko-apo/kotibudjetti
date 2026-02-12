@@ -2,8 +2,8 @@ import Decimal from "decimal.js";
 
 export interface RatePeriod {
   from: string; // ISO date, inclusive, e.g. "2025-07-01"
-  invalidOn: string;   // ISO date, exclusive, e.g. "2026-01-01"
-  personAnnualRate: number;  // e.g. 0.095 for 9.5%
+  invalidOn: string; // ISO date, exclusive, e.g. "2026-01-01"
+  personAnnualRate: number; // e.g. 0.095 for 9.5%
   companyAnnualRate: number; // e.g. 0.105 for 10.5%
 }
 
@@ -50,29 +50,29 @@ function daysBetweenInclusiveExclusive(start: Date, end: Date) {
 }
 
 type MultiplierSegmentInfo = {
-  start: Date
-  end: Date,
-  annual: Decimal
-  days: number
-  multiplier: Decimal
+  start: Date;
+  end: Date;
+  annual: Decimal;
+  days: number;
+  multiplier: Decimal;
 };
 type ViivastyskorkoMultiplier = {
-  multiplier: Decimal
-  company: boolean
-  segments: MultiplierSegmentInfo[]
-}
+  multiplier: Decimal;
+  company: boolean;
+  segments: MultiplierSegmentInfo[];
+};
 
 export function calculateViivastyskorkoMultiplier(
   startDate: Date,
   endDate: Date,
   company: boolean,
-  periods: RatePeriod[] = HARD_CODED_PERIODS
+  periods: RatePeriod[] = HARD_CODED_PERIODS,
 ): ViivastyskorkoMultiplier {
   let multiplier = Decimal(1);
 
-  if (endDate <= startDate) return {multiplier, company, segments: []};
+  if (endDate <= startDate) return { multiplier, company, segments: [] };
 
-  const segments: MultiplierSegmentInfo[] = []
+  const segments: MultiplierSegmentInfo[] = [];
 
   for (const p of periods) {
     const periodStart = toDateISO(p.from);
@@ -89,8 +89,8 @@ export function calculateViivastyskorkoMultiplier(
     const daily = Decimal(annual).div(365);
     const segmentInterest = daily.mul(days).plus(1);
     multiplier = multiplier.mul(segmentInterest);
-    segments.push({start: segStart, end: segEnd, annual, days, multiplier: segmentInterest})
+    segments.push({ start: segStart, end: segEnd, annual, days, multiplier: segmentInterest });
   }
 
-  return {multiplier, company, segments};
+  return { multiplier, company, segments };
 }
