@@ -1,0 +1,29 @@
+{
+  "name": "kotibudjetti",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "bundle": "esbuild src/kotibudjetti.ts --bundle --outfile=docs/kotibudjetti.js --platform=browser --target=es2019",
+    "build": "npm run typecheck && npm run bundle",
+    "dev": "tsc -w -p .",
+    "format": "biome check --write .",
+    "test": "vitest",
+    "test-console": "vitest --disableConsoleIntercept=false"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.3.6",
+    "@types/jsdom": "^27.0.0",
+    "@types/react": "^19.2.7",
+    "csstype": "^3.2.3",
+    "esbuild": "0.27.0",
+    "jsdom": "^27.2.0",
+    "rimraf": "6.1.0",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  },
+  "dependencies": {
+    "decimal.js": "^10.6.0"
+  }
+}
