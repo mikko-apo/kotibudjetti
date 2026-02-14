@@ -22,11 +22,7 @@ function printPricing() {
   const powerUsage = parseUnderscoreSeparatedYmNumbers(usage);
   const address = "Jätintie 1 A";
   const { bills, totalsByYear } = billSummary(address, years, monthlyPricing, powerUsage);
-  return div(
-    //    pricingSummary(contract, years, monthlyPricing),
-    bills,
-    evaluatePriceIncreases(address, years, totalsByYear, monthlyPricing, powerUsage),
-  );
+  return div(bills, evaluatePriceIncreases(years, totalsByYear, monthlyPricing, powerUsage));
 }
 
 setElementToId("app", printPricing());

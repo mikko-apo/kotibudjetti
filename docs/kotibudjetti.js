@@ -36,11 +36,11 @@
   }
   function styles(...inputs) {
     const flat = {};
-    for (const input2 of Array.from(inputs).flat()) {
-      if (input2 instanceof Styles) {
-        Object.assign(flat, input2.styles);
+    for (const input3 of Array.from(inputs).flat()) {
+      if (input3 instanceof Styles) {
+        Object.assign(flat, input3.styles);
       } else {
-        Object.assign(flat, input2);
+        Object.assign(flat, input3);
       }
     }
     return new Styles(flat);
@@ -108,10 +108,10 @@
     return parts.join(", ");
   }
   function setStyle(el, ...inputs) {
-    for (const style3 of inputs) {
-      for (const key in style3) {
-        if (!Object.hasOwn(style3, key)) continue;
-        const raw = style3[key];
+    for (const style2 of inputs) {
+      for (const key in style2) {
+        if (!Object.hasOwn(style2, key)) continue;
+        const raw = style2[key];
         if (isDefined(raw)) {
           if (key.startsWith("--")) {
             if (Array.isArray(raw)) {
@@ -340,15 +340,6 @@
       console.error(`Target element with ID "${targetId}" not found!`);
     }
   }
-
-  // src/kaukolampo/range.ts
-  function range2(from, to) {
-    return Array.from({ length: to - from + 1 }, (_, i2) => from + i2);
-  }
-
-  // src/kaukolampo/formatting.ts
-  var printPower = (n) => n.toFixed(3);
-  var printMoney = (n) => n.toFixed(2);
 
   // node_modules/decimal.js/decimal.mjs
   var EXP_LIMIT = 9e15;
@@ -2842,6 +2833,15 @@
   PI = new Decimal(PI);
   var decimal_default = Decimal;
 
+  // src/kaukolampo/formatting.ts
+  var printPower = (n) => n.toFixed(3);
+  var printMoney = (n) => n.toFixed(2);
+
+  // src/kaukolampo/range.ts
+  function range2(from, to) {
+    return Array.from({ length: to - from + 1 }, (_, i2) => from + i2);
+  }
+
   // src/kaukolampo/viivastyskorko.ts
   var HARD_CODED_PERIODS = [
     {
@@ -2934,9 +2934,9 @@
     }
     return result;
   }
-  function parseUnderscoreSeparatedYmNumbers(input2) {
-    if (typeof input2 !== "string") throw new TypeError("input must be a string");
-    const tokens = input2
+  function parseUnderscoreSeparatedYmNumbers(input3) {
+    if (typeof input3 !== "string") throw new TypeError("input must be a string");
+    const tokens = input3
       .split("_")
       .map((t) => t.trim())
       .filter(Boolean);
@@ -2974,36 +2974,57 @@
   }
   var showIncrease = (inc) =>
     !inc || inc === 0 ? {} : inc > 0 ? { backgroundColor: "lightpink" } : { backgroundColor: "lightgreen" };
+  function calculateBills(years, months, monthlyPricing, powerUsage) {
+    const totalsByYear = {};
+    const monthSummary = {};
+    years.forEach((year) => {
+      const yearTotal = {
+        mWPrice: decimal_default(0),
+        monthCount: 0,
+        monthlyFee: decimal_default(0),
+        totalEnergy: decimal_default(0),
+      };
+      months.forEach((month2) => {
+        const index = ymToIndex({ year, month: month2 });
+        const price = monthlyPricing[index];
+        const prevPrice = monthlyPricing[index - 1] || price;
+        const power = powerUsage.numbers[index];
+        if (power) {
+          const powerPrice = power.mul(price.mWPrice);
+          yearTotal.mWPrice = yearTotal.mWPrice.add(powerPrice);
+          yearTotal.monthlyFee = yearTotal.monthlyFee.add(price.monthlyFee);
+          yearTotal.monthCount = yearTotal.monthCount + 1;
+          yearTotal.totalEnergy = yearTotal.totalEnergy.add(power);
+          monthSummary[index] = {
+            ...price,
+            power,
+            powerPrice,
+            monthlyMWPriceHasIncreased: price.mWPrice.sub(prevPrice.mWPrice).toNumber(),
+            monthlyFeeHasIncreased: price.monthlyFee.sub(prevPrice.monthlyFee).toNumber(),
+          };
+        }
+      });
+      totalsByYear[year] = yearTotal;
+    });
+    return { totalsByYear, monthSummary };
+  }
   function billSummary(address2, years, monthlyPricing, powerUsage) {
     const borderLeft = { styles: { borderLeft: "2px solid #6b7280" } };
     const months = range2(1, 12);
-    const totalsByYear = {};
+    const { totalsByYear, monthSummary } = calculateBills(years, months, monthlyPricing, powerUsage);
     const billRows = months.map((month2) =>
       tr(
         td(month2),
         years.map((year) => {
           const index = ymToIndex({ year, month: month2 });
-          const price = monthlyPricing[index];
-          const prevPrice = monthlyPricing[index - 1] || price;
-          const power = powerUsage.numbers[index];
-          const monthlyFee = price.monthlyFee;
-          if (power) {
-            const mWPrice = power.mul(price.mWPrice);
-            const totalsForThisYear = totalsByYear[year];
-            if (totalsForThisYear) {
-              totalsForThisYear.mWPrice = totalsForThisYear.mWPrice.add(mWPrice);
-              totalsForThisYear.monthlyFee = totalsForThisYear.monthlyFee.add(monthlyFee);
-              totalsForThisYear.monthCount = totalsForThisYear.monthCount + 1;
-              totalsForThisYear.totalEnergy = totalsForThisYear.totalEnergy.add(power);
-            } else {
-              totalsByYear[year] = { mWPrice, monthlyFee, monthCount: 1, totalEnergy: power };
-            }
+          const monthInfo = monthSummary[index];
+          if (monthInfo) {
             return [
-              td(printPower(power), borderLeft),
-              td(printMoney(price.mWPrice), styles(showIncrease(price.mWPrice.sub(prevPrice.mWPrice).toNumber()))),
-              td(printMoney(mWPrice)),
-              td(printMoney(monthlyFee), styles(showIncrease(price.monthlyFee.sub(prevPrice.monthlyFee).toNumber()))),
-              td(b(printMoney(mWPrice.add(monthlyFee)))),
+              td(printPower(monthInfo.power), borderLeft),
+              td(printMoney(monthInfo.mWPrice), styles(showIncrease(monthInfo.monthlyMWPriceHasIncreased))),
+              td(printMoney(monthInfo.powerPrice)),
+              td(printMoney(monthInfo.monthlyFee), styles(showIncrease(monthInfo.monthlyFeeHasIncreased))),
+              td(b(printMoney(monthInfo.powerPrice.add(monthInfo.monthlyFee)))),
             ];
           } else {
             return [td("-", borderLeft), td("-"), td("-"), td("-"), td("-")];
@@ -3083,7 +3104,8 @@
         prevAvgMwPrice,
         totals.totalEnergy,
       );
-      const excessBilling = totalWithThisYearLevel.minus(totalWithPrevYearLevel.add(150));
+      const totalWithPrevYearLevelPlus150 = totalWithPrevYearLevel.add(150);
+      const excessBilling = totalWithThisYearLevel.minus(totalWithPrevYearLevelPlus150);
       if (priceIncreaseTooMuch) {
         adjustedPricing[y] = adjusted;
         excessBillingAll[y] = excessBilling;
@@ -3093,7 +3115,11 @@
             li("Korotus ylitt\xE4\xE4 15% ja 150e. Kuluttajariitalautakunnan suosituksen mukainen korotus olisi 150e"),
             ul(
               li(
-                `Liika laskutus: ${printMoney(totalWithThisYearLevel)} - (${printMoney(totalWithPrevYearLevel)} + 150) = `,
+                `150\u20AC korotus edellisen vuoden tasolla laskettuun summaan: ${printMoney(totalWithPrevYearLevel)} + 150 = `,
+                b(printMoney(totalWithPrevYearLevelPlus150)),
+              ),
+              li(
+                `Liika laskutus: ${printMoney(totalWithThisYearLevel)} - ${printMoney(totalWithPrevYearLevelPlus150)}  = `,
                 b(printMoney(excessBilling)),
               ),
             ),
@@ -3103,8 +3129,11 @@
         priceIncreaseTooMuch &&
         y !== years[years.length - 1] &&
         p(
-          "Koska vuositasoista laskua piti korjata, seuraavan vuoden laskutuksessa k\xE4ytet\xE4\xE4n t\xE4m\xE4n vuoden tasona viimevuoden tasoa * korjausprosentti",
+          "Koska vuositasoista laskua piti korjata, seuraavan vuoden laskutuksessa k\xE4ytet\xE4\xE4n t\xE4m\xE4n vuoden tasona viimevuoden tasoa * korjauskerroin",
           ul(
+            li(
+              `Korjauskerroin: ${printMoney(totalWithPrevYearLevelPlus150)}/${printMoney(totalWithPrevYearLevel)} = ${printPower(adjusted.adjustment)}`,
+            ),
             li(
               `Energian hinta: ${printMoney(prevAvgMwPrice)} * ${printPower(adjusted.adjustment)} = `,
               b(printMoney(adjusted.mWPrice.div(adjusted.totalEnergy))),
@@ -3116,11 +3145,11 @@
           ),
         );
       return div(
-        h3(`${y}, vertaillaan toteutuneella ja ${prevYear} tasolla`),
+        h3(`${y}, vertailu toteutuneella ja ${prevYear} tasolla`),
         p(
           `Edellisen vuoden (${y - 1}) taso`,
           ul(
-            adjustedPricingForPreviousYear && li("K\xE4ytet\xE4\xE4n korjattua tasoa"),
+            adjustedPricingForPreviousYear && li(b("K\xE4ytet\xE4\xE4n korjattua tasoa")),
             li(
               `Energian hinta: ${printMoney(prevTotals.mWPrice)} / ${printPower(prevTotals.totalEnergy)} = `,
               b(printMoney(prevAvgMwPrice)),
@@ -3150,76 +3179,107 @@
       );
     });
   }
-  function excessBillingPaybackInterest(excessYears, adjustedPricing, monthlyPricing, powerUsage) {
+  function calculatePaybackInterest(excessYears, powerUsage, monthlyPricing, adjustedPricing) {
     let excessTotal = decimal_default(0);
-    let interestTotal = decimal_default(0);
-    return table(
-      styles({ width: "auto" }),
-      thead(
-        tr(
-          th("vuosi.kk"),
-          th("Kulutus"),
-          th("Alkuper\xE4inen lasku"),
-          th("Korjattu lasku"),
-          th("Ylilaskutus"),
-          th("Viiv\xE4styskorko"),
+    let paybackInterestTotal = decimal_default(0);
+    const months = excessYears.flatMap((year) =>
+      range2(1, 12).map((month2) => {
+        const index = ymToIndex({ year, month: month2 });
+        const power = powerUsage.numbers[index];
+        const originalMonthlyPricing = monthlyPricing[index];
+        const adjustedMonthlyPricing = adjustedPricing[year];
+        const originalTotal = power.mul(originalMonthlyPricing.mWPrice).plus(originalMonthlyPricing.monthlyFee);
+        const adjustedTotal = power
+          .mul(adjustedMonthlyPricing.mWPrice.div(adjustedMonthlyPricing.totalEnergy))
+          .plus(adjustedMonthlyPricing.monthlyFee.div(adjustedMonthlyPricing.monthCount));
+        const excess = originalTotal.minus(adjustedTotal);
+        const interestMultiplier = calculateViivastyskorkoMultiplier(
+          toDateISO(`${year}-${month2}-1`),
+          toDateISO(`${year}-${month2}-1`),
+          true,
+        );
+        const interest = excess.mul(decimal_default(interestMultiplier.multiplier).minus(1));
+        excessTotal = excessTotal.add(excess);
+        paybackInterestTotal = paybackInterestTotal.add(interest);
+        return {
+          date: `${year}.${month2}`,
+          power,
+          originalTotal,
+          adjustedTotal,
+          excess,
+          interest,
+        };
+      }),
+    );
+    return { excessTotal, paybackInterestTotal, months };
+  }
+  function excessBillingPaybackInterest(excessYears, adjustedPricing, monthlyPricing, powerUsage) {
+    const { excessTotal, paybackInterestTotal, months } = calculatePaybackInterest(
+      excessYears,
+      powerUsage,
+      monthlyPricing,
+      adjustedPricing,
+    );
+    return {
+      root: table(
+        styles({ width: "auto" }),
+        thead(
+          tr(
+            th("vuosi.kk"),
+            th("Kulutus"),
+            th("Alkuper\xE4inen lasku"),
+            th("Korjattu lasku"),
+            th("Ylilaskutus"),
+            th("Viiv\xE4styskorko"),
+          ),
         ),
-      ),
-      tbody(
-        excessYears.map((year) =>
-          range2(1, 12).map((month2) => {
-            const index = ymToIndex({ year, month: month2 });
-            const power = powerUsage.numbers[index];
-            const originalMonthlyPricing = monthlyPricing[index];
-            const adjustedMonthlyPricing = adjustedPricing[year];
-            const originalTotal = power.mul(originalMonthlyPricing.mWPrice).plus(originalMonthlyPricing.monthlyFee);
-            const adjustedTotal = power
-              .mul(adjustedMonthlyPricing.mWPrice.div(adjustedMonthlyPricing.totalEnergy))
-              .plus(adjustedMonthlyPricing.monthlyFee.div(adjustedMonthlyPricing.monthCount));
-            const excess = originalTotal.minus(adjustedTotal);
-            const interestMultiplier = calculateViivastyskorkoMultiplier(
-              toDateISO(`${year}-${month2}-1`),
-              toDateISO(`${year}-${month2}-1`),
-              true,
-            );
-            const interest = excess.mul(decimal_default(interestMultiplier.multiplier).minus(1));
-            excessTotal = excessTotal.add(excess);
-            interestTotal = interestTotal.add(interest);
+        tbody(
+          months.map((m) => {
             return tr(
-              td(`${year}.${month2}`),
-              td(printPower(power)),
-              td(printMoney(originalTotal)),
-              td(printMoney(adjustedTotal)),
-              td(printMoney(excess)),
-              td(printMoney(interest)),
+              td(m.date),
+              td(printPower(m.power)),
+              td(printMoney(m.originalTotal)),
+              td(printMoney(m.adjustedTotal)),
+              td(printMoney(m.excess)),
+              td(printMoney(m.interest)),
             );
           }),
         ),
-        tr(td("Yhteens\xE4"), td(), td(), td(), td(printMoney(excessTotal)), td(printMoney(interestTotal))),
+        tr(td("Yhteens\xE4"), td(), td(), td(), td(printMoney(excessTotal)), td(printMoney(paybackInterestTotal))),
       ),
-    );
+      paybackInterestTotal,
+    };
   }
-  function evaluatePriceIncreases(address2, years, totalsByYear, monthlyPricing, powerUsage) {
+  function evaluatePriceIncreases(years, totalsByYear, monthlyPricing, powerUsage) {
     const comparedYears = years.slice(1);
     const adjustedPricing = {};
     const excessBillingAll = {};
     const yearComparison = compareYears(comparedYears, adjustedPricing, totalsByYear, excessBillingAll, years);
     const excessYears = comparedYears.filter((y) => excessBillingAll[y]);
+    const { root: paybackInterest, paybackInterestTotal } = excessBillingPaybackInterest(
+      excessYears,
+      adjustedPricing,
+      monthlyPricing,
+      powerUsage,
+    );
     return div(
       h2("Korotusten arviointi"),
-      div({ class: "pagebreak" }, yearComparison),
+      yearComparison,
       Object.keys(excessBillingAll).length > 0 && [
         h2("Liiallinen laskutus ja viiv\xE4styskorko"),
         ul(
+          { class: "pagebreak" },
           excessYears.map((y) => li(`${y}: ${printMoney(excessBillingAll[y])}\u20AC`)),
+          li(`Viiv\xE4styskorko: ${printMoney(paybackInterestTotal)}\u20AC`),
           li(
-            `Yhteens\xE4: ${printMoney(Object.values(excessBillingAll).reduce((acc, v) => acc.add(v), decimal_default(0)))}\u20AC`,
+            `Yhteens\xE4: ${printMoney(Object.values(excessBillingAll).reduce((acc, v) => acc.add(v), paybackInterestTotal))}\u20AC`,
           ),
         ),
+        h2("Kuukausikohtaisen viiv\xE4styskoron laskeminen"),
         p(
-          "Viiv\xE4styskorko lasketaan korjattujen kuukausien laskujen maksup\xE4iv\xE4st\xE4. K\xE4yt\xE4nn\xF6ss\xE4 siloin on laskutettu liikaa, jolloin rahaa on ker\xE4tty perusteettomasti",
+          "Viiv\xE4styskorko laskettuna korjattujen kuukausien laskujen maksup\xE4iv\xE4st\xE4. Korjattuina kuukausina rahaa on ker\xE4tty perusteettomasti",
         ),
-        excessBillingPaybackInterest(excessYears, adjustedPricing, monthlyPricing, powerUsage),
+        paybackInterest,
       ],
     );
   }
@@ -3294,11 +3354,7 @@
     const powerUsage = parseUnderscoreSeparatedYmNumbers(usage);
     const address2 = "J\xE4tintie 1 A";
     const { bills, totalsByYear } = billSummary(address2, years, monthlyPricing, powerUsage);
-    return div(
-      //    pricingSummary(contract, years, monthlyPricing),
-      bills,
-      evaluatePriceIncreases(address2, years, totalsByYear, monthlyPricing, powerUsage),
-    );
+    return div(bills, evaluatePriceIncreases(years, totalsByYear, monthlyPricing, powerUsage));
   }
   setElementToId("app", printPricing());
 })();

@@ -33,3 +33,10 @@ export type YearTotal = MonthlyPrice & {
 export type AdjustedYearTotal = YearTotal & {
   adjustment: Decimal;
 };
+
+export type MonthBillInfo = MonthlyPrice & {
+  power: Decimal;
+  powerPrice: Decimal;
+  monthlyFeeHasIncreased: number;
+  monthlyMWPriceHasIncreased: number;
+};
