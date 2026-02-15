@@ -1,5 +1,341 @@
 "use strict";
 (() => {
+  // ../ki-frame/src/domBuilderEvents.ts
+  var Events = class {
+    constructor(events2) {
+      this.events = events2;
+    }
+  };
+  function events(events2) {
+    return new Events(events2 instanceof Events || "events" in events2 ? events2.events : events2);
+  }
+  function setEvents(node, arg) {
+    const ev = arg instanceof Events ? arg : events(arg);
+    Object.entries(ev.events).forEach(([key, fn]) => {
+      node.addEventListener(key, (event) => {
+        fn == null ? void 0 : fn({ node, event });
+      });
+    });
+  }
+
+  // ../ki-frame/src/util/typeUtils.ts
+  function isDefined(item) {
+    return item !== void 0 && item !== null;
+  }
+
+  // ../ki-frame/src/domBuilderStyles.ts
+  function setClass(element, argValue) {
+    const classList = element.classList;
+    const visit = (argValue2) => {
+      if (Array.isArray(argValue2)) {
+        argValue2.forEach((arg) => visit(arg));
+      } else {
+        classList.add(...argValue2.split(" "));
+      }
+    };
+    visit(argValue);
+  }
+  function styles(...inputs) {
+    const flat = {};
+    for (const input2 of Array.from(inputs).flat()) {
+      if (input2 instanceof Styles) {
+        Object.assign(flat, input2.styles);
+      } else {
+        Object.assign(flat, input2);
+      }
+    }
+    return new Styles(flat);
+  }
+  var Styles = class {
+    constructor(styles2) {
+      this.styles = styles2;
+    }
+  };
+  var UNIT_PX_PROPS = /* @__PURE__ */ new Set([
+    // common layout/size props
+    "width",
+    "height",
+    "top",
+    "left",
+    "right",
+    "bottom",
+    "minWidth",
+    "minHeight",
+    "maxWidth",
+    "maxHeight",
+    "margin",
+    "marginTop",
+    "marginBottom",
+    "marginLeft",
+    "marginRight",
+    "padding",
+    "paddingTop",
+    "paddingBottom",
+    "paddingLeft",
+    "paddingRight",
+    "gap",
+    "rowGap",
+    "columnGap",
+    "fontSize",
+    "borderWidth",
+    "borderTopWidth",
+    "borderRightWidth",
+    "borderBottomWidth",
+    "borderLeftWidth",
+    "borderRadius",
+    "outlineWidth",
+    "letterSpacing",
+    "lineHeight"
+  ]);
+  function convertPrimitiveValue(prop, val) {
+    if (val === null || val === void 0) return "";
+    if (typeof val === "number") {
+      if (prop.startsWith("--")) return String(val);
+      if (UNIT_PX_PROPS.has(prop)) return `${val}px`;
+      return String(val);
+    }
+    return String(val);
+  }
+  function convertArrayValue(prop, arr) {
+    const flat = [];
+    for (const v of arr) {
+      if (Array.isArray(v)) {
+        for (const vv of v) flat.push(vv);
+      } else {
+        flat.push(v);
+      }
+    }
+    const parts = flat.map((p2) => convertPrimitiveValue(prop, p2));
+    return parts.join(", ");
+  }
+  function setStyle(el, ...inputs) {
+    for (const style2 of inputs) {
+      for (const key in style2) {
+        if (!Object.prototype.hasOwnProperty.call(style2, key)) continue;
+        const raw = style2[key];
+        if (isDefined(raw)) {
+          if (key.startsWith("--")) {
+            if (Array.isArray(raw)) {
+              const val = convertArrayValue(key, raw);
+              el.style.setProperty(key, val);
+            } else {
+              const val = convertPrimitiveValue(key, raw);
+              el.style.setProperty(key, val);
+            }
+            continue;
+          }
+          let finalValue;
+          if (Array.isArray(raw)) {
+            finalValue = convertArrayValue(key, raw);
+          } else {
+            finalValue = convertPrimitiveValue(key, raw);
+          }
+          el.style[key] = finalValue;
+        }
+      }
+    }
+  }
+
+  // ../ki-frame/src/types.ts
+  var WrappedNode = class {
+    constructor(node) {
+      this.node = node;
+    }
+  };
+
+  // ../ki-frame/src/domBuilder.ts
+  function addItems(element, ...args) {
+    args.forEach((arg) => {
+      if (arg === false) {
+      } else if (Array.isArray(arg)) {
+        addItems(element, ...arg);
+      } else if (isNode(arg)) {
+        element.appendChild(arg);
+      } else if (arg instanceof WrappedNode) {
+        element.appendChild(arg.node);
+      } else if (arg instanceof Styles) {
+        setStyle(element, arg.styles);
+      } else if (arg instanceof Events) {
+        setEvents(element, arg);
+      } else if (typeof arg === "string" || typeof arg === "number") {
+        element.appendChild(getDocument().createTextNode(String(arg)));
+      } else if (typeof arg === "object") {
+        Object.entries(arg).forEach(([key, argValue]) => {
+          if (key === "class") {
+            setClass(element, argValue);
+          } else if (key === "styles") {
+            setStyle(element, argValue);
+          } else if (key === "events") {
+            setEvents(element, argValue);
+          } else if (key.startsWith("on") && typeof argValue === "function") {
+            const event = key.substring(2).toLowerCase();
+            element.addEventListener(event, argValue);
+          } else {
+            element.setAttribute(key, argValue);
+          }
+        });
+      }
+    });
+  }
+  var doc = typeof document !== "undefined" ? document : void 0;
+  var isNode = (e) => {
+    return typeof document !== "undefined" && !![HTMLElement, Text].find((value) => e instanceof value);
+  };
+  function getDocument() {
+    if (doc) {
+      return doc;
+    }
+    throw new Error("document is undefined");
+  }
+  function createElement(tagName, ...args) {
+    const element = getDocument().createElement(tagName);
+    addItems(element, ...args);
+    return element;
+  }
+  var createElementFn = (tagName) => (...args) => createElement(tagName, ...args);
+  var a = createElementFn("a");
+  var abbr = createElementFn("abbr");
+  var address = createElementFn("address");
+  var area = createElementFn("area");
+  var article = createElementFn("article");
+  var aside = createElementFn("aside");
+  var audio = createElementFn("audio");
+  var b = createElementFn("b");
+  var base = createElementFn("base");
+  var bdi = createElementFn("bdi");
+  var bdo = createElementFn("bdo");
+  var blockquote = createElementFn("blockquote");
+  var body = createElementFn("body");
+  var br = createElementFn("br");
+  var button = createElementFn("button");
+  var canvas = createElementFn("canvas");
+  var caption = createElementFn("caption");
+  var cite = createElementFn("cite");
+  var code = createElementFn("code");
+  var col = createElementFn("col");
+  var colgroup = createElementFn("colgroup");
+  var data = createElementFn("data");
+  var datalist = createElementFn("datalist");
+  var dd = createElementFn("dd");
+  var del = createElementFn("del");
+  var details = createElementFn("details");
+  var dfn = createElementFn("dfn");
+  var dialog = createElementFn("dialog");
+  var div = createElementFn("div");
+  var dl = createElementFn("dl");
+  var dt = createElementFn("dt");
+  var em = createElementFn("em");
+  var embed = createElementFn("embed");
+  var fieldset = createElementFn("fieldset");
+  var figcaption = createElementFn("figcaption");
+  var figure = createElementFn("figure");
+  var footer = createElementFn("footer");
+  var form = createElementFn("form");
+  var h1 = createElementFn("h1");
+  var h2 = createElementFn("h2");
+  var h3 = createElementFn("h3");
+  var h4 = createElementFn("h4");
+  var h5 = createElementFn("h5");
+  var h6 = createElementFn("h6");
+  var head = createElementFn("head");
+  var header = createElementFn("header");
+  var hgroup = createElementFn("hgroup");
+  var hr = createElementFn("hr");
+  var html = createElementFn("html");
+  var i = createElementFn("i");
+  var iframe = createElementFn("iframe");
+  var img = createElementFn("img");
+  var input = createElementFn("input");
+  var ins = createElementFn("ins");
+  var kbd = createElementFn("kbd");
+  var label = createElementFn("label");
+  var legend = createElementFn("legend");
+  var li = createElementFn("li");
+  var link = createElementFn("link");
+  var main = createElementFn("main");
+  var map = createElementFn("map");
+  var mark = createElementFn("mark");
+  var menu = createElementFn("menu");
+  var meta = createElementFn("meta");
+  var meter = createElementFn("meter");
+  var nav = createElementFn("nav");
+  var noscript = createElementFn("noscript");
+  var object = createElementFn("object");
+  var ol = createElementFn("ol");
+  var optgroup = createElementFn("optgroup");
+  var option = createElementFn("option");
+  var output = createElementFn("output");
+  var p = createElementFn("p");
+  var picture = createElementFn("picture");
+  var pre = createElementFn("pre");
+  var progress = createElementFn("progress");
+  var q = createElementFn("q");
+  var rp = createElementFn("rp");
+  var rt = createElementFn("rt");
+  var ruby = createElementFn("ruby");
+  var s = createElementFn("s");
+  var samp = createElementFn("samp");
+  var script = createElementFn("script");
+  var search = createElementFn("search");
+  var section = createElementFn("section");
+  var select = createElementFn("select");
+  var slot = createElementFn("slot");
+  var small = createElementFn("small");
+  var source = createElementFn("source");
+  var span = createElementFn("span");
+  var strong = createElementFn("strong");
+  var style = createElementFn("style");
+  var sub = createElementFn("sub");
+  var summary = createElementFn("summary");
+  var sup = createElementFn("sup");
+  var table = createElementFn("table");
+  var tbody = createElementFn("tbody");
+  var td = createElementFn("td");
+  var template = createElementFn("template");
+  var textarea = createElementFn("textarea");
+  var tfoot = createElementFn("tfoot");
+  var th = createElementFn("th");
+  var thead = createElementFn("thead");
+  var time = createElementFn("time");
+  var title = createElementFn("title");
+  var tr = createElementFn("tr");
+  var track = createElementFn("track");
+  var u = createElementFn("u");
+  var ul = createElementFn("ul");
+  var varE = createElementFn("var");
+  var video = createElementFn("video");
+  var wbr = createElementFn("wbr");
+  var createInputFn = (type) => (...args) => createElement("input", { type }, ...args);
+  var inputButton = createInputFn("button");
+  var checkbox = createInputFn("checkbox");
+  var color = createInputFn("color");
+  var date = createInputFn("date");
+  var datetimeLocal = createInputFn("datetime-local");
+  var email = createInputFn("email");
+  var hidden = createInputFn("hidden");
+  var image = createInputFn("image");
+  var month = createInputFn("month");
+  var number = createInputFn("number");
+  var password = createInputFn("password");
+  var radio = createInputFn("radio");
+  var range = createInputFn("range");
+  var reset = createInputFn("reset");
+  var inputSearch = createInputFn("search");
+  var submit = createInputFn("submit");
+  var tel = createInputFn("tel");
+  var inputText = createInputFn("text");
+  var inputTime = createInputFn("time");
+  var url = createInputFn("url");
+  var week = createInputFn("week");
+  function setElementToId(targetId, element) {
+    const targetElement = getDocument().getElementById(targetId);
+    if (targetElement) {
+      targetElement.replaceChildren(element);
+    } else {
+      console.error(`Target element with ID "${targetId}" not found!`);
+    }
+  }
+
   // ../ki-frame/src/util/objectIdCounter.ts
   var runningId = 0;
   function createId(id) {
@@ -316,11 +652,6 @@
     }
   };
 
-  // ../ki-frame/src/util/typeUtils.ts
-  function isDefined(item) {
-    return item !== void 0 && item !== null;
-  }
-
   // ../ki-frame/src/state.ts
   function shallowEqual(a2, b2) {
     return a2 === b2;
@@ -624,335 +955,134 @@
   var createState = defaultContext.createState.bind(defaultContext);
   var createForm = defaultContext.createForm.bind(defaultContext);
 
-  // ../ki-frame/src/domBuilderEvents.ts
-  var Events = class {
-    constructor(events2) {
-      this.events = events2;
-    }
-  };
-  function events(events2) {
-    return new Events(events2 instanceof Events || "events" in events2 ? events2.events : events2);
-  }
-  function setEvents(node, arg) {
-    const ev = arg instanceof Events ? arg : events(arg);
-    Object.entries(ev.events).forEach(([key, fn]) => {
-      node.addEventListener(key, (event) => {
-        fn == null ? void 0 : fn({ node, event });
-      });
-    });
-  }
-
-  // ../ki-frame/src/domBuilderStyles.ts
-  function setClass(element, argValue) {
-    const classList = element.classList;
-    const visit = (argValue2) => {
-      if (Array.isArray(argValue2)) {
-        argValue2.forEach((arg) => visit(arg));
-      } else {
-        classList.add(...argValue2.split(" "));
-      }
-    };
-    visit(argValue);
-  }
-  function styles(...inputs) {
-    const flat = {};
-    for (const input2 of Array.from(inputs).flat()) {
-      if (input2 instanceof Styles) {
-        Object.assign(flat, input2.styles);
-      } else {
-        Object.assign(flat, input2);
-      }
-    }
-    return new Styles(flat);
-  }
-  var Styles = class {
-    constructor(styles2) {
-      this.styles = styles2;
-    }
-  };
-  var UNIT_PX_PROPS = /* @__PURE__ */ new Set([
-    // common layout/size props
-    "width",
-    "height",
-    "top",
-    "left",
-    "right",
-    "bottom",
-    "minWidth",
-    "minHeight",
-    "maxWidth",
-    "maxHeight",
-    "margin",
-    "marginTop",
-    "marginBottom",
-    "marginLeft",
-    "marginRight",
-    "padding",
-    "paddingTop",
-    "paddingBottom",
-    "paddingLeft",
-    "paddingRight",
-    "gap",
-    "rowGap",
-    "columnGap",
-    "fontSize",
-    "borderWidth",
-    "borderTopWidth",
-    "borderRightWidth",
-    "borderBottomWidth",
-    "borderLeftWidth",
-    "borderRadius",
-    "outlineWidth",
-    "letterSpacing",
-    "lineHeight"
+  // ../ki-frame/src/component.ts
+  var SAFE_TEXT_TAGS = /* @__PURE__ */ new Set([
+    // Core text
+    "DIV",
+    "SPAN",
+    "P",
+    // Headings
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    // Inline
+    "A",
+    "STRONG",
+    "EM",
+    "CODE",
+    "PRE",
+    // Lists
+    "LI",
+    "DT",
+    "DD",
+    // Tables (cell-level only)
+    "TD",
+    "TH",
+    "CAPTION",
+    // Semantic containers
+    "SECTION",
+    "ARTICLE",
+    "HEADER",
+    "FOOTER",
+    "MAIN",
+    "NAV",
+    "ASIDE",
+    // Labels
+    "LABEL",
+    "LEGEND",
+    // Style
+    "B"
   ]);
-  function convertPrimitiveValue(prop, val) {
-    if (val === null || val === void 0) return "";
-    if (typeof val === "number") {
-      if (prop.startsWith("--")) return String(val);
-      if (UNIT_PX_PROPS.has(prop)) return `${val}px`;
-      return String(val);
-    }
-    return String(val);
+  function isSafeTextHTMLElement(node) {
+    return node.nodeType === Node.ELEMENT_NODE && SAFE_TEXT_TAGS.has(node.tagName);
   }
-  function convertArrayValue(prop, arr) {
-    const flat = [];
-    for (const v of arr) {
-      if (Array.isArray(v)) {
-        for (const vv of v) flat.push(vv);
-      } else {
-        flat.push(v);
+  function setTextToNode(key, target, paramValue) {
+    if (target.nodeType === Node.TEXT_NODE || isSafeTextHTMLElement(target)) {
+      target.textContent = paramValue === null ? "" : String(paramValue);
+    } else {
+      throw new Error(`Node '${key}' node: ${target.nodeName} tag: '${target.tagName}' does not support .textContent in a meaningful way`);
+    }
+  }
+  function setTextRecursive(nodes, vals) {
+    if (!vals) return;
+    for (const key of Object.keys(vals)) {
+      const paramValue = vals[key];
+      const target = nodes[key];
+      if (!isDefined(target)) {
+        throw new Error(`Cannot set node text for node '${key}'`);
       }
-    }
-    const parts = flat.map((p2) => convertPrimitiveValue(prop, p2));
-    return parts.join(", ");
-  }
-  function setStyle(el, ...inputs) {
-    for (const style2 of inputs) {
-      for (const key in style2) {
-        if (!Object.prototype.hasOwnProperty.call(style2, key)) continue;
-        const raw = style2[key];
-        if (isDefined(raw)) {
-          if (key.startsWith("--")) {
-            if (Array.isArray(raw)) {
-              const val = convertArrayValue(key, raw);
-              el.style.setProperty(key, val);
-            } else {
-              const val = convertPrimitiveValue(key, raw);
-              el.style.setProperty(key, val);
-            }
-            continue;
-          }
-          let finalValue;
-          if (Array.isArray(raw)) {
-            finalValue = convertArrayValue(key, raw);
-          } else {
-            finalValue = convertPrimitiveValue(key, raw);
-          }
-          el.style[key] = finalValue;
+      if (paramValue !== void 0) {
+        if (target instanceof Node) {
+          setTextToNode(key, target, paramValue);
+          target.textContent = paramValue === null ? "" : paramValue.toString();
+        } else if (target instanceof WrappedNode) {
+          setTextToNode(key, target.node, paramValue);
+        } else if (typeof paramValue === "object") {
+          setTextRecursive(target, paramValue);
+        } else {
+          throw new Error("Key '" + key + "' should be an object");
         }
       }
     }
   }
-
-  // ../ki-frame/src/types.ts
-  var WrappedNode = class {
-    constructor(node) {
-      this.node = node;
-    }
-  };
-
-  // ../ki-frame/src/domBuilder.ts
-  function addItems(element, ...args) {
-    args.forEach((arg) => {
-      if (arg === false) {
-      } else if (Array.isArray(arg)) {
-        addItems(element, ...arg);
-      } else if (isNode(arg)) {
-        element.appendChild(arg);
-      } else if (arg instanceof WrappedNode) {
-        element.appendChild(arg.node);
-      } else if (arg instanceof Styles) {
-        setStyle(element, arg.styles);
-      } else if (arg instanceof Events) {
-        setEvents(element, arg);
-      } else if (typeof arg === "string" || typeof arg === "number") {
-        element.appendChild(getDocument().createTextNode(String(arg)));
-      } else if (typeof arg === "object") {
-        Object.entries(arg).forEach(([key, argValue]) => {
-          if (key === "class") {
-            setClass(element, argValue);
-          } else if (key === "styles") {
-            setStyle(element, argValue);
-          } else if (key === "events") {
-            setEvents(element, argValue);
-          } else if (key.startsWith("on") && typeof argValue === "function") {
-            const event = key.substring(2).toLowerCase();
-            element.addEventListener(event, argValue);
-          } else {
-            element.setAttribute(key, argValue);
-          }
-        });
+  function setFieldsToUndefined(obj) {
+    if (isDefined(obj)) {
+      for (const key of Object.keys(obj)) {
+        obj[key] = void 0;
       }
-    });
+    }
   }
-  var doc = typeof document !== "undefined" ? document : void 0;
-  var isNode = (e) => {
-    return typeof document !== "undefined" && !![HTMLElement, Text].find((value) => e instanceof value);
+  var Component = class extends WrappedNode {
+    constructor(nodes, params) {
+      super(nodes.root);
+      this.nodes = nodes;
+      this.params = params;
+    }
+    setText(values) {
+      setTextRecursive(this.nodes, values);
+    }
+    get functions() {
+      var _a2;
+      return (_a2 = this == null ? void 0 : this.params) == null ? void 0 : _a2.functions;
+    }
+    get states() {
+      var _a2;
+      return (_a2 = this == null ? void 0 : this.params) == null ? void 0 : _a2.states;
+    }
+    get components() {
+      var _a2;
+      return (_a2 = this == null ? void 0 : this.params) == null ? void 0 : _a2.states;
+    }
+    addName(n) {
+      var _a2, _b;
+      if ((_a2 = this.params) == null ? void 0 : _a2.name) {
+        this.params.name = `${(_b = this.params) == null ? void 0 : _b.name}:${n}`;
+      } else {
+        this.params = { ...this.params, name: n };
+      }
+    }
+    destroy() {
+      var _a2, _b;
+      if ((_a2 = this.params) == null ? void 0 : _a2.destroy) {
+        for (const destroy of Array.from((_b = this.params) == null ? void 0 : _b.destroy)) {
+          destroy.destroy();
+        }
+      }
+      setFieldsToUndefined(this.params);
+      setFieldsToUndefined(this.nodes);
+    }
   };
-  function getDocument() {
-    if (doc) {
-      return doc;
-    }
-    throw new Error("document is undefined");
-  }
-  function createElement(tagName, ...args) {
-    const element = getDocument().createElement(tagName);
-    addItems(element, ...args);
-    return element;
-  }
-  var createElementFn = (tagName) => (...args) => createElement(tagName, ...args);
-  var a = createElementFn("a");
-  var abbr = createElementFn("abbr");
-  var address = createElementFn("address");
-  var area = createElementFn("area");
-  var article = createElementFn("article");
-  var aside = createElementFn("aside");
-  var audio = createElementFn("audio");
-  var b = createElementFn("b");
-  var base = createElementFn("base");
-  var bdi = createElementFn("bdi");
-  var bdo = createElementFn("bdo");
-  var blockquote = createElementFn("blockquote");
-  var body = createElementFn("body");
-  var br = createElementFn("br");
-  var button = createElementFn("button");
-  var canvas = createElementFn("canvas");
-  var caption = createElementFn("caption");
-  var cite = createElementFn("cite");
-  var code = createElementFn("code");
-  var col = createElementFn("col");
-  var colgroup = createElementFn("colgroup");
-  var data = createElementFn("data");
-  var datalist = createElementFn("datalist");
-  var dd = createElementFn("dd");
-  var del = createElementFn("del");
-  var details = createElementFn("details");
-  var dfn = createElementFn("dfn");
-  var dialog = createElementFn("dialog");
-  var div = createElementFn("div");
-  var dl = createElementFn("dl");
-  var dt = createElementFn("dt");
-  var em = createElementFn("em");
-  var embed = createElementFn("embed");
-  var fieldset = createElementFn("fieldset");
-  var figcaption = createElementFn("figcaption");
-  var figure = createElementFn("figure");
-  var footer = createElementFn("footer");
-  var form = createElementFn("form");
-  var h1 = createElementFn("h1");
-  var h2 = createElementFn("h2");
-  var h3 = createElementFn("h3");
-  var h4 = createElementFn("h4");
-  var h5 = createElementFn("h5");
-  var h6 = createElementFn("h6");
-  var head = createElementFn("head");
-  var header = createElementFn("header");
-  var hgroup = createElementFn("hgroup");
-  var hr = createElementFn("hr");
-  var html = createElementFn("html");
-  var i = createElementFn("i");
-  var iframe = createElementFn("iframe");
-  var img = createElementFn("img");
-  var input = createElementFn("input");
-  var ins = createElementFn("ins");
-  var kbd = createElementFn("kbd");
-  var label = createElementFn("label");
-  var legend = createElementFn("legend");
-  var li = createElementFn("li");
-  var link = createElementFn("link");
-  var main = createElementFn("main");
-  var map = createElementFn("map");
-  var mark = createElementFn("mark");
-  var menu = createElementFn("menu");
-  var meta = createElementFn("meta");
-  var meter = createElementFn("meter");
-  var nav = createElementFn("nav");
-  var noscript = createElementFn("noscript");
-  var object = createElementFn("object");
-  var ol = createElementFn("ol");
-  var optgroup = createElementFn("optgroup");
-  var option = createElementFn("option");
-  var output = createElementFn("output");
-  var p = createElementFn("p");
-  var picture = createElementFn("picture");
-  var pre = createElementFn("pre");
-  var progress = createElementFn("progress");
-  var q = createElementFn("q");
-  var rp = createElementFn("rp");
-  var rt = createElementFn("rt");
-  var ruby = createElementFn("ruby");
-  var s = createElementFn("s");
-  var samp = createElementFn("samp");
-  var script = createElementFn("script");
-  var search = createElementFn("search");
-  var section = createElementFn("section");
-  var select = createElementFn("select");
-  var slot = createElementFn("slot");
-  var small = createElementFn("small");
-  var source = createElementFn("source");
-  var span = createElementFn("span");
-  var strong = createElementFn("strong");
-  var style = createElementFn("style");
-  var sub = createElementFn("sub");
-  var summary = createElementFn("summary");
-  var sup = createElementFn("sup");
-  var table = createElementFn("table");
-  var tbody = createElementFn("tbody");
-  var td = createElementFn("td");
-  var template = createElementFn("template");
-  var textarea = createElementFn("textarea");
-  var tfoot = createElementFn("tfoot");
-  var th = createElementFn("th");
-  var thead = createElementFn("thead");
-  var time = createElementFn("time");
-  var title = createElementFn("title");
-  var tr = createElementFn("tr");
-  var track = createElementFn("track");
-  var u = createElementFn("u");
-  var ul = createElementFn("ul");
-  var varE = createElementFn("var");
-  var video = createElementFn("video");
-  var wbr = createElementFn("wbr");
-  var createInputFn = (type) => (...args) => createElement("input", { type }, ...args);
-  var inputButton = createInputFn("button");
-  var checkbox = createInputFn("checkbox");
-  var color = createInputFn("color");
-  var date = createInputFn("date");
-  var datetimeLocal = createInputFn("datetime-local");
-  var email = createInputFn("email");
-  var hidden = createInputFn("hidden");
-  var image = createInputFn("image");
-  var month = createInputFn("month");
-  var number = createInputFn("number");
-  var password = createInputFn("password");
-  var radio = createInputFn("radio");
-  var range = createInputFn("range");
-  var reset = createInputFn("reset");
-  var inputSearch = createInputFn("search");
-  var submit = createInputFn("submit");
-  var tel = createInputFn("tel");
-  var inputText = createInputFn("text");
-  var inputTime = createInputFn("time");
-  var url = createInputFn("url");
-  var week = createInputFn("week");
-  function setElementToId(targetId, element) {
-    const targetElement = getDocument().getElementById(targetId);
-    if (targetElement) {
-      targetElement.replaceChildren(element);
-    } else {
-      console.error(`Target element with ID "${targetId}" not found!`);
-    }
+
+  // src/kaukolampo/formatting.ts
+  var printPower = (n) => n.toFixed(3);
+  var printMoney = (n) => n.toFixed(2);
+
+  // src/kaukolampo/range.ts
+  function range2(from, to) {
+    return Array.from({ length: to - from + 1 }, (_, i2) => from + i2);
   }
 
   // node_modules/decimal.js/decimal.mjs
@@ -3132,136 +3262,6 @@
   PI = new Decimal(PI);
   var decimal_default = Decimal;
 
-  // ../ki-frame/src/component.ts
-  var SAFE_TEXT_TAGS = /* @__PURE__ */ new Set([
-    // Core text
-    "DIV",
-    "SPAN",
-    "P",
-    // Headings
-    "H1",
-    "H2",
-    "H3",
-    "H4",
-    "H5",
-    "H6",
-    // Inline
-    "A",
-    "STRONG",
-    "EM",
-    "CODE",
-    "PRE",
-    // Lists
-    "LI",
-    "DT",
-    "DD",
-    // Tables (cell-level only)
-    "TD",
-    "TH",
-    "CAPTION",
-    // Semantic containers
-    "SECTION",
-    "ARTICLE",
-    "HEADER",
-    "FOOTER",
-    "MAIN",
-    "NAV",
-    "ASIDE",
-    // Labels
-    "LABEL",
-    "LEGEND",
-    // Style
-    "B"
-  ]);
-  function isSafeTextHTMLElement(node) {
-    return node.nodeType === Node.ELEMENT_NODE && SAFE_TEXT_TAGS.has(node.tagName);
-  }
-  function setTextToNode(key, target, paramValue) {
-    if (target.nodeType === Node.TEXT_NODE || isSafeTextHTMLElement(target)) {
-      target.textContent = paramValue === null ? "" : String(paramValue);
-    } else {
-      throw new Error(`Node '${key}' node: ${target.nodeName} tag: '${target.tagName}' does not support .textContent in a meaningful way`);
-    }
-  }
-  function setTextRecursive(nodes, vals) {
-    if (!vals) return;
-    for (const key of Object.keys(vals)) {
-      const paramValue = vals[key];
-      const target = nodes[key];
-      if (!isDefined(target)) {
-        throw new Error(`Cannot set node text for node '${key}'`);
-      }
-      if (paramValue !== void 0) {
-        if (target instanceof Node) {
-          setTextToNode(key, target, paramValue);
-          target.textContent = paramValue === null ? "" : paramValue.toString();
-        } else if (target instanceof WrappedNode) {
-          setTextToNode(key, target.node, paramValue);
-        } else if (typeof paramValue === "object") {
-          setTextRecursive(target, paramValue);
-        } else {
-          throw new Error("Key '" + key + "' should be an object");
-        }
-      }
-    }
-  }
-  function setFieldsToUndefined(obj) {
-    if (isDefined(obj)) {
-      for (const key of Object.keys(obj)) {
-        obj[key] = void 0;
-      }
-    }
-  }
-  var Component = class extends WrappedNode {
-    constructor(nodes, params) {
-      super(nodes.root);
-      this.nodes = nodes;
-      this.params = params;
-    }
-    setText(values) {
-      setTextRecursive(this.nodes, values);
-    }
-    get functions() {
-      var _a2;
-      return (_a2 = this == null ? void 0 : this.params) == null ? void 0 : _a2.functions;
-    }
-    get states() {
-      var _a2;
-      return (_a2 = this == null ? void 0 : this.params) == null ? void 0 : _a2.states;
-    }
-    get components() {
-      var _a2;
-      return (_a2 = this == null ? void 0 : this.params) == null ? void 0 : _a2.states;
-    }
-    addName(n) {
-      var _a2, _b;
-      if ((_a2 = this.params) == null ? void 0 : _a2.name) {
-        this.params.name = `${(_b = this.params) == null ? void 0 : _b.name}:${n}`;
-      } else {
-        this.params = { ...this.params, name: n };
-      }
-    }
-    destroy() {
-      var _a2, _b;
-      if ((_a2 = this.params) == null ? void 0 : _a2.destroy) {
-        for (const destroy of Array.from((_b = this.params) == null ? void 0 : _b.destroy)) {
-          destroy.destroy();
-        }
-      }
-      setFieldsToUndefined(this.params);
-      setFieldsToUndefined(this.nodes);
-    }
-  };
-
-  // src/kaukolampo/formatting.ts
-  var printPower = (n) => n.toFixed(3);
-  var printMoney = (n) => n.toFixed(2);
-
-  // src/kaukolampo/range.ts
-  function range2(from, to) {
-    return Array.from({ length: to - from + 1 }, (_, i2) => from + i2);
-  }
-
   // src/kaukolampo/viivastyskorko.ts
   var HARD_CODED_PERIODS = [
     {
@@ -3330,7 +3330,7 @@
     return { multiplier, company, segments };
   }
 
-  // src/kaukolampo/kaukolampo.ts
+  // src/kaukolampo/kaukolampoBilling.ts
   var ymToIndex = (ym) => ym.year * 12 + (ym.month - 1);
   var indexToYm = (idx) => {
     const year = Math.floor(idx / 12);
@@ -3353,41 +3353,6 @@
       }
     }
     return result;
-  }
-  function parseUnderscoreSeparatedYmNumbers(input2) {
-    if (typeof input2 !== "string") throw new TypeError("input must be a string");
-    const tokens = input2.split("_").map((t) => t.trim()).filter(Boolean);
-    if (tokens.length === 0) {
-      throw new Error("input must contain at least a year-month anchor");
-    }
-    const ymRegex = /^(\d{4})-(\d{1,2})$/;
-    const first = tokens[0];
-    const ymMatch = first.match(ymRegex);
-    if (!ymMatch) {
-      throw new Error(`first token must be year-month in form YYYY-M: got "${first}"`);
-    }
-    const year = Number(ymMatch[1]);
-    const month2 = Number(ymMatch[2]);
-    if (!Number.isInteger(year) || !Number.isInteger(month2) || month2 < 1 || month2 > 12) {
-      throw new Error(`invalid year-month anchor: "${first}"`);
-    }
-    const from = { year, month: month2 };
-    let idx = ymToIndex(from);
-    const numbers = {};
-    const numberTokens = tokens.slice(1);
-    if (numberTokens.length === 0) {
-      return { from, to: from, numbers };
-    }
-    for (const t of numberTokens) {
-      const v = decimal_default(t);
-      if (!v.isFinite()) {
-        throw new Error(`expected numeric token but got "${t}"`);
-      }
-      numbers[idx] = v;
-      idx += 1;
-    }
-    const to = indexToYm(idx - 1);
-    return { from, to, numbers };
   }
   var months = range2(1, 12);
   function calculateMonthlyYearBillTotals(years, monthlyPricing, powerUsage) {
@@ -3424,6 +3389,133 @@
     });
     return { totalsByYear, monthSummary };
   }
+  function calculatePaybackInterest(excessYears, originalBills, adjustedPricing) {
+    let excessTotal = decimal_default(0);
+    let paybackInterestTotal = decimal_default(0);
+    const months2 = excessYears.flatMap(
+      (year) => range2(1, 12).map((month2) => {
+        const index = ymToIndex({ year, month: month2 });
+        const originalBill = originalBills[index];
+        const adjustedMonthlyPricing = adjustedPricing[year];
+        const originalTotal = originalBill.power.mul(originalBill.mWPrice).plus(originalBill.monthlyFee);
+        const adjustedTotal = originalBill.power.mul(adjustedMonthlyPricing.mWPrice.div(adjustedMonthlyPricing.totalEnergy)).plus(adjustedMonthlyPricing.monthlyFee.div(adjustedMonthlyPricing.monthCount));
+        const excess = originalTotal.minus(adjustedTotal);
+        const interestMultiplier = calculateViivastyskorkoMultiplier(
+          toDateISO(`${year}-${month2}-1`),
+          toDateISO(`${year}-${month2}-1`),
+          true
+        );
+        const interest = excess.mul(decimal_default(interestMultiplier.multiplier).minus(1));
+        excessTotal = excessTotal.add(excess);
+        paybackInterestTotal = paybackInterestTotal.add(interest);
+        return {
+          date: `${year}.${month2}`,
+          originalBill,
+          originalTotal,
+          adjustedTotal,
+          excess,
+          interest
+        };
+      })
+    );
+    return { excessTotal, paybackInterestTotal, months: months2 };
+  }
+
+  // src/kaukolampo/prices/tuusulanjarvenLampo.ts
+  var tuusulanjarvenLampo = {
+    id: "tula-pepi",
+    companyName: "Tuusulanj\xE4rven L\xE4mp\xF6",
+    contractTypeName: "Perusl\xE4mp\xF6 Pientalo",
+    monthlyPricing: [
+      {
+        year: 2022,
+        month: 1,
+        price: {
+          monthlyFee: 35.3,
+          mWPrice: 68.57
+        }
+      },
+      {
+        year: 2023,
+        month: 6,
+        price: {
+          monthlyFee: 40.25,
+          mWPrice: 78.17
+        }
+      },
+      {
+        year: 2024,
+        month: 1,
+        price: {
+          monthlyFee: 45.88,
+          mWPrice: 89.12
+        }
+      },
+      {
+        year: 2024,
+        month: 9,
+        price: {
+          monthlyFee: 46.44,
+          mWPrice: 90.2
+        }
+      },
+      {
+        year: 2025,
+        month: 1,
+        price: {
+          monthlyFee: 59.55,
+          mWPrice: 90.2
+        }
+      },
+      {
+        year: 2025,
+        month: 7,
+        price: {
+          monthlyFee: 59.55,
+          mWPrice: 86.04
+        }
+      }
+    ]
+  };
+
+  // src/kaukolampo/powerUsageString.ts
+  function parseUnderscoreSeparatedYmNumbers(input2) {
+    if (typeof input2 !== "string") throw new TypeError("input must be a string");
+    const tokens = input2.split("_").map((t) => t.trim()).filter(Boolean);
+    if (tokens.length === 0) {
+      throw new Error("input must contain at least a year-month anchor");
+    }
+    const ymRegex = /^(\d{4})-(\d{1,2})$/;
+    const first = tokens[0];
+    const ymMatch = first.match(ymRegex);
+    if (!ymMatch) {
+      throw new Error(`first token must be year-month in form YYYY-M: got "${first}"`);
+    }
+    const year = Number(ymMatch[1]);
+    const month2 = Number(ymMatch[2]);
+    if (!Number.isInteger(year) || !Number.isInteger(month2) || month2 < 1 || month2 > 12) {
+      throw new Error(`invalid year-month anchor: "${first}"`);
+    }
+    const from = { year, month: month2 };
+    let idx = ymToIndex(from);
+    const numbers = {};
+    const numberTokens = tokens.slice(1);
+    if (numberTokens.length === 0) {
+      return { from, to: from, numbers };
+    }
+    for (const t of numberTokens) {
+      const v = decimal_default(t);
+      if (!v.isFinite()) {
+        throw new Error(`expected numeric token but got "${t}"`);
+      }
+      numbers[idx] = v;
+      idx += 1;
+    }
+    const to = indexToYm(idx - 1);
+    return { from, to, numbers };
+  }
+
+  // src/kaukolampo/kaukolampoUi.ts
   var borderLeft = { styles: { borderLeft: "2px solid #6b7280" } };
   function BillItemTDs() {
     const power = td(borderLeft);
@@ -3482,7 +3574,7 @@
       bills: div(
         h2(`${address2} laskut ${years[0]}-${years[years.length - 1]}`),
         table(
-          styles({ width: "auto" }),
+          styles({ width: "auto", textAlign: "right" }),
           thead(
             tr(
               th({ rowSpan: 2 }),
@@ -3595,37 +3687,6 @@
       );
     });
   }
-  function calculatePaybackInterest(excessYears, originalBills, adjustedPricing) {
-    let excessTotal = decimal_default(0);
-    let paybackInterestTotal = decimal_default(0);
-    const months2 = excessYears.flatMap(
-      (year) => range2(1, 12).map((month2) => {
-        const index = ymToIndex({ year, month: month2 });
-        const originalBill = originalBills[index];
-        const adjustedMonthlyPricing = adjustedPricing[year];
-        const originalTotal = originalBill.power.mul(originalBill.mWPrice).plus(originalBill.monthlyFee);
-        const adjustedTotal = originalBill.power.mul(adjustedMonthlyPricing.mWPrice.div(adjustedMonthlyPricing.totalEnergy)).plus(adjustedMonthlyPricing.monthlyFee.div(adjustedMonthlyPricing.monthCount));
-        const excess = originalTotal.minus(adjustedTotal);
-        const interestMultiplier = calculateViivastyskorkoMultiplier(
-          toDateISO(`${year}-${month2}-1`),
-          toDateISO(`${year}-${month2}-1`),
-          true
-        );
-        const interest = excess.mul(decimal_default(interestMultiplier.multiplier).minus(1));
-        excessTotal = excessTotal.add(excess);
-        paybackInterestTotal = paybackInterestTotal.add(interest);
-        return {
-          date: `${year}.${month2}`,
-          originalBill,
-          originalTotal,
-          adjustedTotal,
-          excess,
-          interest
-        };
-      })
-    );
-    return { excessTotal, paybackInterestTotal, months: months2 };
-  }
   function excessBillingPaybackInterest(excessYears, adjustedPricing, monthlyPricing) {
     const { excessTotal, paybackInterestTotal, months: months2 } = calculatePaybackInterest(
       excessYears,
@@ -3694,69 +3755,9 @@
       ]
     );
   }
-
-  // src/kaukolampo/kaukolampoPricing.ts
-  var tulaPepi = {
-    id: "tula-pepi",
-    companyName: "Tuusulanj\xE4rven L\xE4mp\xF6",
-    contractTypeName: "Perusl\xE4mp\xF6 Pientalo",
-    monthlyPricing: [
-      {
-        year: 2022,
-        month: 1,
-        price: {
-          monthlyFee: 35.3,
-          mWPrice: 68.57
-        }
-      },
-      {
-        year: 2023,
-        month: 6,
-        price: {
-          monthlyFee: 40.25,
-          mWPrice: 78.17
-        }
-      },
-      {
-        year: 2024,
-        month: 1,
-        price: {
-          monthlyFee: 45.88,
-          mWPrice: 89.12
-        }
-      },
-      {
-        year: 2024,
-        month: 9,
-        price: {
-          monthlyFee: 46.44,
-          mWPrice: 90.2
-        }
-      },
-      {
-        year: 2025,
-        month: 1,
-        price: {
-          monthlyFee: 59.55,
-          mWPrice: 90.2
-        }
-      },
-      {
-        year: 2025,
-        month: 7,
-        price: {
-          monthlyFee: 59.55,
-          mWPrice: 86.04
-        }
-      }
-    ]
-  };
-
-  // src/kotibudjetti.ts
-  console.log("kotibudjetti v0.0.1");
   var usage = "2022-4_1.945_1.33_0.941_0.897_0.876_1.336_1.758_3.038_3.922_3.597_2.869_2.766_1.683_1.21_1.11_0.973_0.904_0.876_2.278_3.017_3.717_4.456_3.313_2.798_2.096_0.926_0.701_0.73_0.683_0.66_1.721_2.438_3.238_3.357_3.177_2.656_1.558_1.196_0.851_0.789_0.778_0.841_2.2_2.485_2.899";
-  function printPricing() {
-    const contract = tulaPepi;
+  function kaukolampoExcessPricingCalculator() {
+    const contract = tuusulanjarvenLampo;
     const from = { year: 2022, month: 1 };
     const to = { year: 2025, month: 12 };
     const years = range2(from.year, to.year);
@@ -3777,7 +3778,10 @@
     powerUsageState.set(powerUsage.numbers);
     return div(bills, priceIncreases);
   }
-  setElementToId("app", printPricing());
+
+  // src/kotibudjetti.ts
+  console.log("kotibudjetti v0.0.1");
+  setElementToId("app", kaukolampoExcessPricingCalculator());
 })();
 /*! Bundled license information:
 

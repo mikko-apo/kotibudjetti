@@ -1,100 +1,36 @@
 import Decimal from "decimal.js";
-import type { State } from "../../../ki-frame/src";
-import { Unsub } from "../../../ki-frame/src/channel";
-import { Component } from "../../../ki-frame/src/component";
-import { b, div, h2, h3, li, p, table, tbody, td, th, thead, tr, ul } from "../../../ki-frame/src/domBuilder";
-import { styles } from "../../../ki-frame/src/domBuilderStyles";
-import { isDefined } from "../../../ki-frame/src/util/typeUtils";
-import { printMoney, printPower } from "./formatting";
-import type {
-  AdjustedYearTotal,
-  ContractPricing,
-  MonthBillInfo,
-  MonthlyPrice,
-  PowerUsage,
-  YearMonth,
-  YearTotal,
-} from "./kaukolampoTypes";
-import { range } from "./range";
-import { calculateViivastyskorkoMultiplier, toDateISO } from "./viivastyskorko";
+import {createState, State} from "../../../ki-frame/src";
+import {Component} from "../../../ki-frame/src/component";
+import {
+  b,
+  div,
+  h2,
+  h3,
+  li,
+  p,
+  setElementToId,
+  table,
+  tbody,
+  td,
+  th,
+  thead,
+  tr,
+  ul
+} from "../../../ki-frame/src/domBuilder";
+import {styles} from "../../../ki-frame/src/domBuilderStyles";
+import {printMoney, printPower} from "./formatting";
+import type {AdjustedYearTotal, ContractPricing, MonthBillInfo, MonthlyPrice, YearTotal,} from "./kaukolampoTypes";
+import {range} from "./range";
+import {
+  calculateMonthlyYearBillTotals,
+  calculatePaybackInterest,
+  months,
+  resolveMonthlyPricingLookup,
+  ymToIndex
+} from "./kaukolampoBilling";
+import {tuusulanjarvenLampo} from "./prices/tuusulanjarvenLampo";
+import {parseUnderscoreSeparatedYmNumbers} from "./powerUsageString";
 
-const ymToIndex = (ym: YearMonth) => ym.year * 12 + (ym.month - 1);
-const indexToYm = (idx: number): YearMonth => {
-  const year = Math.floor(idx / 12);
-  const month = (idx % 12) + 1;
-  return { year, month };
-};
-
-export function resolveMonthlyPricingLookup(
-  contract: ContractPricing,
-  from: YearMonth,
-  to: YearMonth,
-): Record<number, MonthlyPrice> {
-  const result: Record<number, MonthlyPrice> = {};
-  const sortedPricesDesc = [...contract.monthlyPricing].sort((a, b) => ymToIndex(b) - ymToIndex(a));
-  for (let c = ymToIndex(from); c <= ymToIndex(to); c++) {
-    const firstLower = sortedPricesDesc.find((value) => ymToIndex(value) <= c && value.price);
-    if (firstLower && isDefined(firstLower.price)) {
-      const { monthlyFee, mWPrice } = firstLower.price;
-      result[c] = {
-        monthlyFee: Decimal(monthlyFee),
-        mWPrice: Decimal(mWPrice),
-      };
-    } else {
-      throw new Error(`${indexToYm(c)} is not in the range of contract prices for ${contract.id}`);
-    }
-  }
-  return result;
-}
-
-export function parseUnderscoreSeparatedYmNumbers(input: string): PowerUsage {
-  if (typeof input !== "string") throw new TypeError("input must be a string");
-
-  const tokens = input
-    .split("_")
-    .map((t) => t.trim())
-    .filter(Boolean);
-
-  if (tokens.length === 0) {
-    throw new Error("input must contain at least a year-month anchor");
-  }
-
-  const ymRegex = /^(\d{4})-(\d{1,2})$/;
-  const first = tokens[0];
-  const ymMatch = first.match(ymRegex);
-  if (!ymMatch) {
-    throw new Error(`first token must be year-month in form YYYY-M: got "${first}"`);
-  }
-
-  const year = Number(ymMatch[1]);
-  const month = Number(ymMatch[2]);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
-    throw new Error(`invalid year-month anchor: "${first}"`);
-  }
-
-  const from: YearMonth = { year, month };
-  let idx = ymToIndex(from);
-
-  const numbers: Record<number, Decimal> = {};
-  const numberTokens = tokens.slice(1);
-
-  // If no number tokens, to defaults to from
-  if (numberTokens.length === 0) {
-    return { from, to: from, numbers };
-  }
-
-  for (const t of numberTokens) {
-    const v = Decimal(t);
-    if (!v.isFinite()) {
-      throw new Error(`expected numeric token but got "${t}"`);
-    }
-    numbers[idx] = v;
-    idx += 1;
-  }
-
-  const to = indexToYm(idx - 1); // last mapped month
-  return { from, to, numbers };
-}
 
 export function pricingSummary(
   contract: ContractPricing,
@@ -130,47 +66,6 @@ export function pricingSummary(
 
 const showIncrease = (inc?: number) =>
   !inc || inc === 0 ? {} : inc > 0 ? { backgroundColor: "lightpink" } : { backgroundColor: "lightgreen" };
-
-const months = range(1, 12);
-
-export function calculateMonthlyYearBillTotals(
-  years: number[],
-  monthlyPricing: Record<number, MonthlyPrice>,
-  powerUsage: Record<number, Decimal>,
-) {
-  const totalsByYear: Record<number, YearTotal> = {};
-  const monthSummary: Record<number, MonthBillInfo> = {};
-  years.forEach((year) => {
-    const yearTotal: YearTotal = {
-      mWPrice: Decimal(0),
-      monthCount: 0,
-      monthlyFee: Decimal(0),
-      totalEnergy: Decimal(0),
-    };
-    months.forEach((month) => {
-      const index = ymToIndex({ year, month });
-      const price = monthlyPricing[index];
-      const prevPrice: MonthlyPrice = monthlyPricing[index - 1] || price;
-      const power = powerUsage[index];
-      if (power) {
-        const powerPrice = power.mul(price.mWPrice);
-        yearTotal.mWPrice = yearTotal.mWPrice.add(powerPrice);
-        yearTotal.monthlyFee = yearTotal.monthlyFee.add(price.monthlyFee);
-        yearTotal.monthCount = yearTotal.monthCount + 1;
-        yearTotal.totalEnergy = yearTotal.totalEnergy.add(power);
-        monthSummary[index] = {
-          ...price,
-          power,
-          powerPrice,
-          monthlyMWPriceHasIncreased: price.mWPrice.sub(prevPrice.mWPrice).toNumber(),
-          monthlyFeeHasIncreased: price.monthlyFee.sub(prevPrice.monthlyFee).toNumber(),
-        };
-      }
-    });
-    totalsByYear[year] = yearTotal;
-  });
-  return { totalsByYear, monthSummary };
-}
 
 const borderLeft = { styles: { borderLeft: "2px solid #6b7280" } };
 
@@ -237,7 +132,7 @@ export function billSummary(
     bills: div(
       h2(`${address} laskut ${years[0]}-${years[years.length - 1]}`),
       table(
-        styles({ width: "auto" }),
+        styles({ width: "auto", textAlign: "right" }),
         thead(
           tr(
             th({ rowSpan: 2 }),
@@ -372,43 +267,7 @@ function compareYears(
   });
 }
 
-function calculatePaybackInterest(
-  excessYears: number[],
-  originalBills: Record<number, MonthBillInfo>,
-  adjustedPricing: Record<number, AdjustedYearTotal>,
-) {
-  let excessTotal = Decimal(0);
-  let paybackInterestTotal = Decimal(0);
-  const months = excessYears.flatMap((year) =>
-    range(1, 12).map((month) => {
-      const index = ymToIndex({ year, month });
-      const originalBill = originalBills[index];
-      const adjustedMonthlyPricing = adjustedPricing[year];
-      const originalTotal = originalBill.power.mul(originalBill.mWPrice).plus(originalBill.monthlyFee);
-      const adjustedTotal = originalBill.power
-        .mul(adjustedMonthlyPricing.mWPrice.div(adjustedMonthlyPricing.totalEnergy))
-        .plus(adjustedMonthlyPricing.monthlyFee.div(adjustedMonthlyPricing.monthCount));
-      const excess = originalTotal.minus(adjustedTotal);
-      const interestMultiplier = calculateViivastyskorkoMultiplier(
-        toDateISO(`${year}-${month}-1`),
-        toDateISO(`${year}-${month}-1`),
-        true,
-      );
-      const interest = excess.mul(Decimal(interestMultiplier.multiplier).minus(1));
-      excessTotal = excessTotal.add(excess);
-      paybackInterestTotal = paybackInterestTotal.add(interest);
-      return {
-        date: `${year}.${month}`,
-        originalBill,
-        originalTotal,
-        adjustedTotal,
-        excess,
-        interest,
-      };
-    }),
-  );
-  return { excessTotal, paybackInterestTotal, months };
-}
+
 
 function excessBillingPaybackInterest(
   excessYears: number[],
@@ -452,7 +311,7 @@ function excessBillingPaybackInterest(
   };
 }
 
-export function evaluatePriceIncreases(
+export function priceIncreasesAndPaybackInterest(
   years: number[],
   totalsByYear: Record<number, YearTotal>,
   monthlyPricing: Record<number, MonthBillInfo>,
@@ -487,4 +346,31 @@ export function evaluatePriceIncreases(
       paybackInterest,
     ],
   );
+}
+
+const usage =
+  "2022-4_1.945_1.33_0.941_0.897_0.876_1.336_1.758_3.038_3.922_3.597_2.869_2.766_1.683_1.21_1.11_0.973_0.904_0.876_2.278_3.017_3.717_4.456_3.313_2.798_2.096_0.926_0.701_0.73_0.683_0.66_1.721_2.438_3.238_3.357_3.177_2.656_1.558_1.196_0.851_0.789_0.778_0.841_2.2_2.485_2.899";
+
+export function kaukolampoExcessPricingCalculator() {
+  const contract = tuusulanjarvenLampo;
+  const from = { year: 2022, month: 1 };
+  const to = { year: 2025, month: 12 };
+  const years = range(from.year, to.year);
+  const address = "Jätintie 1 A";
+  const monthlyPricing = resolveMonthlyPricingLookup(contract, from, to);
+  const powerUsage = parseUnderscoreSeparatedYmNumbers(usage);
+  const powerUsageState = createState<typeof powerUsage.numbers>({});
+  const totalsByYear = createState<Record<number, YearTotal>>({});
+  const monthSummary = createState<Record<number, MonthBillInfo>>({});
+  const priceIncreases = div();
+  powerUsageState.onValueChange((powerUsage) => {
+    const newTotals = calculateMonthlyYearBillTotals(years, monthlyPricing, powerUsage);
+    totalsByYear.set(newTotals.totalsByYear);
+    monthSummary.set(newTotals.monthSummary);
+    priceIncreases.replaceChildren(priceIncreasesAndPaybackInterest(years, newTotals.totalsByYear, newTotals.monthSummary));
+  });
+
+  const { bills } = billSummary(address, years, monthSummary, totalsByYear);
+  powerUsageState.set(powerUsage.numbers);
+  return div(bills, priceIncreases);
 }

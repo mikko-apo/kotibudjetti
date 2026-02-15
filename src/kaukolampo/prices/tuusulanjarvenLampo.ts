@@ -1,6 +1,6 @@
-import type { ContractPricing } from "./kaukolampoTypes";
+import type { ContractPricing } from "../kaukolampoTypes";
 
-export const tulaPepi: ContractPricing = {
+export const tuusulanjarvenLampo: ContractPricing = {
   id: "tula-pepi",
   companyName: "Tuusulanjärven Lämpö",
   contractTypeName: "Peruslämpö Pientalo",
