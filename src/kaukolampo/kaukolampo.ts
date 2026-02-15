@@ -1,4 +1,7 @@
 import Decimal from "decimal.js";
+import type { State } from "../../../ki-frame/src";
+import { Unsub } from "../../../ki-frame/src/channel";
+import { Component } from "../../../ki-frame/src/component";
 import { b, div, h2, h3, li, p, table, tbody, td, th, thead, tr, ul } from "../../../ki-frame/src/domBuilder";
 import { styles } from "../../../ki-frame/src/domBuilderStyles";
 import { isDefined } from "../../../ki-frame/src/util/typeUtils";
@@ -15,7 +18,7 @@ import type {
 import { range } from "./range";
 import { calculateViivastyskorkoMultiplier, toDateISO } from "./viivastyskorko";
 
-export const ymToIndex = (ym: YearMonth) => ym.year * 12 + (ym.month - 1);
+const ymToIndex = (ym: YearMonth) => ym.year * 12 + (ym.month - 1);
 const indexToYm = (idx: number): YearMonth => {
   const year = Math.floor(idx / 12);
   const month = (idx % 12) + 1;
@@ -128,11 +131,12 @@ export function pricingSummary(
 const showIncrease = (inc?: number) =>
   !inc || inc === 0 ? {} : inc > 0 ? { backgroundColor: "lightpink" } : { backgroundColor: "lightgreen" };
 
-function calculateBills(
+const months = range(1, 12);
+
+export function calculateMonthlyYearBillTotals(
   years: number[],
-  months: number[],
   monthlyPricing: Record<number, MonthlyPrice>,
-  powerUsage: PowerUsage,
+  powerUsage: Record<number, Decimal>,
 ) {
   const totalsByYear: Record<number, YearTotal> = {};
   const monthSummary: Record<number, MonthBillInfo> = {};
@@ -147,7 +151,7 @@ function calculateBills(
       const index = ymToIndex({ year, month });
       const price = monthlyPricing[index];
       const prevPrice: MonthlyPrice = monthlyPricing[index - 1] || price;
-      const power = powerUsage.numbers[index];
+      const power = powerUsage[index];
       if (power) {
         const powerPrice = power.mul(price.mWPrice);
         yearTotal.mWPrice = yearTotal.mWPrice.add(powerPrice);
@@ -168,36 +172,67 @@ function calculateBills(
   return { totalsByYear, monthSummary };
 }
 
+const borderLeft = { styles: { borderLeft: "2px solid #6b7280" } };
+
+function BillItemTDs() {
+  const power = td(borderLeft);
+  const mwPrice = td();
+  const powerPrice = td();
+  const monthlyFee = td();
+  const total = b();
+  const billTDs = new Component({ power, mwPrice, powerPrice, monthlyFee, total });
+  const setText = (info: Partial<MonthBillInfo>) =>
+    billTDs.setText({
+      power: info?.power ? printPower(info.power) : "",
+      mwPrice: info?.mWPrice ? printMoney(info.mWPrice) : "", // styles(showIncrease(monthInfo.monthlyMWPriceHasIncreased))
+      powerPrice: info?.powerPrice ? printMoney(info.powerPrice) : "",
+      monthlyFee: info?.monthlyFee ? printMoney(info.monthlyFee) : "", // styles(showIncrease(monthInfo.monthlyFeeHasIncreased)),
+      total: info.powerPrice && info.monthlyFee ? printMoney(info.powerPrice.add(info.monthlyFee)) : "", // should be bold
+    });
+
+  return {
+    billTDList: [power, mwPrice, powerPrice, monthlyFee, td(total)],
+    setText,
+  };
+}
+
 export function billSummary(
   address: string,
   years: number[],
-  monthlyPricing: Record<number, MonthlyPrice>,
-  powerUsage: PowerUsage,
+  monthSummary: State<Record<number, MonthBillInfo>>,
+  totalsByYear: State<Record<number, YearTotal>>,
 ) {
-  const borderLeft = { styles: { borderLeft: "2px solid #6b7280" } };
-  const months = range(1, 12);
-  const { totalsByYear, monthSummary } = calculateBills(years, months, monthlyPricing, powerUsage);
-
   const billRows = months.map((month) =>
     tr(
       td(month),
       years.map((year) => {
         const index = ymToIndex({ year, month });
-        const monthInfo = monthSummary[index];
-        if (monthInfo) {
-          return [
-            td(printPower(monthInfo.power), borderLeft),
-            td(printMoney(monthInfo.mWPrice), styles(showIncrease(monthInfo.monthlyMWPriceHasIncreased))),
-            td(printMoney(monthInfo.powerPrice)),
-            td(printMoney(monthInfo.monthlyFee), styles(showIncrease(monthInfo.monthlyFeeHasIncreased))),
-            td(b(printMoney(monthInfo.powerPrice.add(monthInfo.monthlyFee)))),
-          ];
-        } else {
-          return [td("-", borderLeft), td("-"), td("-"), td("-"), td("-")];
-        }
+        const { billTDList, setText } = BillItemTDs();
+        monthSummary.onValueChange((summaries) => {
+          const monthInfo = summaries[index];
+          if (monthInfo) setText(monthInfo);
+        });
+        return billTDList;
       }),
     ),
   );
+  const totalRow = tr(
+    styles({ fontWeight: "bold" }),
+    td(b("Yhteensä")),
+    years.map((y) => {
+      const { billTDList, setText } = BillItemTDs();
+      totalsByYear.onValueChange((years) => {
+        const { monthlyFee, mWPrice, totalEnergy } = years[y];
+        setText({
+          power: totalEnergy,
+          powerPrice: mWPrice,
+          monthlyFee: monthlyFee,
+        });
+      });
+      return billTDList;
+    }),
+  );
+
   return {
     bills: div(
       h2(`${address} laskut ${years[0]}-${years[years.length - 1]}`),
@@ -210,25 +245,10 @@ export function billSummary(
           ),
           tr(years.map((y) => [th("Kulutus", borderLeft), th("€/MWh"), th("Energia €"), th("kk €"), th("Lasku €")])),
         ),
-        tbody(
-          billRows,
-          tr(
-            td(b("Yhteensä")),
-            years.map((y) => {
-              const { monthlyFee, mWPrice, totalEnergy } = totalsByYear[y];
-              return [
-                td(b(printPower(totalEnergy)), borderLeft),
-                td(),
-                td(b(printMoney(mWPrice))),
-                td(b(printMoney(monthlyFee))),
-                td(b(printMoney(monthlyFee.add(mWPrice)))),
-              ];
-            }),
-          ),
-        ),
+        tbody(billRows, totalRow),
       ),
     ),
-    totalsByYear,
+    totalsByYear: totalsByYear,
   };
 }
 
@@ -354,8 +374,7 @@ function compareYears(
 
 function calculatePaybackInterest(
   excessYears: number[],
-  powerUsage: PowerUsage,
-  monthlyPricing: Record<number, MonthlyPrice>,
+  originalBills: Record<number, MonthBillInfo>,
   adjustedPricing: Record<number, AdjustedYearTotal>,
 ) {
   let excessTotal = Decimal(0);
@@ -363,11 +382,10 @@ function calculatePaybackInterest(
   const months = excessYears.flatMap((year) =>
     range(1, 12).map((month) => {
       const index = ymToIndex({ year, month });
-      const power = powerUsage.numbers[index];
-      const originalMonthlyPricing = monthlyPricing[index];
+      const originalBill = originalBills[index];
       const adjustedMonthlyPricing = adjustedPricing[year];
-      const originalTotal = power.mul(originalMonthlyPricing.mWPrice).plus(originalMonthlyPricing.monthlyFee);
-      const adjustedTotal = power
+      const originalTotal = originalBill.power.mul(originalBill.mWPrice).plus(originalBill.monthlyFee);
+      const adjustedTotal = originalBill.power
         .mul(adjustedMonthlyPricing.mWPrice.div(adjustedMonthlyPricing.totalEnergy))
         .plus(adjustedMonthlyPricing.monthlyFee.div(adjustedMonthlyPricing.monthCount));
       const excess = originalTotal.minus(adjustedTotal);
@@ -381,7 +399,7 @@ function calculatePaybackInterest(
       paybackInterestTotal = paybackInterestTotal.add(interest);
       return {
         date: `${year}.${month}`,
-        power,
+        originalBill,
         originalTotal,
         adjustedTotal,
         excess,
@@ -395,12 +413,10 @@ function calculatePaybackInterest(
 function excessBillingPaybackInterest(
   excessYears: number[],
   adjustedPricing: Record<number, AdjustedYearTotal>,
-  monthlyPricing: Record<number, MonthlyPrice>,
-  powerUsage: PowerUsage,
+  monthlyPricing: Record<number, MonthBillInfo>,
 ) {
   const { excessTotal, paybackInterestTotal, months } = calculatePaybackInterest(
     excessYears,
-    powerUsage,
     monthlyPricing,
     adjustedPricing,
   );
@@ -422,7 +438,7 @@ function excessBillingPaybackInterest(
         months.map((m) => {
           return tr(
             td(m.date),
-            td(printPower(m.power)),
+            td(printPower(m.originalBill.power)),
             td(printMoney(m.originalTotal)),
             td(printMoney(m.adjustedTotal)),
             td(printMoney(m.excess)),
@@ -439,8 +455,7 @@ function excessBillingPaybackInterest(
 export function evaluatePriceIncreases(
   years: number[],
   totalsByYear: Record<number, YearTotal>,
-  monthlyPricing: Record<number, MonthlyPrice>,
-  powerUsage: PowerUsage,
+  monthlyPricing: Record<number, MonthBillInfo>,
 ) {
   const comparedYears = years.slice(1);
   const adjustedPricing: Record<number, AdjustedYearTotal> = {};
@@ -451,7 +466,6 @@ export function evaluatePriceIncreases(
     excessYears,
     adjustedPricing,
     monthlyPricing,
-    powerUsage,
   );
   return div(
     h2("Korotusten arviointi"),

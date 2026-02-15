@@ -1,11 +1,14 @@
+import { createState } from "../../ki-frame/src";
 import { div, setElementToId } from "../../ki-frame/src/domBuilder";
 import {
   billSummary,
+  calculateMonthlyYearBillTotals,
   evaluatePriceIncreases,
   parseUnderscoreSeparatedYmNumbers,
   resolveMonthlyPricingLookup,
 } from "./kaukolampo/kaukolampo";
 import { tulaPepi } from "./kaukolampo/kaukolampoPricing";
+import type { MonthBillInfo, YearTotal } from "./kaukolampo/kaukolampoTypes";
 import { range } from "./kaukolampo/range";
 
 console.log("kotibudjetti v0.0.1");
@@ -18,11 +21,23 @@ function printPricing() {
   const from = { year: 2022, month: 1 };
   const to = { year: 2025, month: 12 };
   const years = range(from.year, to.year);
+  const address = "Jätintie 1 A";
   const monthlyPricing = resolveMonthlyPricingLookup(contract, from, to);
   const powerUsage = parseUnderscoreSeparatedYmNumbers(usage);
-  const address = "Jätintie 1 A";
-  const { bills, totalsByYear } = billSummary(address, years, monthlyPricing, powerUsage);
-  return div(bills, evaluatePriceIncreases(years, totalsByYear, monthlyPricing, powerUsage));
+  const powerUsageState = createState<typeof powerUsage.numbers>({});
+  const totalsByYear = createState<Record<number, YearTotal>>({});
+  const monthSummary = createState<Record<number, MonthBillInfo>>({});
+  const priceIncreases = div();
+  powerUsageState.onValueChange((powerUsage) => {
+    const newTotals = calculateMonthlyYearBillTotals(years, monthlyPricing, powerUsage);
+    totalsByYear.set(newTotals.totalsByYear);
+    monthSummary.set(newTotals.monthSummary);
+    priceIncreases.replaceChildren(evaluatePriceIncreases(years, newTotals.totalsByYear, newTotals.monthSummary));
+  });
+
+  const { bills } = billSummary(address, years, monthSummary, totalsByYear);
+  powerUsageState.set(powerUsage.numbers);
+  return div(bills, priceIncreases);
 }
 
 setElementToId("app", printPricing());
