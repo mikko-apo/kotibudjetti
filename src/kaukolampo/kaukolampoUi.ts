@@ -1,36 +1,35 @@
-import Decimal from "decimal.js";
-import {createState, State} from "../../../ki-frame/src";
-import {Component} from "../../../ki-frame/src/component";
+import type Decimal from "decimal.js";
+import { createState, type State } from "../../../ki-frame/src";
 import {
+  addItems,
   b,
+  br,
   div,
   h2,
   h3,
   li,
   p,
-  setElementToId,
   table,
   tbody,
   td,
   th,
   thead,
   tr,
-  ul
+  ul,
 } from "../../../ki-frame/src/domBuilder";
-import {styles} from "../../../ki-frame/src/domBuilderStyles";
-import {printMoney, printPower} from "./formatting";
-import type {AdjustedYearTotal, ContractPricing, MonthBillInfo, MonthlyPrice, YearTotal,} from "./kaukolampoTypes";
-import {range} from "./range";
+import { styles } from "../../../ki-frame/src/domBuilderStyles";
+import { printMoney, printPower } from "./formatting";
 import {
   calculateMonthlyYearBillTotals,
   calculatePaybackInterest,
   months,
   resolveMonthlyPricingLookup,
-  ymToIndex
+  ymToIndex,
 } from "./kaukolampoBilling";
-import {tuusulanjarvenLampo} from "./prices/tuusulanjarvenLampo";
-import {parseUnderscoreSeparatedYmNumbers} from "./powerUsageString";
-
+import type { AdjustedYearTotal, ContractPricing, MonthBillInfo, MonthlyPrice, YearTotal } from "./kaukolampoTypes";
+import { parseUnderscoreSeparatedYmNumbers } from "./powerUsageString";
+import { tuusulanjarvenLampo } from "./prices/tuusulanjarvenLampo";
+import { range } from "./range";
 
 export function pricingSummary(
   contract: ContractPricing,
@@ -65,7 +64,7 @@ export function pricingSummary(
 }
 
 const showIncrease = (inc?: number) =>
-  !inc || inc === 0 ? {} : inc > 0 ? { backgroundColor: "lightpink" } : { backgroundColor: "lightgreen" };
+  styles({ backgroundColor: !inc || inc === 0 ? "" : inc > 0 ? "lightpink" : "lightgreen" });
 
 const borderLeft = { styles: { borderLeft: "2px solid #6b7280" } };
 
@@ -75,15 +74,17 @@ function BillItemTDs() {
   const powerPrice = td();
   const monthlyFee = td();
   const total = b();
-  const billTDs = new Component({ power, mwPrice, powerPrice, monthlyFee, total });
-  const setText = (info: Partial<MonthBillInfo>) =>
-    billTDs.setText({
-      power: info?.power ? printPower(info.power) : "",
-      mwPrice: info?.mWPrice ? printMoney(info.mWPrice) : "", // styles(showIncrease(monthInfo.monthlyMWPriceHasIncreased))
-      powerPrice: info?.powerPrice ? printMoney(info.powerPrice) : "",
-      monthlyFee: info?.monthlyFee ? printMoney(info.monthlyFee) : "", // styles(showIncrease(monthInfo.monthlyFeeHasIncreased)),
-      total: info.powerPrice && info.monthlyFee ? printMoney(info.powerPrice.add(info.monthlyFee)) : "", // should be bold
-    });
+  const setText = (info: Partial<MonthBillInfo>) => {
+    addItems(power, info?.power ? printPower(info.power) : "");
+    addItems(mwPrice, info?.mWPrice ? printMoney(info.mWPrice) : "", showIncrease(info.monthlyMWPriceHasIncreased));
+    addItems(powerPrice, info?.powerPrice ? printMoney(info.powerPrice) : "");
+    addItems(
+      monthlyFee,
+      info?.monthlyFee ? printMoney(info.monthlyFee) : "",
+      showIncrease(info.monthlyFeeHasIncreased),
+    );
+    addItems(total, info.powerPrice && info.monthlyFee ? printMoney(info.powerPrice.add(info.monthlyFee)) : "");
+  };
 
   return {
     billTDList: [power, mwPrice, powerPrice, monthlyFee, td(total)],
@@ -164,13 +165,15 @@ function calculateNewPricingWithMax150PriceIncrease(
 }
 
 function compareYears(
+  firstYear: number,
   comparedYears: number[],
   adjustedPricing: Record<number, AdjustedYearTotal>,
   totalsByYear: Record<number, YearTotal>,
   excessBillingAll: Record<number, Decimal>,
   years: number[],
 ) {
-  return comparedYears.map((y) => {
+  const thisYearComparisonTitle = "tämän vuoden vertailutason laskeminen seuraavan vuoden korotuksen arviointia varten";
+  const compared = comparedYears.map((y) => {
     // values for previous year
     const prevYear = y - 1;
     const adjustedPricingForPreviousYear = adjustedPricing[prevYear];
@@ -193,6 +196,12 @@ function compareYears(
     );
     const totalWithPrevYearLevelPlus150 = totalWithPrevYearLevel.add(150);
     const excessBilling = totalWithThisYearLevel.minus(totalWithPrevYearLevelPlus150);
+    const levelForNextYearMwPrice = printMoney(
+      priceIncreaseTooMuch ? adjusted.mWPrice.div(adjusted.totalEnergy) : totals.mWPrice.div(totals.totalEnergy),
+    );
+    const levelForNextYearMonthlyFee = printMoney(
+      priceIncreaseTooMuch ? adjusted.monthlyFee.div(adjusted.monthCount) : totals.monthlyFee.div(totals.monthCount),
+    );
     if (priceIncreaseTooMuch) {
       adjustedPricing[y] = adjusted;
       excessBillingAll[y] = excessBilling;
@@ -212,62 +221,130 @@ function compareYears(
           ),
         ]
       : [li("Korotus ei ylitä 150e ja 15%")];
-    const explainAdjustment =
-      priceIncreaseTooMuch &&
-      y !== years[years.length - 1] &&
-      p(
-        "Koska vuositasoista laskua piti korjata, seuraavan vuoden laskutuksessa käytetään tämän vuoden tasona viimevuoden tasoa * korjauskerroin",
-        ul(
-          li(
-            `Korjauskerroin: ${printMoney(totalWithPrevYearLevelPlus150)}/${printMoney(totalWithPrevYearLevel)} = ${printPower(adjusted.adjustment)}`,
-          ),
-          li(
-            `Energian hinta: ${printMoney(prevAvgMwPrice)} * ${printPower(adjusted.adjustment)} = `,
-            b(printMoney(adjusted.mWPrice.div(adjusted.totalEnergy))),
-          ),
-          li(
-            `Kuukausi: ${printMoney(prevAvgMonthlyFee)} * ${printPower(adjusted.adjustment)} = `,
-            b(printMoney(adjusted.monthlyFee.div(adjusted.monthCount))),
-          ),
-        ),
-      );
+    const explainAdjustment = (priceIncreaseTooMuch: boolean) =>
+      priceIncreaseTooMuch
+        ? p(
+            ul(
+              li(
+                "Liian laskutuksen takia seuraavan vuoden laskutuksessa käytetään tämän vuoden tasona viimevuoden tasoa * korjauskerroin",
+              ),
+              li(
+                `Korjauskerroin: ${printMoney(totalWithPrevYearLevelPlus150)}/${printMoney(totalWithPrevYearLevel)} = ${printPower(adjusted.adjustment)}`,
+              ),
+              li(
+                `Energian hinta: ${printMoney(prevAvgMwPrice)} * ${printPower(adjusted.adjustment)} = `,
+                b(levelForNextYearMwPrice),
+              ),
+              li(
+                `Kuukausi: ${printMoney(prevAvgMonthlyFee)} * ${printPower(adjusted.adjustment)} = `,
+                b(levelForNextYearMonthlyFee),
+              ),
+            ),
+          )
+        : p(
+            ul(
+              li("Taso saadaan laskemalla keskiarvot"),
+              li(
+                `Energian hinta: ${printMoney(totals.mWPrice)} / ${printPower(totals.totalEnergy)} = `,
+                b(levelForNextYearMwPrice),
+              ),
+              li(`Kuukausi: ${printMoney(totals.monthlyFee)} / ${totals.monthCount} = `, b(levelForNextYearMonthlyFee)),
+            ),
+          );
     return div(
       h3(`${y}, vertailu toteutuneella ja ${prevYear} tasolla`),
-      p(
-        `Edellisen vuoden (${y - 1}) taso`,
-        ul(
-          adjustedPricingForPreviousYear && li(b("Käytetään korjattua tasoa")),
-          li(
-            `Energian hinta: ${printMoney(prevTotals.mWPrice)} / ${printPower(prevTotals.totalEnergy)} = `,
-            b(printMoney(prevAvgMwPrice)),
+      table(
+        styles({ width: "auto" }),
+        thead(tr(th(""), th("kulutus"), th("€/MWh"), th("kk €"), th("Lasku vuositasolla"), th("Liika laskutus"))),
+        tbody(
+          styles({ verticalAlign: "top" }),
+          tr(
+            td(`${y} toteunut lasku`),
+            td(printPower(totals.totalEnergy)),
+            td(),
+            td(),
+            td(printMoney(totalWithThisYearLevel)),
+            td(),
           ),
-          li(
-            `Kuukausimaksu: ${printMoney(prevTotals.monthlyFee)} / ${prevTotals.monthCount} = `,
-            b(printMoney(prevAvgMonthlyFee)),
+          tr(
+            td(
+              `edellisen vuoden taso ja lasku vuoden ${y} kulutuksella`,
+              ul(
+                li(
+                  `Vuoden ${y} energiakulutus ${printPower(totals.totalEnergy)} vuoden ${y - 1} kuukausimaksulla ja energian hinnalla: `,
+                  br(),
+                  `${printPower(totals.totalEnergy)} * ${printMoney(prevAvgMwPrice)} + ${totals.monthCount} * ${printMoney(prevAvgMonthlyFee)} = `,
+                  b(printMoney(totalWithPrevYearLevel)),
+                ),
+              ),
+            ),
+            td(printPower(totals.totalEnergy)),
+            td(printMoney(prevAvgMwPrice)),
+            td(printMoney(prevAvgMonthlyFee)),
+            td(printMoney(totalWithPrevYearLevel)),
+            td(),
           ),
-          li(
-            `Vuoden ${y} energiakulutus ${printPower(totals.totalEnergy)} vuoden (${y - 1}) kuukausimaksulla ja energian hinnalla: `,
-            `${printPower(totals.totalEnergy)} * ${printMoney(prevAvgMwPrice)} + ${totals.monthCount} * ${printMoney(prevAvgMonthlyFee)} = `,
-            b(printMoney(totalWithPrevYearLevel)),
+          tr(
+            td(
+              `Korotuksen arvionti vuodelle ${y}`,
+              ul(
+                li(
+                  `${y} yhteensä ${printMoney(totalWithThisYearLevel)}, ${prevYear} tasolla ${printMoney(totalWithPrevYearLevel)}`,
+                ),
+                li(`Korotus ${printMoney(priceIncreaseEuros)} euroa ${printPower(priceIncreasePercents)} prosenttia`),
+                princeIncreaseInfo,
+              ),
+            ),
+            td(),
+            td(),
+            td(),
+            td(priceIncreaseTooMuch && printMoney(totalWithPrevYearLevelPlus150)),
+            td(priceIncreaseTooMuch && b(printMoney(excessBilling))),
+          ),
+          tr(
+            td(thisYearComparisonTitle, explainAdjustment(priceIncreaseTooMuch)),
+            td(),
+            td(levelForNextYearMwPrice),
+            td(levelForNextYearMonthlyFee),
+            td(),
           ),
         ),
       ),
-      p(
-        `Korotus ${y} vs ${prevYear} tasolla`,
-        ul(
-          li(
-            `${y} yhteensä ${printMoney(totalWithThisYearLevel)}, ${prevYear} tasolla ${printMoney(totalWithPrevYearLevel)}`,
-          ),
-          li(`Korotus ${printMoney(priceIncreaseEuros)} euroa ${printPower(priceIncreasePercents)} prosenttia`),
-          princeIncreaseInfo,
-        ),
-      ),
-      explainAdjustment,
     );
   });
+  const firstYearTotals = totalsByYear[firstYear];
+  const firstAvgMwPrice = printMoney(firstYearTotals.mWPrice.div(firstYearTotals.totalEnergy));
+  const firstAvgMonthlyFee = printMoney(firstYearTotals.monthlyFee.div(firstYearTotals.monthCount));
+  return [
+    h3(`${firstYear} tason laskeminen`),
+    table(
+      styles({ width: "auto" }),
+      thead(tr(th(""), th("kulutus"), th("€/MWh"), th("kk €"))),
+      tbody(
+        styles({ verticalAlign: "top" }),
+        tr(
+          td(
+            thisYearComparisonTitle,
+            ul(
+              li(
+                `${firstYear} Energian hinta €/MWh: ${printMoney(firstYearTotals.mWPrice)} / ${printPower(firstYearTotals.totalEnergy)} = `,
+                b(firstAvgMwPrice),
+              ),
+              li(
+                `${firstYear} Kuukausimaksu: ${printMoney(firstYearTotals.monthlyFee)} / ${firstYearTotals.monthCount} = `,
+                b(firstAvgMonthlyFee),
+              ),
+            ),
+          ),
+          td(printPower(firstYearTotals.totalEnergy)),
+          td(firstAvgMwPrice),
+          td(firstAvgMonthlyFee),
+        ),
+      ),
+    ),
+    ...compared,
+  ];
 }
-
-
 
 function excessBillingPaybackInterest(
   excessYears: number[],
@@ -316,10 +393,10 @@ export function priceIncreasesAndPaybackInterest(
   totalsByYear: Record<number, YearTotal>,
   monthlyPricing: Record<number, MonthBillInfo>,
 ) {
-  const comparedYears = years.slice(1);
+  const [firstYear, ...comparedYears] = years;
   const adjustedPricing: Record<number, AdjustedYearTotal> = {};
   const excessBillingAll: Record<number, Decimal> = {};
-  const yearComparison = compareYears(comparedYears, adjustedPricing, totalsByYear, excessBillingAll, years);
+  const yearComparison = compareYears(firstYear, comparedYears, adjustedPricing, totalsByYear, excessBillingAll, years);
   const excessYears = comparedYears.filter((y) => excessBillingAll[y]);
   const { root: paybackInterest, paybackInterestTotal } = excessBillingPaybackInterest(
     excessYears,
@@ -367,7 +444,9 @@ export function kaukolampoExcessPricingCalculator() {
     const newTotals = calculateMonthlyYearBillTotals(years, monthlyPricing, powerUsage);
     totalsByYear.set(newTotals.totalsByYear);
     monthSummary.set(newTotals.monthSummary);
-    priceIncreases.replaceChildren(priceIncreasesAndPaybackInterest(years, newTotals.totalsByYear, newTotals.monthSummary));
+    priceIncreases.replaceChildren(
+      priceIncreasesAndPaybackInterest(years, newTotals.totalsByYear, newTotals.monthSummary),
+    );
   });
 
   const { bills } = billSummary(address, years, monthSummary, totalsByYear);
