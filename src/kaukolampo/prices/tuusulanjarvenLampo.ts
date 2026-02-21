@@ -10,7 +10,7 @@ export const tuusulanjarvenLampo: ContractPricing = {
       month: 1,
       price: {
         monthlyFee: 35.3,
-        mWPrice: 68.57,
+        powerPricePerMW: 68.57,
       },
     },
     {
@@ -18,7 +18,7 @@ export const tuusulanjarvenLampo: ContractPricing = {
       month: 6,
       price: {
         monthlyFee: 40.25,
-        mWPrice: 78.17,
+        powerPricePerMW: 78.17,
       },
     },
     {
@@ -26,7 +26,7 @@ export const tuusulanjarvenLampo: ContractPricing = {
       month: 1,
       price: {
         monthlyFee: 45.88,
-        mWPrice: 89.12,
+        powerPricePerMW: 89.12,
       },
     },
     {
@@ -34,7 +34,7 @@ export const tuusulanjarvenLampo: ContractPricing = {
       month: 9,
       price: {
         monthlyFee: 46.44,
-        mWPrice: 90.2,
+        powerPricePerMW: 90.2,
       },
     },
     {
@@ -42,7 +42,7 @@ export const tuusulanjarvenLampo: ContractPricing = {
       month: 1,
       price: {
         monthlyFee: 59.55,
-        mWPrice: 90.2,
+        powerPricePerMW: 90.2,
       },
     },
     {
@@ -50,7 +50,7 @@ export const tuusulanjarvenLampo: ContractPricing = {
       month: 7,
       price: {
         monthlyFee: 59.55,
-        mWPrice: 86.04,
+        powerPricePerMW: 86.04,
       },
     },
   ],

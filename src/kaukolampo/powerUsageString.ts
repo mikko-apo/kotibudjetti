@@ -1,8 +1,8 @@
-import {PowerUsage, YearMonth} from "./kaukolampoTypes";
-import {indexToYm, ymToIndex} from "./kaukolampoBilling";
 import Decimal from "decimal.js";
+import { indexToYm, ymToIndex } from "./kaukolampoBilling";
+import type { UnpackedPowerUsage, YearMonth } from "./kaukolampoTypes";
 
-export function parseUnderscoreSeparatedYmNumbers(input: string): PowerUsage {
+export function parseUnderscoreSeparatedYmNumbers(input: string): UnpackedPowerUsage {
   if (typeof input !== "string") throw new TypeError("input must be a string");
 
   const tokens = input

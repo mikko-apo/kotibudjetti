@@ -4,7 +4,7 @@ export type YearMonth = { year: number; month: number }; // month: 1..12
 
 export type MonthlyPrice = {
   monthlyFee: Decimal;
-  mWPrice: Decimal;
+  powerPrice: Decimal;
 };
 
 export type ContractPricing = {
@@ -14,29 +14,48 @@ export type ContractPricing = {
   monthlyPricing: (YearMonth & {
     price?: {
       monthlyFee: number;
-      mWPrice: number;
+      powerPricePerMW: number;
     };
   })[];
 };
 
-export type PowerUsage = {
+export type UnpackedPowerUsage = {
   from: YearMonth;
   to: YearMonth;
   numbers: Record<number, Decimal>;
 };
 
-export type YearTotal = MonthlyPrice & {
-  monthCount: number;
-  totalEnergy: Decimal;
+type AvgPricing = {
+  avgMonthlyFee: Decimal;
+  avgPowerPrice: Decimal;
 };
 
-export type AdjustedYearTotal = YearTotal & {
-  adjustment: Decimal;
+export type YearTotalTotals = {
+  usedPowerPrice: Decimal;
+  monthlyFees: Decimal;
+  total: Decimal;
+};
+export type YearTotal = {
+  usedPower: Decimal;
+  monthCount: number;
+  billedTotals: YearTotalTotals;
+  totalsBasedOnLastYearLevel?: YearTotalTotals;
+  calculatedTotals: YearTotalTotals & {
+    comparedToPreviousYear: boolean;
+    avgMonthlyFee: Decimal;
+    avgPowerPrice: Decimal;
+    excessBilling: Decimal;
+    adjustmentMultiplier?: Decimal;
+    priceIncreaseTooMuch?: boolean;
+    priceIncreasePercents?: Decimal;
+    priceIncreaseEuros?: Decimal;
+  };
 };
 
 export type MonthBillInfo = MonthlyPrice & {
-  power: Decimal;
-  powerPrice: Decimal;
-  monthlyFeeHasIncreased: number;
-  monthlyMWPriceHasIncreased: number;
+  usedPower: Decimal;
+  usedPowerPrice: Decimal;
+  total: Decimal;
+  monthlyFeeDelta: number;
+  monthlyMWPriceDelta: number;
 };

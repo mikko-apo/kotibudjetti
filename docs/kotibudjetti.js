@@ -146,7 +146,7 @@
   // ../ki-frame/src/domBuilder.ts
   function addItems(element, ...args) {
     args.forEach((arg) => {
-      if (arg === false) {
+      if (arg === false || arg === void 0) {
       } else if (Array.isArray(arg)) {
         addItems(element, ...arg);
       } else if (isNode(arg)) {
@@ -335,629 +335,6 @@
       console.error(`Target element with ID "${targetId}" not found!`);
     }
   }
-
-  // ../ki-frame/src/util/objectIdCounter.ts
-  var runningId = 0;
-  function createId(id) {
-    return `${id}-${runningId++}`;
-  }
-
-  // ../ki-frame/src/channel.ts
-  var Channel = class {
-    constructor(name) {
-      this.subs = /* @__PURE__ */ new Set();
-      this.idTxt = (txt) => `${this.id}: ${txt}`;
-      this.id = createId(name);
-    }
-    subscribe(fn) {
-      this.subs.add(fn);
-      return () => {
-        this.unsubscribe(fn);
-      };
-    }
-    subscribeFn() {
-      return (fn) => this.subscribe(fn);
-    }
-    // subscribe once: handler auto-unsubscribe after first invocation
-    once(fn) {
-      const unsub = () => this.unsubscribe(wrapper);
-      const wrapper = (...args) => {
-        unsub();
-        fn(...args);
-      };
-      this.subs.add(wrapper);
-      return unsub;
-    }
-    unsubscribe(fn) {
-      this.subs.delete(fn);
-    }
-    // synchronous publish — invokes handlers and doesn't wait for Promises
-    publish(...args) {
-      for (const fn of Array.from(this.subs)) {
-        try {
-          fn(...args);
-        } catch (err) {
-          console.error(this.idTxt(`Error in channel.publish() for '${this.id}':`), err);
-        }
-      }
-    }
-    // asynchronous publish — waits for all subscribers; rejects if any rejects
-    async publishAsync(...args) {
-      const promises = Array.from(this.subs).map(async (fn) => fn(...args));
-      const settled = await Promise.allSettled(promises);
-      const rejections = settled.filter((s2) => s2.status === "rejected");
-      if (rejections.length) {
-        const err = new Error(`${rejections.length} subscriber(s) failed`);
-        err.details = rejections.map((r) => r.reason);
-        throw err;
-      }
-    }
-    destroy() {
-      this.subs.clear();
-    }
-  };
-
-  // ../ki-frame/src/form.ts
-  var FormsInput = class {
-    constructor(node, key, map2, validate) {
-      this.node = node;
-      this.key = key;
-      this.map = map2;
-      this.validate = validate;
-    }
-  };
-  function collectFormsInputs(root) {
-    const out = [];
-    function visit(node, pathParts) {
-      if (node == null) return;
-      if (node instanceof FormsInput) {
-        const path = pathParts.map((p2) => String(p2)).join(".");
-        out.push([path, node]);
-        return;
-      }
-      if (Array.isArray(node)) {
-        for (let i2 = 0; i2 < node.length; i2++) {
-          visit(node[i2], [...pathParts, i2]);
-        }
-        return;
-      }
-      if (typeof node === "object") {
-        for (const key of Object.keys(node)) {
-          visit(node[key], [...pathParts, key]);
-        }
-        return;
-      }
-    }
-    visit(root, []);
-    return out;
-  }
-  function readRaw(node) {
-    var _a2;
-    const anyNode = node;
-    if ("value" in anyNode && typeof anyNode.value === "string") return anyNode.value;
-    return String((_a2 = node.textContent) != null ? _a2 : "");
-  }
-
-  // ../ki-frame/src/promiseDestroy.ts
-  var PromiseDestroy = class _PromiseDestroy {
-    constructor(promise, destroy = () => {
-    }) {
-      this.promise = promise;
-      this.destroy = destroy;
-    }
-    /**
-     * Promise.then implementation. Can be used to map the response to another value
-     *
-     * - Delegates to the internal `response` promise.
-     * - Returns a NEW FetchReturn whose `response` is the mapped promise.
-     * - If no handlers are provided, returns `this` (typed via cast).
-     */
-    then(onfulfilled, onrejected) {
-      if (!onfulfilled && !onrejected) {
-        return this.promise;
-      }
-      return this.promise.then(onfulfilled, onrejected);
-    }
-    catch(onrejected) {
-      if (!onrejected) {
-        return this;
-      }
-      return this.promise.catch(onrejected);
-    }
-    finally(onfinally) {
-      return this.promise.finally(onfinally);
-    }
-    get [Symbol.toStringTag]() {
-      return _PromiseDestroy.name;
-    }
-    /**
-     * Optional: explicit toString which mirrors Object.prototype.toString
-     */
-    toString() {
-      return Object.prototype.toString.call(this);
-    }
-  };
-  var _a;
-  var TimeoutDestroyable = class {
-    constructor(fn, timeout) {
-      this.fn = fn;
-      this.timeout = timeout;
-      this.at = Date.now() + ((_a = this.timeout) != null ? _a : 0);
-      this.id = setTimeout(this.fn, this.timeout);
-    }
-    destroy() {
-      clearTimeout(this.id);
-    }
-  };
-  var FetchDestroyable = class extends PromiseDestroy {
-    constructor(url2, timeoutMs, promise, destroy) {
-      super(promise, destroy);
-      this.url = url2;
-      this.timeoutMs = timeoutMs;
-      this.promise = promise;
-      this.destroy = destroy;
-    }
-  };
-
-  // ../ki-frame/src/util/getByPath.ts
-  function getByPath(obj, path) {
-    if (obj == null) return void 0;
-    let segments = [];
-    if (Array.isArray(path)) {
-      segments = path.map((p2) => typeof p2 === "string" && /^\d+$/.test(p2) ? Number(p2) : p2);
-    } else if (typeof path === "string") {
-      if (path === "") return obj;
-      segments = path.split(".").map((seg) => /^\d+$/.test(seg) ? Number(seg) : seg);
-    } else {
-      return void 0;
-    }
-    let cur = obj;
-    for (const seg of segments) {
-      if (cur == null) return void 0;
-      cur = cur[seg];
-    }
-    return cur;
-  }
-
-  // ../ki-frame/src/util/setByPath.ts
-  function setByPath(obj, path, value) {
-    if (typeof path === "string") {
-      path = path.split(".").map((seg) => {
-        return /^[0-9]+$/.test(seg) ? Number(seg) : seg;
-      });
-    }
-    if (path.length === 0) return;
-    let cur = obj;
-    for (let i2 = 0; i2 < path.length - 1; i2++) {
-      const key = path[i2];
-      if (cur[key] == null) {
-        const nextKey = path[i2 + 1];
-        cur[key] = typeof nextKey === "number" ? [] : {};
-      }
-      cur = cur[key];
-    }
-    const lastKey = path[path.length - 1];
-    cur[lastKey] = value;
-  }
-  function copyAndSet(obj, path, value) {
-    const segments = Array.isArray(path) ? path.map((p2) => typeof p2 === "string" && /^\d+$/.test(p2) ? Number(p2) : p2) : path === "" ? [] : path.split(".").map((seg) => /^\d+$/.test(seg) ? Number(seg) : seg);
-    if (segments.length === 0) return value;
-    const parents = [];
-    let cur = obj;
-    parents.push(cur);
-    for (const seg of segments) {
-      cur = cur !== null && typeof cur === "object" ? cur[seg] : void 0;
-      parents.push(cur);
-    }
-    let newChild = value;
-    for (let i2 = segments.length - 1; i2 >= 0; i2--) {
-      const key = segments[i2];
-      const origParent = parents[i2];
-      let newParent;
-      if (Array.isArray(origParent)) {
-        newParent = origParent.slice();
-      } else if (origParent !== null && typeof origParent === "object") {
-        newParent = { ...origParent };
-      } else {
-        newParent = typeof key === "number" ? [] : {};
-      }
-      if (Array.isArray(newParent) && typeof key === "number") {
-        if (key >= newParent.length) {
-          newParent.length = key + 1;
-        }
-      }
-      newParent[key] = newChild;
-      newChild = newParent;
-    }
-    return newChild;
-  }
-
-  // ../ki-frame/src/util/strongOrWeakSet.ts
-  var StrongOrWeakSet = class {
-    constructor(mode) {
-      this.coerce = mode;
-    }
-    *all() {
-      if (this.items) {
-        for (const i2 of this.items) {
-          if (i2 instanceof WeakRef) {
-            const deref = i2.deref();
-            if (deref === void 0) {
-              this.items.delete(i2);
-            } else {
-              yield deref;
-            }
-          } else {
-            yield i2;
-          }
-        }
-      }
-    }
-    add(item, itemMode = this.coerce) {
-      const weakRef = new WeakRef(item);
-      const unsub = () => {
-        const deref = weakRef.deref();
-        if (deref) {
-          this.delete(deref);
-        }
-      };
-      for (const i2 of this.all()) {
-        if (i2 === item) {
-          return unsub;
-        }
-      }
-      const newItem = itemMode === "weak" ? weakRef : item;
-      if (!this.items) {
-        this.items = /* @__PURE__ */ new Set();
-      }
-      this.items.add(newItem);
-      return unsub;
-    }
-    delete(item) {
-      if (this.items) {
-        for (const i2 of this.items) {
-          if (i2 instanceof WeakRef) {
-            const deref = i2.deref();
-            if (deref === void 0 || deref === item) {
-              this.items.delete(i2);
-            }
-          } else {
-            if (i2 === item) {
-              this.items.delete(i2);
-            }
-          }
-        }
-        if (this.items.size === 0) {
-          this.destroy();
-        }
-      }
-    }
-    destroy() {
-      if (this.items) {
-        this.items.clear();
-        this.items = void 0;
-      }
-    }
-  };
-  var DestroyableSet = class extends StrongOrWeakSet {
-    destroy() {
-      for (const destroyable of this.all()) {
-        try {
-          destroyable.destroy();
-        } catch (err) {
-          console.error(`Error in destroying item`, err);
-        }
-      }
-      super.destroy();
-    }
-  };
-
-  // ../ki-frame/src/state.ts
-  function shallowEqual(a2, b2) {
-    return a2 === b2;
-  }
-  var Context = class {
-    constructor(parent, controllers = new DestroyableSet("weak")) {
-      this.parent = parent;
-      this.controllers = controllers;
-    }
-    createController(options) {
-      const controller = new Controller(this, options);
-      this.controllers.add(controller);
-      return controller;
-    }
-    createState(initialValue, options) {
-      const state = new State(this, initialValue, options);
-      this.controllers.add(state);
-      return state;
-    }
-    createForm(t, initValuesOrLinkedState, options) {
-      const form2 = new FormState(this, t, initValuesOrLinkedState, options);
-      this.controllers.add(form2);
-      return form2;
-    }
-    destroy() {
-      var _a2;
-      (_a2 = this.parent) == null ? void 0 : _a2.controllers.delete(this);
-      this.controllers.destroy();
-    }
-  };
-  var Controller = class extends Context {
-    constructor(parent, options) {
-      super(parent, new DestroyableSet());
-      this._destroyed = false;
-      this.registeredSources = new DestroyableSet();
-      this.onDestroyListeners = new DestroyableSet();
-      this.linkedStates = /* @__PURE__ */ new Set();
-      this.eventSources = [];
-      const { name = "state", weakRef = false } = options != null ? options : {};
-      this.options = { name, weakRef };
-      this._stateId = createId(name);
-    }
-    getOutputChannel() {
-      if (!isDefined(this.outputChannel)) {
-        this.outputChannel = new Channel(`${this.stateId}-onChange`);
-      }
-      return this.outputChannel;
-    }
-    get stateId() {
-      return this._stateId;
-    }
-    get destroyed() {
-      return this._destroyed;
-    }
-    idTxt(txt) {
-      return `${this.stateId}: ${txt}`;
-    }
-    describe() {
-      return {
-        name: this.stateId
-      };
-    }
-    updateUi() {
-      if (this.outputChannel) {
-        this.outputChannel.publish({ type: "updateUi" });
-      }
-    }
-    subscribe(cb) {
-      if (this.destroyed) throw new Error(this.idTxt("Cannot subscribe to destroyed state"));
-      return this.getOutputChannel().subscribe(cb);
-    }
-    addLinkedState(controller, options) {
-      const value = { controller, ...options || {} };
-      this.linkedStates.add(value);
-      return () => this.linkedStates.delete(value);
-    }
-    onDestroy(target) {
-      if (typeof target === "function") {
-        if (this.destroyed) {
-          target();
-          return () => {
-          };
-        }
-        const info = {
-          type: "function",
-          destroy: target
-        };
-        return this.onDestroyListeners.add(info);
-      } else {
-        if (this.destroyed) {
-          target.destroy();
-          return () => {
-          };
-        }
-        return this.onDestroyListeners.add(target);
-      }
-    }
-    /** Notify onDestroy() subscribers and call .destroy() for all attached states.
-     * For an attached state also removes the state from parent.
-     * Safe to call multiple times.
-     **/
-    destroy() {
-      var _a2, _b;
-      super.destroy();
-      if (this.destroyed) return;
-      this._destroyed = true;
-      for (const linkedState of Array.from(this.linkedStates)) {
-        if (!isDefined((_a2 = linkedState == null ? void 0 : linkedState.events) == null ? void 0 : _a2.destroy) || linkedState.events.destroy) {
-          linkedState.controller.destroy();
-        }
-      }
-      this.linkedStates.clear();
-      this.registeredSources.destroy();
-      this.onDestroyListeners.destroy();
-      for (const es of this.eventSources) {
-        if (es.weakRefUnsub) {
-          const unsub = es.weakRefUnsub.deref();
-          if (unsub) unsub();
-          es.weakRefUnsub = void 0;
-        }
-        if (es.unsub) {
-          es.unsub();
-        }
-        es.source = void 0;
-      }
-      (_b = this.outputChannel) == null ? void 0 : _b.destroy();
-      this.eventSources.length = 0;
-    }
-    addDomEvent(name, node, type, listener, options) {
-      node.addEventListener(type, listener, options);
-      const unsub = () => node.removeEventListener(type, listener, options);
-      if (this.options.weakRef) {
-        this.eventSources.push({
-          name: `${name}: <${node.nodeName}>.${type} -> ${this.stateId}`,
-          type: "dom",
-          source: new WeakRef(node),
-          weakRefUnsub: new WeakRef(unsub)
-        });
-      } else {
-        this.eventSources.push({
-          name: `${name}: <${node.nodeName}>.${type} -> ${this.stateId}`,
-          type: "dom",
-          source: new WeakRef(node),
-          unsub
-        });
-      }
-      return unsub;
-    }
-    timeout(fn, at = 0) {
-      const unregisterDestroyableAndCallItsDestroy = this.registeredSources.add(
-        new TimeoutDestroyable(() => {
-          unregisterDestroyableAndCallItsDestroy();
-          fn();
-        }, at)
-      );
-      return unregisterDestroyableAndCallItsDestroy;
-    }
-    fetch(url2, fetchOptions) {
-      const { timeoutMs, map: map2, assertOk = true, ...fetchInit } = fetchOptions != null ? fetchOptions : {};
-      const createAbortController = (destroy) => {
-        const abortController2 = new AbortController();
-        const destroyAbortController2 = () => {
-          timeoutUnsub();
-          abortController2.abort();
-          destroy();
-        };
-        const timeoutUnsub = this.timeout(destroyAbortController2, timeoutMs);
-        return [abortController2, destroyAbortController2];
-      };
-      const [abortController, destroyAbortController] = isDefined(timeoutMs) ? createAbortController(() => unregisterDestroyableAndCallItsDestroy()) : [];
-      const response = fetch(url2, { ...fetchInit, signal: abortController == null ? void 0 : abortController.signal });
-      const maybeOkResponse = assertOk ? response.then((response2) => {
-        if (typeof assertOk === "function" && assertOk(response2) === false || !response2.ok) {
-          const cause = { errorResponse: response2 };
-          throw cause;
-        }
-        return response2;
-      }) : response;
-      const unregisterDestroyableAndCallItsDestroy = this.registeredSources.add(
-        new FetchDestroyable(url2, timeoutMs, maybeOkResponse, () => {
-          unregisterDestroyableAndCallItsDestroy();
-          destroyAbortController == null ? void 0 : destroyAbortController();
-        })
-      );
-      maybeOkResponse.finally(unregisterDestroyableAndCallItsDestroy);
-      if (map2) {
-        const mappedPromise = (async () => {
-          return map2(maybeOkResponse);
-        })();
-        return new PromiseDestroy(mappedPromise, unregisterDestroyableAndCallItsDestroy);
-      }
-      return new PromiseDestroy(maybeOkResponse, unregisterDestroyableAndCallItsDestroy);
-    }
-  };
-  var State = class extends Controller {
-    constructor(parent, initialValue, options) {
-      super(parent, options);
-      this.value = initialValue;
-    }
-    get() {
-      if (this.destroyed) throw new Error(this.idTxt("State destroyed. Cannot get value"));
-      return this.value;
-    }
-    getOnChange() {
-      if (!isDefined(this.onChange)) {
-        this.onChange = new Channel(`${this.stateId}-onChange`);
-      }
-      return this.onChange;
-    }
-    set(newObj) {
-      if (this.destroyed) throw new Error(this.idTxt("State destroyed. Cannot set() value"));
-      const old = this.value;
-      const finalObj = typeof newObj === "function" ? newObj(this.value) : newObj;
-      if (shallowEqual(old, finalObj)) return;
-      this.value = finalObj;
-      this.getOnChange().publish(finalObj, old);
-    }
-    update(update) {
-      if (this.destroyed) throw new Error(this.idTxt("State destroyed. Cannot update() value"));
-      if (typeof this.value !== "object") {
-      }
-      const finalUpdate = typeof update === "function" ? update(this.value) : update;
-      this.set({ ...this.value, ...finalUpdate });
-    }
-    onValueChange(cb) {
-      if (this.destroyed) throw new Error(this.idTxt("Cannot subscribe to destroyed state"));
-      return this.getOnChange().subscribe(cb);
-    }
-    destroy() {
-      var _a2;
-      super.destroy();
-      (_a2 = this.onChange) == null ? void 0 : _a2.destroy();
-    }
-  };
-  var FormState = class extends State {
-    constructor(parent, t, initValuesOrLinkedState, options) {
-      const { validate, ...stateOptions } = options || {};
-      const inputs = collectFormsInputs(t);
-      if (initValuesOrLinkedState instanceof State) {
-        const initState = initValuesOrLinkedState.get();
-        const init = {};
-        inputs.forEach(([path]) => setByPath(init, path, getByPath(initState, path)));
-        super(parent, init, stateOptions);
-        this.configureInputs(this, inputs);
-        this.onValueChange((newState) => {
-          if (validate && !validate(newState)) {
-            return;
-          }
-          initValuesOrLinkedState.update(newState);
-        });
-      } else {
-        super(parent, initValuesOrLinkedState, stateOptions);
-        if (validate) {
-          const validInputValuesState = this.createState(initValuesOrLinkedState, { name: "valid input values" });
-          validInputValuesState.onValueChange((newState) => {
-            if (!validate(newState)) {
-              return;
-            }
-            this.set(newState);
-          });
-          this.configureInputs(validInputValuesState, inputs);
-        } else {
-          this.configureInputs(this, inputs);
-        }
-      }
-    }
-    configureInputs(inputState, inputs) {
-      for (const [path, input2] of inputs) {
-        const state = inputState.get();
-        const value = getByPath(state, path);
-        if (input2.node instanceof HTMLInputElement) {
-          input2.node.value = value;
-        }
-        inputState.addDomEvent(path, input2.node, input2.key, (ev) => {
-          const value2 = input2.map ? input2.map(readRaw(input2.node)) : readRaw(input2.node);
-          if (input2.validate && !input2.validate(value2, input2.node, ev)) {
-            return;
-          }
-          const newState = copyAndSet(inputState.get(), path, value2);
-          inputState.set(newState);
-        });
-      }
-    }
-    onsubmit(root, listener, options) {
-      return this.addDomEvent(
-        "submit",
-        root,
-        "submit",
-        (ev) => {
-          ev.preventDefault();
-          listener(ev);
-        },
-        options
-      );
-    }
-  };
-
-  // ../ki-frame/src/index.ts
-  var defaultContext = new Context();
-  var createController = defaultContext.createController.bind(defaultContext);
-  var createState = defaultContext.createState.bind(defaultContext);
-  var createForm = defaultContext.createForm.bind(defaultContext);
-
-  // src/kaukolampo/formatting.ts
-  var printPower = (n) => n.toFixed(3);
-  var printMoney = (n) => n.toFixed(2);
 
   // node_modules/decimal.js/decimal.mjs
   var EXP_LIMIT = 9e15;
@@ -3136,6 +2513,629 @@
   PI = new Decimal(PI);
   var decimal_default = Decimal;
 
+  // ../ki-frame/src/util/objectIdCounter.ts
+  var runningId = 0;
+  function createId(id) {
+    return `${id}-${runningId++}`;
+  }
+
+  // ../ki-frame/src/channel.ts
+  var Channel = class {
+    constructor(name) {
+      this.subs = /* @__PURE__ */ new Set();
+      this.idTxt = (txt) => `${this.id}: ${txt}`;
+      this.id = createId(name);
+    }
+    subscribe(fn) {
+      this.subs.add(fn);
+      return () => {
+        this.unsubscribe(fn);
+      };
+    }
+    subscribeFn() {
+      return (fn) => this.subscribe(fn);
+    }
+    // subscribe once: handler auto-unsubscribe after first invocation
+    once(fn) {
+      const unsub = () => this.unsubscribe(wrapper);
+      const wrapper = (...args) => {
+        unsub();
+        fn(...args);
+      };
+      this.subs.add(wrapper);
+      return unsub;
+    }
+    unsubscribe(fn) {
+      this.subs.delete(fn);
+    }
+    // synchronous publish — invokes handlers and doesn't wait for Promises
+    publish(...args) {
+      for (const fn of Array.from(this.subs)) {
+        try {
+          fn(...args);
+        } catch (err) {
+          console.error(this.idTxt(`Error in channel.publish() for '${this.id}':`), err);
+        }
+      }
+    }
+    // asynchronous publish — waits for all subscribers; rejects if any rejects
+    async publishAsync(...args) {
+      const promises = Array.from(this.subs).map(async (fn) => fn(...args));
+      const settled = await Promise.allSettled(promises);
+      const rejections = settled.filter((s2) => s2.status === "rejected");
+      if (rejections.length) {
+        const err = new Error(`${rejections.length} subscriber(s) failed`);
+        err.details = rejections.map((r) => r.reason);
+        throw err;
+      }
+    }
+    destroy() {
+      this.subs.clear();
+    }
+  };
+
+  // ../ki-frame/src/form.ts
+  var FormsInput = class {
+    constructor(node, key, map2, validate) {
+      this.node = node;
+      this.key = key;
+      this.map = map2;
+      this.validate = validate;
+    }
+  };
+  function collectFormsInputs(root) {
+    const out = [];
+    function visit(node, pathParts) {
+      if (node == null) return;
+      if (node instanceof FormsInput) {
+        const path = pathParts.map((p2) => String(p2)).join(".");
+        out.push([path, node]);
+        return;
+      }
+      if (Array.isArray(node)) {
+        for (let i2 = 0; i2 < node.length; i2++) {
+          visit(node[i2], [...pathParts, i2]);
+        }
+        return;
+      }
+      if (typeof node === "object") {
+        for (const key of Object.keys(node)) {
+          visit(node[key], [...pathParts, key]);
+        }
+        return;
+      }
+    }
+    visit(root, []);
+    return out;
+  }
+  function readRaw(node) {
+    var _a2;
+    const anyNode = node;
+    if ("value" in anyNode && typeof anyNode.value === "string") return anyNode.value;
+    return String((_a2 = node.textContent) != null ? _a2 : "");
+  }
+
+  // ../ki-frame/src/promiseDestroy.ts
+  var PromiseDestroy = class _PromiseDestroy {
+    constructor(promise, destroy = () => {
+    }) {
+      this.promise = promise;
+      this.destroy = destroy;
+    }
+    /**
+     * Promise.then implementation. Can be used to map the response to another value
+     *
+     * - Delegates to the internal `response` promise.
+     * - Returns a NEW FetchReturn whose `response` is the mapped promise.
+     * - If no handlers are provided, returns `this` (typed via cast).
+     */
+    then(onfulfilled, onrejected) {
+      if (!onfulfilled && !onrejected) {
+        return this.promise;
+      }
+      return this.promise.then(onfulfilled, onrejected);
+    }
+    catch(onrejected) {
+      if (!onrejected) {
+        return this;
+      }
+      return this.promise.catch(onrejected);
+    }
+    finally(onfinally) {
+      return this.promise.finally(onfinally);
+    }
+    get [Symbol.toStringTag]() {
+      return _PromiseDestroy.name;
+    }
+    /**
+     * Optional: explicit toString which mirrors Object.prototype.toString
+     */
+    toString() {
+      return Object.prototype.toString.call(this);
+    }
+  };
+  var _a;
+  var TimeoutDestroyable = class {
+    constructor(fn, timeout) {
+      this.fn = fn;
+      this.timeout = timeout;
+      this.at = Date.now() + ((_a = this.timeout) != null ? _a : 0);
+      this.id = setTimeout(this.fn, this.timeout);
+    }
+    destroy() {
+      clearTimeout(this.id);
+    }
+  };
+  var FetchDestroyable = class extends PromiseDestroy {
+    constructor(url2, timeoutMs, promise, destroy) {
+      super(promise, destroy);
+      this.url = url2;
+      this.timeoutMs = timeoutMs;
+      this.promise = promise;
+      this.destroy = destroy;
+    }
+  };
+
+  // ../ki-frame/src/util/getByPath.ts
+  function getByPath(obj, path) {
+    if (obj == null) return void 0;
+    let segments = [];
+    if (Array.isArray(path)) {
+      segments = path.map((p2) => typeof p2 === "string" && /^\d+$/.test(p2) ? Number(p2) : p2);
+    } else if (typeof path === "string") {
+      if (path === "") return obj;
+      segments = path.split(".").map((seg) => /^\d+$/.test(seg) ? Number(seg) : seg);
+    } else {
+      return void 0;
+    }
+    let cur = obj;
+    for (const seg of segments) {
+      if (cur == null) return void 0;
+      cur = cur[seg];
+    }
+    return cur;
+  }
+
+  // ../ki-frame/src/util/setByPath.ts
+  function setByPath(obj, path, value) {
+    if (typeof path === "string") {
+      path = path.split(".").map((seg) => {
+        return /^[0-9]+$/.test(seg) ? Number(seg) : seg;
+      });
+    }
+    if (path.length === 0) return;
+    let cur = obj;
+    for (let i2 = 0; i2 < path.length - 1; i2++) {
+      const key = path[i2];
+      if (cur[key] == null) {
+        const nextKey = path[i2 + 1];
+        cur[key] = typeof nextKey === "number" ? [] : {};
+      }
+      cur = cur[key];
+    }
+    const lastKey = path[path.length - 1];
+    cur[lastKey] = value;
+  }
+  function copyAndSet(obj, path, value) {
+    const segments = Array.isArray(path) ? path.map((p2) => typeof p2 === "string" && /^\d+$/.test(p2) ? Number(p2) : p2) : path === "" ? [] : path.split(".").map((seg) => /^\d+$/.test(seg) ? Number(seg) : seg);
+    if (segments.length === 0) return value;
+    const parents = [];
+    let cur = obj;
+    parents.push(cur);
+    for (const seg of segments) {
+      cur = cur !== null && typeof cur === "object" ? cur[seg] : void 0;
+      parents.push(cur);
+    }
+    let newChild = value;
+    for (let i2 = segments.length - 1; i2 >= 0; i2--) {
+      const key = segments[i2];
+      const origParent = parents[i2];
+      let newParent;
+      if (Array.isArray(origParent)) {
+        newParent = origParent.slice();
+      } else if (origParent !== null && typeof origParent === "object") {
+        newParent = { ...origParent };
+      } else {
+        newParent = typeof key === "number" ? [] : {};
+      }
+      if (Array.isArray(newParent) && typeof key === "number") {
+        if (key >= newParent.length) {
+          newParent.length = key + 1;
+        }
+      }
+      newParent[key] = newChild;
+      newChild = newParent;
+    }
+    return newChild;
+  }
+
+  // ../ki-frame/src/util/strongOrWeakSet.ts
+  var StrongOrWeakSet = class {
+    constructor(mode) {
+      this.coerce = mode;
+    }
+    *all() {
+      if (this.items) {
+        for (const i2 of this.items) {
+          if (i2 instanceof WeakRef) {
+            const deref = i2.deref();
+            if (deref === void 0) {
+              this.items.delete(i2);
+            } else {
+              yield deref;
+            }
+          } else {
+            yield i2;
+          }
+        }
+      }
+    }
+    add(item, itemMode = this.coerce) {
+      const weakRef = new WeakRef(item);
+      const unsub = () => {
+        const deref = weakRef.deref();
+        if (deref) {
+          this.delete(deref);
+        }
+      };
+      for (const i2 of this.all()) {
+        if (i2 === item) {
+          return unsub;
+        }
+      }
+      const newItem = itemMode === "weak" ? weakRef : item;
+      if (!this.items) {
+        this.items = /* @__PURE__ */ new Set();
+      }
+      this.items.add(newItem);
+      return unsub;
+    }
+    delete(item) {
+      if (this.items) {
+        for (const i2 of this.items) {
+          if (i2 instanceof WeakRef) {
+            const deref = i2.deref();
+            if (deref === void 0 || deref === item) {
+              this.items.delete(i2);
+            }
+          } else {
+            if (i2 === item) {
+              this.items.delete(i2);
+            }
+          }
+        }
+        if (this.items.size === 0) {
+          this.destroy();
+        }
+      }
+    }
+    destroy() {
+      if (this.items) {
+        this.items.clear();
+        this.items = void 0;
+      }
+    }
+  };
+  var DestroyableSet = class extends StrongOrWeakSet {
+    destroy() {
+      for (const destroyable of this.all()) {
+        try {
+          destroyable.destroy();
+        } catch (err) {
+          console.error(`Error in destroying item`, err);
+        }
+      }
+      super.destroy();
+    }
+  };
+
+  // ../ki-frame/src/state.ts
+  function shallowEqual(a2, b2) {
+    return a2 === b2;
+  }
+  var Context = class {
+    constructor(parent, controllers = new DestroyableSet("weak")) {
+      this.parent = parent;
+      this.controllers = controllers;
+    }
+    createController(options) {
+      const controller = new Controller(this, options);
+      this.controllers.add(controller);
+      return controller;
+    }
+    createState(initialValue, options) {
+      const state = new State(this, initialValue, options);
+      this.controllers.add(state);
+      return state;
+    }
+    createForm(t, initValuesOrLinkedState, options) {
+      const form2 = new FormState(this, t, initValuesOrLinkedState, options);
+      this.controllers.add(form2);
+      return form2;
+    }
+    destroy() {
+      var _a2;
+      (_a2 = this.parent) == null ? void 0 : _a2.controllers.delete(this);
+      this.controllers.destroy();
+    }
+  };
+  var Controller = class extends Context {
+    constructor(parent, options) {
+      super(parent, new DestroyableSet());
+      this._destroyed = false;
+      this.registeredSources = new DestroyableSet();
+      this.onDestroyListeners = new DestroyableSet();
+      this.linkedStates = /* @__PURE__ */ new Set();
+      this.eventSources = [];
+      const { name = "state", weakRef = false } = options != null ? options : {};
+      this.options = { name, weakRef };
+      this._stateId = createId(name);
+    }
+    getOutputChannel() {
+      if (!isDefined(this.outputChannel)) {
+        this.outputChannel = new Channel(`${this.stateId}-onChange`);
+      }
+      return this.outputChannel;
+    }
+    get stateId() {
+      return this._stateId;
+    }
+    get destroyed() {
+      return this._destroyed;
+    }
+    idTxt(txt) {
+      return `${this.stateId}: ${txt}`;
+    }
+    describe() {
+      return {
+        name: this.stateId
+      };
+    }
+    updateUi() {
+      if (this.outputChannel) {
+        this.outputChannel.publish({ type: "updateUi" });
+      }
+    }
+    subscribe(cb) {
+      if (this.destroyed) throw new Error(this.idTxt("Cannot subscribe to destroyed state"));
+      return this.getOutputChannel().subscribe(cb);
+    }
+    addLinkedState(controller, options) {
+      const value = { controller, ...options || {} };
+      this.linkedStates.add(value);
+      return () => this.linkedStates.delete(value);
+    }
+    onDestroy(target) {
+      if (typeof target === "function") {
+        if (this.destroyed) {
+          target();
+          return () => {
+          };
+        }
+        const info = {
+          type: "function",
+          destroy: target
+        };
+        return this.onDestroyListeners.add(info);
+      } else {
+        if (this.destroyed) {
+          target.destroy();
+          return () => {
+          };
+        }
+        return this.onDestroyListeners.add(target);
+      }
+    }
+    /** Notify onDestroy() subscribers and call .destroy() for all attached states.
+     * For an attached state also removes the state from parent.
+     * Safe to call multiple times.
+     **/
+    destroy() {
+      var _a2, _b;
+      super.destroy();
+      if (this.destroyed) return;
+      this._destroyed = true;
+      for (const linkedState of Array.from(this.linkedStates)) {
+        if (!isDefined((_a2 = linkedState == null ? void 0 : linkedState.events) == null ? void 0 : _a2.destroy) || linkedState.events.destroy) {
+          linkedState.controller.destroy();
+        }
+      }
+      this.linkedStates.clear();
+      this.registeredSources.destroy();
+      this.onDestroyListeners.destroy();
+      for (const es of this.eventSources) {
+        if (es.weakRefUnsub) {
+          const unsub = es.weakRefUnsub.deref();
+          if (unsub) unsub();
+          es.weakRefUnsub = void 0;
+        }
+        if (es.unsub) {
+          es.unsub();
+        }
+        es.source = void 0;
+      }
+      (_b = this.outputChannel) == null ? void 0 : _b.destroy();
+      this.eventSources.length = 0;
+    }
+    addDomEvent(name, node, type, listener, options) {
+      node.addEventListener(type, listener, options);
+      const unsub = () => node.removeEventListener(type, listener, options);
+      if (this.options.weakRef) {
+        this.eventSources.push({
+          name: `${name}: <${node.nodeName}>.${type} -> ${this.stateId}`,
+          type: "dom",
+          source: new WeakRef(node),
+          weakRefUnsub: new WeakRef(unsub)
+        });
+      } else {
+        this.eventSources.push({
+          name: `${name}: <${node.nodeName}>.${type} -> ${this.stateId}`,
+          type: "dom",
+          source: new WeakRef(node),
+          unsub
+        });
+      }
+      return unsub;
+    }
+    timeout(fn, at = 0) {
+      const unregisterDestroyableAndCallItsDestroy = this.registeredSources.add(
+        new TimeoutDestroyable(() => {
+          unregisterDestroyableAndCallItsDestroy();
+          fn();
+        }, at)
+      );
+      return unregisterDestroyableAndCallItsDestroy;
+    }
+    fetch(url2, fetchOptions) {
+      const { timeoutMs, map: map2, assertOk = true, ...fetchInit } = fetchOptions != null ? fetchOptions : {};
+      const createAbortController = (destroy) => {
+        const abortController2 = new AbortController();
+        const destroyAbortController2 = () => {
+          timeoutUnsub();
+          abortController2.abort();
+          destroy();
+        };
+        const timeoutUnsub = this.timeout(destroyAbortController2, timeoutMs);
+        return [abortController2, destroyAbortController2];
+      };
+      const [abortController, destroyAbortController] = isDefined(timeoutMs) ? createAbortController(() => unregisterDestroyableAndCallItsDestroy()) : [];
+      const response = fetch(url2, { ...fetchInit, signal: abortController == null ? void 0 : abortController.signal });
+      const maybeOkResponse = assertOk ? response.then((response2) => {
+        if (typeof assertOk === "function" && assertOk(response2) === false || !response2.ok) {
+          const cause = { errorResponse: response2 };
+          throw cause;
+        }
+        return response2;
+      }) : response;
+      const unregisterDestroyableAndCallItsDestroy = this.registeredSources.add(
+        new FetchDestroyable(url2, timeoutMs, maybeOkResponse, () => {
+          unregisterDestroyableAndCallItsDestroy();
+          destroyAbortController == null ? void 0 : destroyAbortController();
+        })
+      );
+      maybeOkResponse.finally(unregisterDestroyableAndCallItsDestroy);
+      if (map2) {
+        const mappedPromise = (async () => {
+          return map2(maybeOkResponse);
+        })();
+        return new PromiseDestroy(mappedPromise, unregisterDestroyableAndCallItsDestroy);
+      }
+      return new PromiseDestroy(maybeOkResponse, unregisterDestroyableAndCallItsDestroy);
+    }
+  };
+  var State = class extends Controller {
+    constructor(parent, initialValue, options) {
+      super(parent, options);
+      this.value = initialValue;
+    }
+    get() {
+      if (this.destroyed) throw new Error(this.idTxt("State destroyed. Cannot get value"));
+      return this.value;
+    }
+    getOnChange() {
+      if (!isDefined(this.onChange)) {
+        this.onChange = new Channel(`${this.stateId}-onChange`);
+      }
+      return this.onChange;
+    }
+    set(newObj) {
+      if (this.destroyed) throw new Error(this.idTxt("State destroyed. Cannot set() value"));
+      const old = this.value;
+      const finalObj = typeof newObj === "function" ? newObj(this.value) : newObj;
+      if (shallowEqual(old, finalObj)) return;
+      this.value = finalObj;
+      this.getOnChange().publish(finalObj, old);
+    }
+    update(update) {
+      if (this.destroyed) throw new Error(this.idTxt("State destroyed. Cannot update() value"));
+      if (typeof this.value !== "object") {
+      }
+      const finalUpdate = typeof update === "function" ? update(this.value) : update;
+      this.set({ ...this.value, ...finalUpdate });
+    }
+    onValueChange(cb) {
+      if (this.destroyed) throw new Error(this.idTxt("Cannot subscribe to destroyed state"));
+      return this.getOnChange().subscribe(cb);
+    }
+    destroy() {
+      var _a2;
+      super.destroy();
+      (_a2 = this.onChange) == null ? void 0 : _a2.destroy();
+    }
+  };
+  var FormState = class extends State {
+    constructor(parent, t, initValuesOrLinkedState, options) {
+      const { validate, ...stateOptions } = options || {};
+      const inputs = collectFormsInputs(t);
+      if (initValuesOrLinkedState instanceof State) {
+        const initState = initValuesOrLinkedState.get();
+        const init = {};
+        inputs.forEach(([path]) => setByPath(init, path, getByPath(initState, path)));
+        super(parent, init, stateOptions);
+        this.configureInputs(this, inputs);
+        this.onValueChange((newState) => {
+          if (validate && !validate(newState)) {
+            return;
+          }
+          initValuesOrLinkedState.update(newState);
+        });
+      } else {
+        super(parent, initValuesOrLinkedState, stateOptions);
+        if (validate) {
+          const validInputValuesState = this.createState(initValuesOrLinkedState, { name: "valid input values" });
+          validInputValuesState.onValueChange((newState) => {
+            if (!validate(newState)) {
+              return;
+            }
+            this.set(newState);
+          });
+          this.configureInputs(validInputValuesState, inputs);
+        } else {
+          this.configureInputs(this, inputs);
+        }
+      }
+    }
+    configureInputs(inputState, inputs) {
+      for (const [path, input2] of inputs) {
+        const state = inputState.get();
+        const value = getByPath(state, path);
+        if (input2.node instanceof HTMLInputElement) {
+          input2.node.value = value;
+        }
+        inputState.addDomEvent(path, input2.node, input2.key, (ev) => {
+          const value2 = input2.map ? input2.map(readRaw(input2.node)) : readRaw(input2.node);
+          if (input2.validate && !input2.validate(value2, input2.node, ev)) {
+            return;
+          }
+          const newState = copyAndSet(inputState.get(), path, value2);
+          inputState.set(newState);
+        });
+      }
+    }
+    onsubmit(root, listener, options) {
+      return this.addDomEvent(
+        "submit",
+        root,
+        "submit",
+        (ev) => {
+          ev.preventDefault();
+          listener(ev);
+        },
+        options
+      );
+    }
+  };
+
+  // ../ki-frame/src/index.ts
+  var defaultContext = new Context();
+  var createController = defaultContext.createController.bind(defaultContext);
+  var createState = defaultContext.createState.bind(defaultContext);
+  var createForm = defaultContext.createForm.bind(defaultContext);
+
+  // src/kaukolampo/formatting.ts
+  var printPower = (n) => n.toFixed(3);
+  var printMoney = (n) => n.toFixed(2);
+
   // src/kaukolampo/range.ts
   function range2(from, to) {
     return Array.from({ length: to - from + 1 }, (_, i2) => from + i2);
@@ -3222,10 +3222,10 @@
     for (let c = ymToIndex(from); c <= ymToIndex(to); c++) {
       const firstLower = sortedPricesDesc.find((value) => ymToIndex(value) <= c && value.price);
       if (firstLower && isDefined(firstLower.price)) {
-        const { monthlyFee, mWPrice } = firstLower.price;
+        const { monthlyFee, powerPricePerMW } = firstLower.price;
         result[c] = {
           monthlyFee: decimal_default(monthlyFee),
-          mWPrice: decimal_default(mWPrice)
+          powerPrice: decimal_default(powerPricePerMW)
         };
       } else {
         throw new Error(`${indexToYm(c)} is not in the range of contract prices for ${contract.id}`);
@@ -3234,50 +3234,112 @@
     return result;
   }
   var months = range2(1, 12);
-  function calculateMonthlyYearBillTotals(years, monthlyPricing, powerUsage) {
+  function calculateMonthlyYearlyTotals(years, monthlyPricing, powerUsage) {
     const totalsByYear = {};
     const monthSummary = {};
-    years.forEach((year) => {
+    years.forEach((year, index) => {
       const yearTotal = {
-        mWPrice: decimal_default(0),
+        usedPower: decimal_default(0),
         monthCount: 0,
-        monthlyFee: decimal_default(0),
-        totalEnergy: decimal_default(0)
+        billedTotals: {
+          usedPowerPrice: decimal_default(0),
+          monthlyFees: decimal_default(0),
+          total: decimal_default(0)
+        },
+        calculatedTotals: {
+          comparedToPreviousYear: true,
+          usedPowerPrice: decimal_default(0),
+          monthlyFees: decimal_default(0),
+          total: decimal_default(0),
+          avgMonthlyFee: decimal_default(0),
+          avgPowerPrice: decimal_default(0),
+          excessBilling: decimal_default(0)
+        }
       };
       months.forEach((month2) => {
-        const index = ymToIndex({ year, month: month2 });
-        const price = monthlyPricing[index];
-        const prevPrice = monthlyPricing[index - 1] || price;
-        const power = powerUsage[index];
-        if (power) {
-          const powerPrice = power.mul(price.mWPrice);
-          yearTotal.mWPrice = yearTotal.mWPrice.add(powerPrice);
-          yearTotal.monthlyFee = yearTotal.monthlyFee.add(price.monthlyFee);
-          yearTotal.monthCount = yearTotal.monthCount + 1;
-          yearTotal.totalEnergy = yearTotal.totalEnergy.add(power);
-          monthSummary[index] = {
+        const index2 = ymToIndex({ year, month: month2 });
+        const usedPower = powerUsage[index2];
+        if (usedPower) {
+          const price = monthlyPricing[index2];
+          const usedPowerPrice = usedPower.mul(price.powerPrice);
+          const prevPrice = monthlyPricing[index2 - 1] || price;
+          const total = usedPowerPrice.add(price.monthlyFee);
+          monthSummary[index2] = {
             ...price,
-            power,
-            powerPrice,
-            monthlyMWPriceHasIncreased: price.mWPrice.sub(prevPrice.mWPrice).toNumber(),
-            monthlyFeeHasIncreased: price.monthlyFee.sub(prevPrice.monthlyFee).toNumber()
+            usedPower,
+            usedPowerPrice,
+            monthlyMWPriceDelta: price.powerPrice.sub(prevPrice.powerPrice).toNumber(),
+            monthlyFeeDelta: price.monthlyFee.sub(prevPrice.monthlyFee).toNumber(),
+            total
           };
+          yearTotal.usedPower = yearTotal.usedPower.add(usedPower);
+          const billedTotals = yearTotal.billedTotals;
+          billedTotals.monthlyFees = billedTotals.monthlyFees.add(price.monthlyFee);
+          billedTotals.usedPowerPrice = billedTotals.usedPowerPrice.add(usedPowerPrice);
+          billedTotals.total = billedTotals.total.add(total);
+          yearTotal.monthCount = yearTotal.monthCount + 1;
         }
       });
+      yearTotal.calculatedTotals = {
+        ...yearTotal.billedTotals,
+        comparedToPreviousYear: false,
+        avgPowerPrice: yearTotal.billedTotals.usedPowerPrice.div(yearTotal.usedPower),
+        avgMonthlyFee: yearTotal.billedTotals.monthlyFees.div(yearTotal.monthCount),
+        excessBilling: decimal_default(0)
+      };
+      if (index > 0) {
+        const prevYear = year - 1;
+        const prevTotals = totalsByYear[prevYear].calculatedTotals;
+        const prevMonthlyFees = prevTotals.avgMonthlyFee.mul(yearTotal.monthCount);
+        const prevUsedPowerPrice = yearTotal.usedPower.mul(prevTotals.avgPowerPrice);
+        const totalsBasedOnLastYearLevel = {
+          monthlyFees: prevMonthlyFees,
+          usedPowerPrice: prevUsedPowerPrice,
+          total: prevMonthlyFees.add(prevUsedPowerPrice)
+        };
+        yearTotal.totalsBasedOnLastYearLevel = totalsBasedOnLastYearLevel;
+        const billedTotal = yearTotal.billedTotals.total;
+        const priceIncreaseEuros = billedTotal.minus(totalsBasedOnLastYearLevel.total);
+        const priceIncreasePercents = billedTotal.div(totalsBasedOnLastYearLevel.total).minus(1).mul(100);
+        const priceIncreaseTooMuch = priceIncreaseEuros.toNumber() > 150 && priceIncreasePercents.toNumber() > 15;
+        if (priceIncreaseTooMuch) {
+          const total = totalsBasedOnLastYearLevel.total.add(150);
+          const adjustmentMultiplier = total.div(totalsBasedOnLastYearLevel.total);
+          const avgMonthlyFee = prevTotals.avgMonthlyFee.mul(adjustmentMultiplier);
+          const avgPowerPrice = prevTotals.avgPowerPrice.mul(adjustmentMultiplier);
+          yearTotal.calculatedTotals = {
+            usedPowerPrice: avgPowerPrice.mul(yearTotal.usedPower),
+            monthlyFees: avgMonthlyFee.mul(yearTotal.monthCount),
+            total,
+            avgMonthlyFee,
+            avgPowerPrice,
+            adjustmentMultiplier,
+            excessBilling: billedTotal.minus(total),
+            comparedToPreviousYear: true,
+            priceIncreaseTooMuch,
+            priceIncreasePercents,
+            priceIncreaseEuros
+          };
+        } else {
+          yearTotal.calculatedTotals.comparedToPreviousYear = true;
+          yearTotal.calculatedTotals.priceIncreasePercents = priceIncreasePercents;
+          yearTotal.calculatedTotals.priceIncreaseEuros = priceIncreaseEuros;
+        }
+      }
       totalsByYear[year] = yearTotal;
     });
     return { totalsByYear, monthSummary };
   }
-  function calculatePaybackInterest(excessYears, originalBills, adjustedPricing) {
+  function calculatePaybackInterest(excessYears, originalBills, totalsByYear) {
     let excessTotal = decimal_default(0);
     let paybackInterestTotal = decimal_default(0);
-    const months2 = excessYears.flatMap(
-      (year) => range2(1, 12).map((month2) => {
+    const months2 = excessYears.flatMap((year) => {
+      const yearTotal = totalsByYear[year].calculatedTotals;
+      return range2(1, 12).map((month2) => {
         const index = ymToIndex({ year, month: month2 });
         const originalBill = originalBills[index];
-        const adjustedMonthlyPricing = adjustedPricing[year];
-        const originalTotal = originalBill.power.mul(originalBill.mWPrice).plus(originalBill.monthlyFee);
-        const adjustedTotal = originalBill.power.mul(adjustedMonthlyPricing.mWPrice.div(adjustedMonthlyPricing.totalEnergy)).plus(adjustedMonthlyPricing.monthlyFee.div(adjustedMonthlyPricing.monthCount));
+        const originalTotal = originalBill.usedPower.mul(originalBill.powerPrice).plus(originalBill.monthlyFee);
+        const adjustedTotal = originalBill.usedPower.mul(yearTotal.avgPowerPrice).plus(yearTotal.avgMonthlyFee);
         const excess = originalTotal.minus(adjustedTotal);
         const interestMultiplier = calculateViivastyskorkoMultiplier(
           toDateISO(`${year}-${month2}-1`),
@@ -3295,8 +3357,8 @@
           excess,
           interest
         };
-      })
-    );
+      });
+    });
     return { excessTotal, paybackInterestTotal, months: months2 };
   }
 
@@ -3348,7 +3410,7 @@
         month: 1,
         price: {
           monthlyFee: 35.3,
-          mWPrice: 68.57
+          powerPricePerMW: 68.57
         }
       },
       {
@@ -3356,7 +3418,7 @@
         month: 6,
         price: {
           monthlyFee: 40.25,
-          mWPrice: 78.17
+          powerPricePerMW: 78.17
         }
       },
       {
@@ -3364,7 +3426,7 @@
         month: 1,
         price: {
           monthlyFee: 45.88,
-          mWPrice: 89.12
+          powerPricePerMW: 89.12
         }
       },
       {
@@ -3372,7 +3434,7 @@
         month: 9,
         price: {
           monthlyFee: 46.44,
-          mWPrice: 90.2
+          powerPricePerMW: 90.2
         }
       },
       {
@@ -3380,7 +3442,7 @@
         month: 1,
         price: {
           monthlyFee: 59.55,
-          mWPrice: 90.2
+          powerPricePerMW: 90.2
         }
       },
       {
@@ -3388,7 +3450,7 @@
         month: 7,
         price: {
           monthlyFee: 59.55,
-          mWPrice: 86.04
+          powerPricePerMW: 86.04
         }
       }
     ]
@@ -3404,15 +3466,11 @@
     const monthlyFee = td();
     const total = b();
     const setText = (info) => {
-      addItems(power, (info == null ? void 0 : info.power) ? printPower(info.power) : "");
-      addItems(mwPrice, (info == null ? void 0 : info.mWPrice) ? printMoney(info.mWPrice) : "", showIncrease(info.monthlyMWPriceHasIncreased));
-      addItems(powerPrice, (info == null ? void 0 : info.powerPrice) ? printMoney(info.powerPrice) : "");
-      addItems(
-        monthlyFee,
-        (info == null ? void 0 : info.monthlyFee) ? printMoney(info.monthlyFee) : "",
-        showIncrease(info.monthlyFeeHasIncreased)
-      );
-      addItems(total, info.powerPrice && info.monthlyFee ? printMoney(info.powerPrice.add(info.monthlyFee)) : "");
+      addItems(power, (info == null ? void 0 : info.usedPower) ? printPower(info.usedPower) : "");
+      addItems(mwPrice, (info == null ? void 0 : info.powerPrice) ? printMoney(info == null ? void 0 : info.powerPrice) : "", showIncrease(info.monthlyMWPriceDelta));
+      addItems(powerPrice, (info == null ? void 0 : info.usedPowerPrice) ? printMoney(info.usedPowerPrice) : "");
+      addItems(monthlyFee, (info == null ? void 0 : info.monthlyFee) ? printMoney(info.monthlyFee) : "", showIncrease(info.monthlyFeeDelta));
+      addItems(total, info.total ? printMoney(info.total) : "");
     };
     return {
       billTDList: [power, mwPrice, powerPrice, monthlyFee, td(total)],
@@ -3440,11 +3498,15 @@
       years.map((y) => {
         const { billTDList, setText } = BillItemTDs();
         totalsByYear.onValueChange((years2) => {
-          const { monthlyFee, mWPrice, totalEnergy } = years2[y];
+          const {
+            billedTotals: { monthlyFees, usedPowerPrice, total },
+            usedPower
+          } = years2[y];
           setText({
-            power: totalEnergy,
-            powerPrice: mWPrice,
-            monthlyFee
+            usedPower,
+            usedPowerPrice,
+            monthlyFee: monthlyFees,
+            total
           });
         });
         return billTDList;
@@ -3468,90 +3530,63 @@
       totalsByYear
     };
   }
-  function calculateNewPricingWithMax150PriceIncrease(totalWithLastYearLevel, monthlyFee, mwPrice, totalEnergy) {
-    const adjustment = totalWithLastYearLevel.add(150).div(totalWithLastYearLevel);
-    return {
-      monthCount: 12,
-      totalEnergy,
-      adjustment,
-      monthlyFee: monthlyFee.mul(12).mul(adjustment),
-      mWPrice: mwPrice.mul(totalEnergy).mul(adjustment)
-    };
-  }
-  function compareYears(firstYear, comparedYears, adjustedPricing, totalsByYear, excessBillingAll, years) {
+  function compareYears(firstYear, comparedYears, totalsByYear) {
     const thisYearComparisonTitle = "t\xE4m\xE4n vuoden vertailutason laskeminen seuraavan vuoden korotuksen arviointia varten";
     const compared = comparedYears.map((y) => {
+      var _a2;
+      const yearTotal = totalsByYear[y];
       const prevYear = y - 1;
-      const adjustedPricingForPreviousYear = adjustedPricing[prevYear];
-      const prevTotals = adjustedPricingForPreviousYear || totalsByYear[prevYear];
-      const prevAvgMonthlyFee = prevTotals.monthlyFee.div(prevTotals.monthCount);
-      const prevAvgMwPrice = prevTotals.mWPrice.div(prevTotals.totalEnergy);
-      const totals = totalsByYear[y];
-      const totalWithPrevYearLevel = totals.totalEnergy.mul(prevAvgMwPrice).add(prevAvgMonthlyFee.mul(totals.monthCount));
-      const totalWithThisYearLevel = totals.mWPrice.add(totals.monthlyFee);
-      const priceIncreaseEuros = totalWithThisYearLevel.minus(totalWithPrevYearLevel);
-      const priceIncreasePercents = totalWithThisYearLevel.div(totalWithPrevYearLevel).minus(1).mul(100);
-      const priceIncreaseTooMuch = priceIncreaseEuros.toNumber() > 150 && priceIncreasePercents.toNumber() > 15;
-      const adjusted = calculateNewPricingWithMax150PriceIncrease(
-        totalWithPrevYearLevel,
-        prevAvgMonthlyFee,
-        prevAvgMwPrice,
-        totals.totalEnergy
-      );
-      const totalWithPrevYearLevelPlus150 = totalWithPrevYearLevel.add(150);
-      const excessBilling = totalWithThisYearLevel.minus(totalWithPrevYearLevelPlus150);
-      const levelForNextYearMwPrice = printMoney(
-        priceIncreaseTooMuch ? adjusted.mWPrice.div(adjusted.totalEnergy) : totals.mWPrice.div(totals.totalEnergy)
-      );
-      const levelForNextYearMonthlyFee = printMoney(
-        priceIncreaseTooMuch ? adjusted.monthlyFee.div(adjusted.monthCount) : totals.monthlyFee.div(totals.monthCount)
-      );
-      if (priceIncreaseTooMuch) {
-        adjustedPricing[y] = adjusted;
-        excessBillingAll[y] = excessBilling;
-      }
-      const princeIncreaseInfo = priceIncreaseTooMuch ? [
+      const prevTotal = totalsByYear[prevYear];
+      const calculatedTotals = yearTotal.calculatedTotals;
+      const { priceIncreaseTooMuch } = calculatedTotals;
+      const princeIncreaseInfo = priceIncreaseTooMuch && yearTotal.totalsBasedOnLastYearLevel ? [
         li("Korotus ylitt\xE4\xE4 15% ja 150e. Kuluttajariitalautakunnan suosituksen mukainen korotus olisi 150e"),
         ul(
           li(
-            `150\u20AC korotus edellisen vuoden tasolla laskettuun summaan: ${printMoney(totalWithPrevYearLevel)} + 150 = `,
-            b(printMoney(totalWithPrevYearLevelPlus150))
+            `150\u20AC korotus edellisen vuoden tasolla laskettuun summaan: ${printMoney(yearTotal.totalsBasedOnLastYearLevel.total)} + 150 = `,
+            b(printMoney(calculatedTotals.total))
           ),
           li(
-            `Liika laskutus: ${printMoney(totalWithThisYearLevel)} - ${printMoney(totalWithPrevYearLevelPlus150)}  = `,
-            b(printMoney(excessBilling))
+            `Liika laskutus: ${printMoney(yearTotal.billedTotals.total)} - ${printMoney(calculatedTotals.total)}  = `,
+            b(printMoney(calculatedTotals.excessBilling))
           )
         )
       ] : [li("Korotus ei ylit\xE4 150e ja 15%")];
-      const explainAdjustment = (priceIncreaseTooMuch2) => priceIncreaseTooMuch2 ? p(
+      const prevAvgMwPrice = prevTotal.calculatedTotals.avgPowerPrice;
+      const explainAdjustment = () => priceIncreaseTooMuch && yearTotal.totalsBasedOnLastYearLevel && calculatedTotals.adjustmentMultiplier && prevTotal ? p(
         ul(
           li(
             "Liian laskutuksen takia seuraavan vuoden laskutuksessa k\xE4ytet\xE4\xE4n t\xE4m\xE4n vuoden tasona viimevuoden tasoa * korjauskerroin"
           ),
-          li(
-            `Korjauskerroin: ${printMoney(totalWithPrevYearLevelPlus150)}/${printMoney(totalWithPrevYearLevel)} = ${printPower(adjusted.adjustment)}`
+          calculatedTotals.adjustmentMultiplier && li(
+            `Korjauskerroin: ${printMoney(calculatedTotals.total)}/${printMoney(yearTotal.totalsBasedOnLastYearLevel.total)} = ${printPower(calculatedTotals.adjustmentMultiplier)}`
           ),
           li(
-            `Energian hinta: ${printMoney(prevAvgMwPrice)} * ${printPower(adjusted.adjustment)} = `,
-            b(levelForNextYearMwPrice)
+            `Energian hinta: ${printMoney(prevAvgMwPrice)} * ${printPower(calculatedTotals.adjustmentMultiplier)} = `,
+            b(printMoney(calculatedTotals.avgPowerPrice))
           ),
           li(
-            `Kuukausi: ${printMoney(prevAvgMonthlyFee)} * ${printPower(adjusted.adjustment)} = `,
-            b(levelForNextYearMonthlyFee)
+            `Kuukausi: ${printMoney(prevTotal.calculatedTotals.avgMonthlyFee)} * ${printPower(calculatedTotals.adjustmentMultiplier)} = `,
+            b(printMoney(calculatedTotals.avgMonthlyFee))
           )
         )
       ) : p(
         ul(
           li("Taso saadaan laskemalla keskiarvot"),
           li(
-            `Energian hinta: ${printMoney(totals.mWPrice)} / ${printPower(totals.totalEnergy)} = `,
-            b(levelForNextYearMwPrice)
+            `Energian hinta: ${printMoney(yearTotal.billedTotals.usedPowerPrice)} / ${printPower(yearTotal.usedPower)} = `,
+            b(printMoney(yearTotal.calculatedTotals.avgPowerPrice))
           ),
-          li(`Kuukausi: ${printMoney(totals.monthlyFee)} / ${totals.monthCount} = `, b(levelForNextYearMonthlyFee))
+          li(
+            `Kuukausi: ${printMoney(yearTotal.billedTotals.monthlyFees)} / ${yearTotal.monthCount} = `,
+            b(printMoney(yearTotal.calculatedTotals.avgMonthlyFee))
+          )
         )
       );
+      const prevAvgMonthlyFee = prevTotal.calculatedTotals.avgMonthlyFee;
+      const totalWithPrevYearLevel = ((_a2 = yearTotal.totalsBasedOnLastYearLevel) == null ? void 0 : _a2.total) || decimal_default(0);
       return div(
-        h3(`${y}, vertailu toteutuneella ja ${prevYear} tasolla`),
+        h3(`${y}, vertailu toteutuneella ja ${y - 1} tasolla`),
         table(
           styles({ width: "auto" }),
           thead(tr(th(""), th("kulutus"), th("\u20AC/MWh"), th("kk \u20AC"), th("Lasku vuositasolla"), th("Liika laskutus"))),
@@ -3559,10 +3594,10 @@
             styles({ verticalAlign: "top" }),
             tr(
               td(`${y} toteunut lasku`),
-              td(printPower(totals.totalEnergy)),
+              td(printPower(yearTotal.usedPower)),
               td(),
               td(),
-              td(printMoney(totalWithThisYearLevel)),
+              td(printMoney(yearTotal.billedTotals.total)),
               td()
             ),
             tr(
@@ -3570,14 +3605,14 @@
                 `edellisen vuoden taso ja lasku vuoden ${y} kulutuksella`,
                 ul(
                   li(
-                    `Vuoden ${y} energiakulutus ${printPower(totals.totalEnergy)} vuoden ${y - 1} kuukausimaksulla ja energian hinnalla: `,
+                    `Vuoden ${y} energiakulutus ${printPower(yearTotal.usedPower)} vuoden ${y - 1} kuukausimaksulla ja energian hinnalla: `,
                     br(),
-                    `${printPower(totals.totalEnergy)} * ${printMoney(prevAvgMwPrice)} + ${totals.monthCount} * ${printMoney(prevAvgMonthlyFee)} = `,
+                    `${printPower(yearTotal.usedPower)} * ${printMoney(prevAvgMwPrice)} + ${yearTotal.monthCount} * ${printMoney(prevAvgMonthlyFee)} = `,
                     b(printMoney(totalWithPrevYearLevel))
                   )
                 )
               ),
-              td(printPower(totals.totalEnergy)),
+              td(printPower(yearTotal.usedPower)),
               td(printMoney(prevAvgMwPrice)),
               td(printMoney(prevAvgMonthlyFee)),
               td(printMoney(totalWithPrevYearLevel)),
@@ -3588,23 +3623,25 @@
                 `Korotuksen arvionti vuodelle ${y}`,
                 ul(
                   li(
-                    `${y} yhteens\xE4 ${printMoney(totalWithThisYearLevel)}, ${prevYear} tasolla ${printMoney(totalWithPrevYearLevel)}`
+                    `${y} yhteens\xE4 ${printMoney(yearTotal.billedTotals.total)}, ${prevYear} tasolla ${printMoney(totalWithPrevYearLevel)}`
                   ),
-                  li(`Korotus ${printMoney(priceIncreaseEuros)} euroa ${printPower(priceIncreasePercents)} prosenttia`),
+                  li(
+                    `Korotus ${printMoney(calculatedTotals.priceIncreaseEuros || decimal_default(0))} euroa ${printPower(calculatedTotals.priceIncreasePercents || decimal_default(0))} prosenttia`
+                  ),
                   princeIncreaseInfo
                 )
               ),
               td(),
               td(),
               td(),
-              td(priceIncreaseTooMuch && printMoney(totalWithPrevYearLevelPlus150)),
-              td(priceIncreaseTooMuch && b(printMoney(excessBilling)))
+              td(priceIncreaseTooMuch && printMoney(calculatedTotals.total)),
+              td(priceIncreaseTooMuch && b(printMoney(calculatedTotals.excessBilling)))
             ),
             tr(
-              td(thisYearComparisonTitle, explainAdjustment(priceIncreaseTooMuch)),
+              td(thisYearComparisonTitle, explainAdjustment()),
               td(),
-              td(levelForNextYearMwPrice),
-              td(levelForNextYearMonthlyFee),
+              td(printMoney(calculatedTotals.avgPowerPrice)),
+              td(printMoney(calculatedTotals.avgMonthlyFee)),
               td()
             )
           )
@@ -3612,8 +3649,8 @@
       );
     });
     const firstYearTotals = totalsByYear[firstYear];
-    const firstAvgMwPrice = printMoney(firstYearTotals.mWPrice.div(firstYearTotals.totalEnergy));
-    const firstAvgMonthlyFee = printMoney(firstYearTotals.monthlyFee.div(firstYearTotals.monthCount));
+    const firstAvgMwPrice = printMoney(firstYearTotals.calculatedTotals.avgPowerPrice);
+    const firstAvgMonthlyFee = printMoney(firstYearTotals.calculatedTotals.avgMonthlyFee);
     return [
       h3(`${firstYear} tason laskeminen`),
       table(
@@ -3626,16 +3663,16 @@
               thisYearComparisonTitle,
               ul(
                 li(
-                  `${firstYear} Energian hinta \u20AC/MWh: ${printMoney(firstYearTotals.mWPrice)} / ${printPower(firstYearTotals.totalEnergy)} = `,
+                  `${firstYear} Energian hinta \u20AC/MWh: ${printMoney(firstYearTotals.billedTotals.usedPowerPrice)} / ${printPower(firstYearTotals.usedPower)} = `,
                   b(firstAvgMwPrice)
                 ),
                 li(
-                  `${firstYear} Kuukausimaksu: ${printMoney(firstYearTotals.monthlyFee)} / ${firstYearTotals.monthCount} = `,
+                  `${firstYear} Kuukausimaksu: ${printMoney(firstYearTotals.billedTotals.monthlyFees)} / ${firstYearTotals.monthCount} = `,
                   b(firstAvgMonthlyFee)
                 )
               )
             ),
-            td(printPower(firstYearTotals.totalEnergy)),
+            td(printPower(firstYearTotals.usedPower)),
             td(firstAvgMwPrice),
             td(firstAvgMonthlyFee)
           )
@@ -3644,11 +3681,11 @@
       ...compared
     ];
   }
-  function excessBillingPaybackInterest(excessYears, adjustedPricing, monthlyPricing) {
+  function excessBillingPaybackInterest(excessYears, totalsByYear, monthlyPricing) {
     const { excessTotal, paybackInterestTotal, months: months2 } = calculatePaybackInterest(
       excessYears,
       monthlyPricing,
-      adjustedPricing
+      totalsByYear
     );
     return {
       root: table(
@@ -3667,7 +3704,7 @@
           months2.map((m) => {
             return tr(
               td(m.date),
-              td(printPower(m.originalBill.power)),
+              td(printPower(m.originalBill.usedPower)),
               td(printMoney(m.originalTotal)),
               td(printMoney(m.adjustedTotal)),
               td(printMoney(m.excess)),
@@ -3682,26 +3719,24 @@
   }
   function priceIncreasesAndPaybackInterest(years, totalsByYear, monthlyPricing) {
     const [firstYear, ...comparedYears] = years;
-    const adjustedPricing = {};
-    const excessBillingAll = {};
-    const yearComparison = compareYears(firstYear, comparedYears, adjustedPricing, totalsByYear, excessBillingAll, years);
-    const excessYears = comparedYears.filter((y) => excessBillingAll[y]);
+    const yearComparison = compareYears(firstYear, comparedYears, totalsByYear);
+    const excessYears = comparedYears.filter((y) => totalsByYear[y].calculatedTotals.excessBilling.toNumber() > 0);
     const { root: paybackInterest, paybackInterestTotal } = excessBillingPaybackInterest(
       excessYears,
-      adjustedPricing,
+      totalsByYear,
       monthlyPricing
     );
     return div(
       h2("Korotusten arviointi"),
       yearComparison,
-      Object.keys(excessBillingAll).length > 0 && [
+      excessYears.length > 0 && [
         h2("Liiallinen laskutus ja viiv\xE4styskorko"),
         ul(
           { class: "pagebreak" },
-          excessYears.map((y) => li(`${y}: ${printMoney(excessBillingAll[y])}\u20AC`)),
+          excessYears.map((y) => li(`${y}: ${printMoney(totalsByYear[y].calculatedTotals.excessBilling)}\u20AC`)),
           li(`Viiv\xE4styskorko: ${printMoney(paybackInterestTotal)}\u20AC`),
           li(
-            `Yhteens\xE4: ${printMoney(Object.values(excessBillingAll).reduce((acc, v) => acc.add(v), paybackInterestTotal))}\u20AC`
+            `Yhteens\xE4: ${printMoney(excessYears.reduce((acc, y) => acc.add(totalsByYear[y].calculatedTotals.excessBilling), paybackInterestTotal))}\u20AC`
           )
         ),
         h2("Kuukausikohtaisen viiv\xE4styskoron laskeminen"),
@@ -3726,7 +3761,7 @@
     const monthSummary = createState({});
     const priceIncreases = div();
     powerUsageState.onValueChange((powerUsage2) => {
-      const newTotals = calculateMonthlyYearBillTotals(years, monthlyPricing, powerUsage2);
+      const newTotals = calculateMonthlyYearlyTotals(years, monthlyPricing, powerUsage2);
       totalsByYear.set(newTotals.totalsByYear);
       monthSummary.set(newTotals.monthSummary);
       priceIncreases.replaceChildren(
