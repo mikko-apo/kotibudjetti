@@ -42,7 +42,7 @@ export const HARD_CODED_PERIODS: RatePeriod[] = [
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-export function toDateISO(s: string) {
+function toDateISO(s: string) {
   return new Date(s + "T00:00:00Z");
 } // treat as UTC midnight
 function daysBetweenInclusiveExclusive(start: Date, end: Date) {

@@ -2,14 +2,18 @@ import Decimal from "decimal.js";
 import { isDefined } from "../../../ki-frame/src/util/typeUtils";
 import type {
   ContractPricing,
+  InterestTypeTotals,
   MonthBillInfo,
   MonthlyPrice,
+  PaybackInterestMonth,
+  PaybackInterestYear,
   YearMonth,
   YearTotal,
   YearTotalTotals,
 } from "./kaukolampoTypes";
 import { range } from "./range";
-import { calculateViivastyskorkoMultiplier, toDateISO } from "./viivastyskorko";
+import { debug, toDate } from "./util";
+import { calculateViivastyskorkoMultiplier } from "./viivastyskorko";
 
 export const ymToIndex = (ym: YearMonth) => ym.year * 12 + (ym.month - 1);
 export const indexToYm = (idx: number): YearMonth => {
@@ -147,38 +151,112 @@ export function calculateMonthlyYearlyTotals(
   return { totalsByYear, monthSummary };
 }
 
+function decimalMin(a: Decimal, b: Decimal) {
+  if (a.toNumber() <= b.toNumber()) {
+    return a;
+  }
+  return b;
+}
+
 export function calculatePaybackInterest(
   excessYears: number[],
   originalBills: Record<number, MonthBillInfo>,
   totalsByYear: Record<number, YearTotal>,
-) {
-  let excessTotal = Decimal(0);
-  let paybackInterestTotal = Decimal(0);
-  const months = excessYears.flatMap((year) => {
+): PaybackInterestYear[] {
+  return excessYears.map((year): PaybackInterestYear => {
+    let billedTotal = Decimal(0);
+    const fromAveragePricesTotals: InterestTypeTotals = {
+      total: Decimal(0),
+      excess: Decimal(0),
+      interest: Decimal(0),
+    };
+    const comparingToPreviousYearAnd150BufferTotals: InterestTypeTotals = {
+      total: Decimal(0),
+      excess: Decimal(0),
+      interest: Decimal(0),
+    };
+
     const yearTotal = totalsByYear[year].calculatedTotals;
-    return range(1, 12).map((month) => {
-      const index = ymToIndex({ year, month });
-      const originalBill = originalBills[index];
-      const originalTotal = originalBill.usedPower.mul(originalBill.powerPrice).plus(originalBill.monthlyFee);
-      const adjustedTotal = originalBill.usedPower.mul(yearTotal.avgPowerPrice).plus(yearTotal.avgMonthlyFee);
-      const excess = originalTotal.minus(adjustedTotal);
-      const interestMultiplier = calculateViivastyskorkoMultiplier(
-        toDateISO(`${year}-${month}-1`),
-        toDateISO(`${year}-${month}-1`),
-        true,
-      );
-      const interest = excess.mul(Decimal(interestMultiplier.multiplier).minus(1));
-      excessTotal = excessTotal.add(excess);
-      paybackInterestTotal = paybackInterestTotal.add(interest);
+    const prevTotal = totalsByYear[year - 1].calculatedTotals;
+    function calculateInterestMultiplier(month: number) {
+      const startDate = toDate(year, month, 1);
+      const viivastyskorkoMultiplier = calculateViivastyskorkoMultiplier(startDate, new Date(), true);
+      console.log("viivästyskorko", startDate);
+      debug(viivastyskorkoMultiplier);
+      return viivastyskorkoMultiplier.multiplier;
+    }
+    function calculateExcessFromAveragePrices(originalBill: MonthBillInfo, originalTotal: Decimal, month: number) {
+      const usedPowerPrice = originalBill.usedPower.mul(yearTotal.avgPowerPrice);
+      const calculatedTotal = usedPowerPrice.plus(yearTotal.avgMonthlyFee);
+      const excess = originalTotal.minus(calculatedTotal);
+      const interest = excess.mul(Decimal(calculateInterestMultiplier(month)).minus(1));
+      fromAveragePricesTotals.total = fromAveragePricesTotals.total.add(calculatedTotal);
+      fromAveragePricesTotals.excess = fromAveragePricesTotals.excess.add(excess);
+      fromAveragePricesTotals.interest = fromAveragePricesTotals.interest.add(interest);
       return {
-        date: `${year}.${month}`,
-        originalBill,
-        originalTotal,
-        adjustedTotal,
+        monthlyFee: yearTotal.avgMonthlyFee,
+        powerPrice: yearTotal.avgPowerPrice,
+        usedPowerPrice: usedPowerPrice,
+        total: calculatedTotal,
         excess,
         interest,
       };
+    }
+    let leftFrom150 = Decimal(150);
+
+    const months = range(1, 12).map((month): PaybackInterestMonth => {
+      const index = ymToIndex({ year, month });
+      const originalBill = originalBills[index];
+      const originalTotal = originalBill.total;
+      billedTotal = billedTotal.add(originalTotal);
+
+      const usedPowerPrice = originalBill.usedPower.mul(prevTotal.avgPowerPrice);
+      const totalWithLastYearLevel = usedPowerPrice.add(prevTotal.avgMonthlyFee);
+      let total = billedTotal;
+      let excess = Decimal(0);
+      let interest = Decimal(0);
+      const delta = originalTotal.minus(totalWithLastYearLevel);
+      if (delta.toNumber() > 0) {
+        if (leftFrom150.toNumber() > 0) {
+          const useBuffer = decimalMin(leftFrom150, delta);
+          leftFrom150 = leftFrom150.minus(useBuffer);
+          total = totalWithLastYearLevel.plus(useBuffer);
+          excess = originalTotal.minus(total);
+        } else {
+          total = totalWithLastYearLevel;
+          excess = delta;
+        }
+        if (excess.toNumber() > 0) {
+          interest = excess.mul(Decimal(calculateInterestMultiplier(month)).minus(1));
+        }
+      }
+      const excessComparingToPreviousYearAnd150Buffer = {
+        monthlyFee: prevTotal.avgMonthlyFee,
+        powerPrice: prevTotal.avgPowerPrice,
+        usedPowerPrice,
+        totalWithLastYearLevel,
+        total,
+        excess,
+        interest,
+        leftFrom150,
+      };
+      comparingToPreviousYearAnd150BufferTotals.total = comparingToPreviousYearAnd150BufferTotals.total.add(total);
+      comparingToPreviousYearAnd150BufferTotals.excess = comparingToPreviousYearAnd150BufferTotals.excess.add(excess);
+      comparingToPreviousYearAnd150BufferTotals.interest =
+        comparingToPreviousYearAnd150BufferTotals.interest.add(interest);
+      return {
+        month,
+        originalBill,
+        excessFromAveragePrices: calculateExcessFromAveragePrices(originalBill, originalTotal, month),
+        excessComparingToPreviousYearAnd150Buffer,
+      };
     });
+    return {
+      year,
+      months,
+      billedTotal,
+      fromAveragePricesTotals,
+      comparingToPreviousYearAnd150BufferTotals,
+    };
   });
-  return { excessTotal, paybackInterestTotal, months };
 }

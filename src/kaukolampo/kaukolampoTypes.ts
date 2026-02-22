@@ -25,11 +25,6 @@ export type UnpackedPowerUsage = {
   numbers: Record<number, Decimal>;
 };
 
-type AvgPricing = {
-  avgMonthlyFee: Decimal;
-  avgPowerPrice: Decimal;
-};
-
 export type YearTotalTotals = {
   usedPowerPrice: Decimal;
   monthlyFees: Decimal;
@@ -58,4 +53,37 @@ export type MonthBillInfo = MonthlyPrice & {
   total: Decimal;
   monthlyFeeDelta: number;
   monthlyMWPriceDelta: number;
+};
+
+export type PaybackInterestMonth = {
+  month: number;
+  originalBill: MonthBillInfo;
+  excessFromAveragePrices: MonthlyPrice & {
+    usedPowerPrice: Decimal;
+    total: Decimal;
+    excess: Decimal;
+    interest: Decimal;
+  };
+  excessComparingToPreviousYearAnd150Buffer: MonthlyPrice & {
+    usedPowerPrice: Decimal;
+    totalWithLastYearLevel: Decimal;
+    total: Decimal;
+    excess: Decimal;
+    interest: Decimal;
+    leftFrom150: Decimal;
+  };
+};
+
+export type InterestTypeTotals = {
+  total: Decimal;
+  excess: Decimal;
+  interest: Decimal;
+};
+
+export type PaybackInterestYear = {
+  year: number;
+  months: PaybackInterestMonth[];
+  billedTotal: Decimal;
+  fromAveragePricesTotals: InterestTypeTotals;
+  comparingToPreviousYearAnd150BufferTotals: InterestTypeTotals;
 };

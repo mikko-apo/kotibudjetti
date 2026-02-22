@@ -28,3 +28,12 @@ export function arrayToRecord<T, K extends keyof T & PropertyKey>(items: T[], ke
     {} as Record<T[K] & PropertyKey, T>,
   );
 }
+
+export function debug(input: any, label?: string): void {
+  const root = label ?? "value";
+  console.log(`${root}:`, JSON.stringify(input, null, 2));
+}
+
+export function toDate(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month - 1, day));
+}

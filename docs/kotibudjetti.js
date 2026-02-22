@@ -3141,6 +3141,15 @@
     return Array.from({ length: to - from + 1 }, (_, i2) => from + i2);
   }
 
+  // src/kaukolampo/util.ts
+  function debug(input2, label2) {
+    const root = label2 != null ? label2 : "value";
+    console.log(`${root}:`, JSON.stringify(input2, null, 2));
+  }
+  function toDate(year, month2, day) {
+    return new Date(Date.UTC(year, month2 - 1, day));
+  }
+
   // src/kaukolampo/viivastyskorko.ts
   var HARD_CODED_PERIODS = [
     {
@@ -3330,36 +3339,105 @@
     });
     return { totalsByYear, monthSummary };
   }
+  function decimalMin(a2, b2) {
+    if (a2.toNumber() <= b2.toNumber()) {
+      return a2;
+    }
+    return b2;
+  }
   function calculatePaybackInterest(excessYears, originalBills, totalsByYear) {
-    let excessTotal = decimal_default(0);
-    let paybackInterestTotal = decimal_default(0);
-    const months2 = excessYears.flatMap((year) => {
+    return excessYears.map((year) => {
+      let billedTotal = decimal_default(0);
+      const fromAveragePricesTotals = {
+        total: decimal_default(0),
+        excess: decimal_default(0),
+        interest: decimal_default(0)
+      };
+      const comparingToPreviousYearAnd150BufferTotals = {
+        total: decimal_default(0),
+        excess: decimal_default(0),
+        interest: decimal_default(0)
+      };
       const yearTotal = totalsByYear[year].calculatedTotals;
-      return range2(1, 12).map((month2) => {
-        const index = ymToIndex({ year, month: month2 });
-        const originalBill = originalBills[index];
-        const originalTotal = originalBill.usedPower.mul(originalBill.powerPrice).plus(originalBill.monthlyFee);
-        const adjustedTotal = originalBill.usedPower.mul(yearTotal.avgPowerPrice).plus(yearTotal.avgMonthlyFee);
-        const excess = originalTotal.minus(adjustedTotal);
-        const interestMultiplier = calculateViivastyskorkoMultiplier(
-          toDateISO(`${year}-${month2}-1`),
-          toDateISO(`${year}-${month2}-1`),
-          true
-        );
-        const interest = excess.mul(decimal_default(interestMultiplier.multiplier).minus(1));
-        excessTotal = excessTotal.add(excess);
-        paybackInterestTotal = paybackInterestTotal.add(interest);
+      const prevTotal = totalsByYear[year - 1].calculatedTotals;
+      function calculateInterestMultiplier(month2) {
+        const startDate = toDate(year, month2, 1);
+        const viivastyskorkoMultiplier = calculateViivastyskorkoMultiplier(startDate, /* @__PURE__ */ new Date(), true);
+        console.log("viiv\xE4styskorko", startDate);
+        debug(viivastyskorkoMultiplier);
+        return viivastyskorkoMultiplier.multiplier;
+      }
+      function calculateExcessFromAveragePrices(originalBill, originalTotal, month2) {
+        const usedPowerPrice = originalBill.usedPower.mul(yearTotal.avgPowerPrice);
+        const calculatedTotal = usedPowerPrice.plus(yearTotal.avgMonthlyFee);
+        const excess = originalTotal.minus(calculatedTotal);
+        const interest = excess.mul(decimal_default(calculateInterestMultiplier(month2)).minus(1));
+        fromAveragePricesTotals.total = fromAveragePricesTotals.total.add(calculatedTotal);
+        fromAveragePricesTotals.excess = fromAveragePricesTotals.excess.add(excess);
+        fromAveragePricesTotals.interest = fromAveragePricesTotals.interest.add(interest);
         return {
-          date: `${year}.${month2}`,
-          originalBill,
-          originalTotal,
-          adjustedTotal,
+          monthlyFee: yearTotal.avgMonthlyFee,
+          powerPrice: yearTotal.avgPowerPrice,
+          usedPowerPrice,
+          total: calculatedTotal,
           excess,
           interest
         };
+      }
+      let leftFrom150 = decimal_default(150);
+      const months2 = range2(1, 12).map((month2) => {
+        const index = ymToIndex({ year, month: month2 });
+        const originalBill = originalBills[index];
+        const originalTotal = originalBill.total;
+        billedTotal = billedTotal.add(originalTotal);
+        const usedPowerPrice = originalBill.usedPower.mul(prevTotal.avgPowerPrice);
+        const totalWithLastYearLevel = usedPowerPrice.add(prevTotal.avgMonthlyFee);
+        let total = billedTotal;
+        let excess = decimal_default(0);
+        let interest = decimal_default(0);
+        const delta = originalTotal.minus(totalWithLastYearLevel);
+        if (delta.toNumber() > 0) {
+          if (leftFrom150.toNumber() > 0) {
+            const useBuffer = decimalMin(leftFrom150, delta);
+            leftFrom150 = leftFrom150.minus(useBuffer);
+            total = totalWithLastYearLevel.plus(useBuffer);
+            excess = originalTotal.minus(total);
+          } else {
+            total = totalWithLastYearLevel;
+            excess = delta;
+          }
+          if (excess.toNumber() > 0) {
+            interest = excess.mul(decimal_default(calculateInterestMultiplier(month2)).minus(1));
+          }
+        }
+        const excessComparingToPreviousYearAnd150Buffer = {
+          monthlyFee: prevTotal.avgMonthlyFee,
+          powerPrice: prevTotal.avgPowerPrice,
+          usedPowerPrice,
+          totalWithLastYearLevel,
+          total,
+          excess,
+          interest,
+          leftFrom150
+        };
+        comparingToPreviousYearAnd150BufferTotals.total = comparingToPreviousYearAnd150BufferTotals.total.add(total);
+        comparingToPreviousYearAnd150BufferTotals.excess = comparingToPreviousYearAnd150BufferTotals.excess.add(excess);
+        comparingToPreviousYearAnd150BufferTotals.interest = comparingToPreviousYearAnd150BufferTotals.interest.add(interest);
+        return {
+          month: month2,
+          originalBill,
+          excessFromAveragePrices: calculateExcessFromAveragePrices(originalBill, originalTotal, month2),
+          excessComparingToPreviousYearAnd150Buffer
+        };
       });
+      return {
+        year,
+        months: months2,
+        billedTotal,
+        fromAveragePricesTotals,
+        comparingToPreviousYearAnd150BufferTotals
+      };
     });
-    return { excessTotal, paybackInterestTotal, months: months2 };
   }
 
   // src/kaukolampo/powerUsageString.ts
@@ -3530,9 +3608,9 @@
       totalsByYear
     };
   }
-  function compareYears(firstYear, comparedYears, totalsByYear) {
-    const thisYearComparisonTitle = "t\xE4m\xE4n vuoden vertailutason laskeminen seuraavan vuoden korotuksen arviointia varten";
-    const compared = comparedYears.map((y) => {
+  var thisYearComparisonTitle = (y) => `t\xE4m\xE4n vuoden (${y}) tason laskeminen seuraavan vuoden (${y + 1}) korotuksen arviointia varten`;
+  function compareYears(comparedYears, totalsByYear) {
+    return comparedYears.map((y) => {
       var _a2;
       const yearTotal = totalsByYear[y];
       const prevYear = y - 1;
@@ -3638,7 +3716,7 @@
               td(priceIncreaseTooMuch && b(printMoney(calculatedTotals.excessBilling)))
             ),
             tr(
-              td(thisYearComparisonTitle, explainAdjustment()),
+              td(thisYearComparisonTitle(y), explainAdjustment()),
               td(),
               td(printMoney(calculatedTotals.avgPowerPrice)),
               td(printMoney(calculatedTotals.avgMonthlyFee)),
@@ -3648,10 +3726,12 @@
         )
       );
     });
+  }
+  function firstYearCompareInfo(firstYear, totalsByYear) {
     const firstYearTotals = totalsByYear[firstYear];
     const firstAvgMwPrice = printMoney(firstYearTotals.calculatedTotals.avgPowerPrice);
     const firstAvgMonthlyFee = printMoney(firstYearTotals.calculatedTotals.avgMonthlyFee);
-    return [
+    return div(
       h3(`${firstYear} tason laskeminen`),
       table(
         styles({ width: "auto" }),
@@ -3660,7 +3740,7 @@
           styles({ verticalAlign: "top" }),
           tr(
             td(
-              thisYearComparisonTitle,
+              thisYearComparisonTitle(firstYear),
               ul(
                 li(
                   `${firstYear} Energian hinta \u20AC/MWh: ${printMoney(firstYearTotals.billedTotals.usedPowerPrice)} / ${printPower(firstYearTotals.usedPower)} = `,
@@ -3677,59 +3757,95 @@
             td(firstAvgMonthlyFee)
           )
         )
-      ),
-      ...compared
-    ];
+      )
+    );
   }
   function excessBillingPaybackInterest(excessYears, totalsByYear, monthlyPricing) {
-    const { excessTotal, paybackInterestTotal, months: months2 } = calculatePaybackInterest(
-      excessYears,
-      monthlyPricing,
-      totalsByYear
+    const paybackInterestYears = calculatePaybackInterest(excessYears, monthlyPricing, totalsByYear);
+    const years = paybackInterestYears.map(
+      (info) => div(
+        h3(info.year),
+        table(
+          styles({ width: "auto" }),
+          thead(
+            tr(
+              th("Pohjatiedot", { colSpan: 3 }),
+              th("Ylilaskutus jos verrataan +150 tasoon vuoden yli", { colSpan: 3 }, borderLeft),
+              th("Ylilaskutus jos 150\u20AC annetaan kerty\xE4 vuoden alussa", { colSpan: 3 }, borderLeft)
+            ),
+            tr(
+              th("vuosi.kk"),
+              th("Kulutus"),
+              th("Alkuper\xE4inen lasku"),
+              // keskiarvoon verrattu
+              th("Korjattu lasku", borderLeft),
+              th("Ylilaskutus"),
+              th("Viiv\xE4styskorko"),
+              // viime vuoden taso ja 150e puskuri
+              th("Lasku aiemman vuoden tasolla", borderLeft),
+              th("Korjattu lasku"),
+              th("150 eurosta j\xE4ljell\xE4"),
+              th("Ylilaskutus"),
+              th("Viiv\xE4styskorko")
+            )
+          ),
+          tbody(
+            info.months.map((m) => {
+              return tr(
+                td(m.month),
+                td(printPower(m.originalBill.usedPower)),
+                td(printMoney(m.originalBill.total)),
+                // keskiarvoon verrattu
+                td(printMoney(m.excessFromAveragePrices.total), borderLeft),
+                td(printMoney(m.excessFromAveragePrices.excess)),
+                td(printMoney(m.excessFromAveragePrices.interest)),
+                // viime vuoden taso ja 150e puskuri
+                td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.totalWithLastYearLevel), borderLeft),
+                td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.total)),
+                td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.leftFrom150)),
+                td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.excess)),
+                td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.interest))
+              );
+            })
+          ),
+          tr(
+            td("Yhteens\xE4"),
+            td(),
+            td(),
+            td(printMoney(info.fromAveragePricesTotals.total), borderLeft),
+            td(printMoney(info.fromAveragePricesTotals.excess)),
+            td(printMoney(info.fromAveragePricesTotals.interest)),
+            td(borderLeft),
+            td(printMoney(info.comparingToPreviousYearAnd150BufferTotals.total)),
+            td(),
+            td(printMoney(info.comparingToPreviousYearAnd150BufferTotals.excess)),
+            td(printMoney(info.comparingToPreviousYearAnd150BufferTotals.interest))
+          )
+        )
+      )
     );
     return {
-      root: table(
-        styles({ width: "auto" }),
-        thead(
-          tr(
-            th("vuosi.kk"),
-            th("Kulutus"),
-            th("Alkuper\xE4inen lasku"),
-            th("Korjattu lasku"),
-            th("Ylilaskutus"),
-            th("Viiv\xE4styskorko")
-          )
-        ),
-        tbody(
-          months2.map((m) => {
-            return tr(
-              td(m.date),
-              td(printPower(m.originalBill.usedPower)),
-              td(printMoney(m.originalTotal)),
-              td(printMoney(m.adjustedTotal)),
-              td(printMoney(m.excess)),
-              td(printMoney(m.interest))
-            );
-          })
-        ),
-        tr(td("Yhteens\xE4"), td(), td(), td(), td(printMoney(excessTotal)), td(printMoney(paybackInterestTotal)))
-      ),
-      paybackInterestTotal
+      paybackInterestYears,
+      root: years
     };
   }
   function priceIncreasesAndPaybackInterest(years, totalsByYear, monthlyPricing) {
     const [firstYear, ...comparedYears] = years;
-    const yearComparison = compareYears(firstYear, comparedYears, totalsByYear);
     const excessYears = comparedYears.filter((y) => totalsByYear[y].calculatedTotals.excessBilling.toNumber() > 0);
-    const { root: paybackInterest, paybackInterestTotal } = excessBillingPaybackInterest(
+    const { root: paybackInterest, paybackInterestYears } = excessBillingPaybackInterest(
       excessYears,
       totalsByYear,
       monthlyPricing
     );
+    const paybackInterestTotal = paybackInterestYears.reduce(
+      (acc, y) => acc.add(y.fromAveragePricesTotals.interest),
+      decimal_default(0)
+    );
     return div(
       h2("Korotusten arviointi"),
-      yearComparison,
-      excessYears.length > 0 && [
+      firstYearCompareInfo(firstYear, totalsByYear),
+      compareYears(comparedYears, totalsByYear),
+      excessYears.length > 0 && div(
         h2("Liiallinen laskutus ja viiv\xE4styskorko"),
         ul(
           { class: "pagebreak" },
@@ -3744,7 +3860,7 @@
           "Viiv\xE4styskorko laskettuna korjattujen kuukausien laskujen maksup\xE4iv\xE4st\xE4. Korjattuina kuukausina rahaa on ker\xE4tty perusteettomasti"
         ),
         paybackInterest
-      ]
+      )
     );
   }
   var usage = "2022-4_1.945_1.33_0.941_0.897_0.876_1.336_1.758_3.038_3.922_3.597_2.869_2.766_1.683_1.21_1.11_0.973_0.904_0.876_2.278_3.017_3.717_4.456_3.313_2.798_2.096_0.926_0.701_0.73_0.683_0.66_1.721_2.438_3.238_3.357_3.177_2.656_1.558_1.196_0.851_0.789_0.778_0.841_2.2_2.485_2.899";

@@ -148,9 +148,11 @@ export function billSummary(
   };
 }
 
-function compareYears(firstYear: number, comparedYears: number[], totalsByYear: Record<number, YearTotal>) {
-  const thisYearComparisonTitle = "tämän vuoden vertailutason laskeminen seuraavan vuoden korotuksen arviointia varten";
-  const compared = comparedYears.map((y) => {
+const thisYearComparisonTitle = (y: number) =>
+  `tämän vuoden (${y}) tason laskeminen seuraavan vuoden (${y + 1}) korotuksen arviointia varten`;
+
+function compareYears(comparedYears: number[], totalsByYear: Record<number, YearTotal>) {
+  return comparedYears.map((y) => {
     const yearTotal = totalsByYear[y];
     const prevYear = y - 1;
     const prevTotal = totalsByYear[prevYear];
@@ -262,7 +264,7 @@ function compareYears(firstYear: number, comparedYears: number[], totalsByYear: 
             td(priceIncreaseTooMuch && b(printMoney(calculatedTotals.excessBilling))),
           ),
           tr(
-            td(thisYearComparisonTitle, explainAdjustment()),
+            td(thisYearComparisonTitle(y), explainAdjustment()),
             td(),
             td(printMoney(calculatedTotals.avgPowerPrice)),
             td(printMoney(calculatedTotals.avgMonthlyFee)),
@@ -272,10 +274,13 @@ function compareYears(firstYear: number, comparedYears: number[], totalsByYear: 
       ),
     );
   });
+}
+
+function firstYearCompareInfo(firstYear: number, totalsByYear: Record<number, YearTotal>) {
   const firstYearTotals = totalsByYear[firstYear];
   const firstAvgMwPrice = printMoney(firstYearTotals.calculatedTotals.avgPowerPrice);
   const firstAvgMonthlyFee = printMoney(firstYearTotals.calculatedTotals.avgMonthlyFee);
-  return [
+  return div(
     h3(`${firstYear} tason laskeminen`),
     table(
       styles({ width: "auto" }),
@@ -284,7 +289,7 @@ function compareYears(firstYear: number, comparedYears: number[], totalsByYear: 
         styles({ verticalAlign: "top" }),
         tr(
           td(
-            thisYearComparisonTitle,
+            thisYearComparisonTitle(firstYear),
             ul(
               li(
                 `${firstYear} Energian hinta €/MWh: ${printMoney(firstYearTotals.billedTotals.usedPowerPrice)} / ${printPower(firstYearTotals.usedPower)} = `,
@@ -302,8 +307,7 @@ function compareYears(firstYear: number, comparedYears: number[], totalsByYear: 
         ),
       ),
     ),
-    ...compared,
-  ];
+  );
 }
 
 function excessBillingPaybackInterest(
@@ -311,40 +315,73 @@ function excessBillingPaybackInterest(
   totalsByYear: Record<number, YearTotal>,
   monthlyPricing: Record<number, MonthBillInfo>,
 ) {
-  const { excessTotal, paybackInterestTotal, months } = calculatePaybackInterest(
-    excessYears,
-    monthlyPricing,
-    totalsByYear,
-  );
+  const paybackInterestYears = calculatePaybackInterest(excessYears, monthlyPricing, totalsByYear);
 
-  return {
-    root: table(
-      styles({ width: "auto" }),
-      thead(
+  const years = paybackInterestYears.map((info) =>
+    div(
+      h3(info.year),
+      table(
+        styles({ width: "auto" }),
+        thead(
+          tr(
+            th("Pohjatiedot", { colSpan: 3 }),
+            th("Ylilaskutus jos verrataan +150 tasoon vuoden yli", { colSpan: 3 }, borderLeft),
+            th("Ylilaskutus jos 150€ annetaan kertyä vuoden alussa", { colSpan: 3 }, borderLeft),
+          ),
+          tr(
+            th("vuosi.kk"),
+            th("Kulutus"),
+            th("Alkuperäinen lasku"),
+            // keskiarvoon verrattu
+            th("Korjattu lasku", borderLeft),
+            th("Ylilaskutus"),
+            th("Viivästyskorko"),
+            // viime vuoden taso ja 150e puskuri
+            th("Lasku aiemman vuoden tasolla", borderLeft),
+            th("Korjattu lasku"),
+            th("150 eurosta jäljellä"),
+            th("Ylilaskutus"),
+            th("Viivästyskorko"),
+          ),
+        ),
+        tbody(
+          info.months.map((m) => {
+            return tr(
+              td(m.month),
+              td(printPower(m.originalBill.usedPower)),
+              td(printMoney(m.originalBill.total)),
+              // keskiarvoon verrattu
+              td(printMoney(m.excessFromAveragePrices.total), borderLeft),
+              td(printMoney(m.excessFromAveragePrices.excess)),
+              td(printMoney(m.excessFromAveragePrices.interest)),
+              // viime vuoden taso ja 150e puskuri
+              td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.totalWithLastYearLevel), borderLeft),
+              td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.total)),
+              td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.leftFrom150)),
+              td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.excess)),
+              td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.interest)),
+            );
+          }),
+        ),
         tr(
-          th("vuosi.kk"),
-          th("Kulutus"),
-          th("Alkuperäinen lasku"),
-          th("Korjattu lasku"),
-          th("Ylilaskutus"),
-          th("Viivästyskorko"),
+          td("Yhteensä"),
+          td(),
+          td(),
+          td(printMoney(info.fromAveragePricesTotals.total), borderLeft),
+          td(printMoney(info.fromAveragePricesTotals.excess)),
+          td(printMoney(info.fromAveragePricesTotals.interest)),
+          td(borderLeft),
+          td(printMoney(info.comparingToPreviousYearAnd150BufferTotals.total)),
+          td(),
+          td(printMoney(info.comparingToPreviousYearAnd150BufferTotals.excess)),
+          td(printMoney(info.comparingToPreviousYearAnd150BufferTotals.interest)),
         ),
       ),
-      tbody(
-        months.map((m) => {
-          return tr(
-            td(m.date),
-            td(printPower(m.originalBill.usedPower)),
-            td(printMoney(m.originalTotal)),
-            td(printMoney(m.adjustedTotal)),
-            td(printMoney(m.excess)),
-            td(printMoney(m.interest)),
-          );
-        }),
-      ),
-      tr(td("Yhteensä"), td(), td(), td(), td(printMoney(excessTotal)), td(printMoney(paybackInterestTotal))),
     ),
-    paybackInterestTotal,
+  );
+  return {
+    paybackInterestYears,
+    root: years,
   };
 }
 
@@ -354,32 +391,37 @@ export function priceIncreasesAndPaybackInterest(
   monthlyPricing: Record<number, MonthBillInfo>,
 ) {
   const [firstYear, ...comparedYears] = years;
-  const yearComparison = compareYears(firstYear, comparedYears, totalsByYear);
   const excessYears = comparedYears.filter((y) => totalsByYear[y].calculatedTotals.excessBilling.toNumber() > 0);
-  const { root: paybackInterest, paybackInterestTotal } = excessBillingPaybackInterest(
+  const { root: paybackInterest, paybackInterestYears } = excessBillingPaybackInterest(
     excessYears,
     totalsByYear,
     monthlyPricing,
   );
+  const paybackInterestTotal = paybackInterestYears.reduce(
+    (acc, y) => acc.add(y.fromAveragePricesTotals.interest),
+    Decimal(0),
+  );
   return div(
     h2("Korotusten arviointi"),
-    yearComparison,
-    excessYears.length > 0 && [
-      h2("Liiallinen laskutus ja viivästyskorko"),
-      ul(
-        { class: "pagebreak" },
-        excessYears.map((y) => li(`${y}: ${printMoney(totalsByYear[y].calculatedTotals.excessBilling)}€`)),
-        li(`Viivästyskorko: ${printMoney(paybackInterestTotal)}€`),
-        li(
-          `Yhteensä: ${printMoney(excessYears.reduce((acc, y) => acc.add(totalsByYear[y].calculatedTotals.excessBilling), paybackInterestTotal))}€`,
+    firstYearCompareInfo(firstYear, totalsByYear),
+    compareYears(comparedYears, totalsByYear),
+    excessYears.length > 0 &&
+      div(
+        h2("Liiallinen laskutus ja viivästyskorko"),
+        ul(
+          { class: "pagebreak" },
+          excessYears.map((y) => li(`${y}: ${printMoney(totalsByYear[y].calculatedTotals.excessBilling)}€`)),
+          li(`Viivästyskorko: ${printMoney(paybackInterestTotal)}€`),
+          li(
+            `Yhteensä: ${printMoney(excessYears.reduce((acc, y) => acc.add(totalsByYear[y].calculatedTotals.excessBilling), paybackInterestTotal))}€`,
+          ),
         ),
+        h2("Kuukausikohtaisen viivästyskoron laskeminen"),
+        p(
+          "Viivästyskorko laskettuna korjattujen kuukausien laskujen maksupäivästä. Korjattuina kuukausina rahaa on kerätty perusteettomasti",
+        ),
+        paybackInterest,
       ),
-      h2("Kuukausikohtaisen viivästyskoron laskeminen"),
-      p(
-        "Viivästyskorko laskettuna korjattujen kuukausien laskujen maksupäivästä. Korjattuina kuukausina rahaa on kerätty perusteettomasti",
-      ),
-      paybackInterest,
-    ],
   );
 }
 
