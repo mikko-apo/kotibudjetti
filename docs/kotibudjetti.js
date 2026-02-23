@@ -26,14 +26,14 @@
   // ../ki-frame/src/domBuilderStyles.ts
   function setClass(element, argValue) {
     const classList = element.classList;
-    const visit = (argValue2) => {
+    const visit2 = (argValue2) => {
       if (Array.isArray(argValue2)) {
-        argValue2.forEach((arg) => visit(arg));
+        argValue2.forEach((arg) => visit2(arg));
       } else {
         classList.add(...argValue2.split(" "));
       }
     };
-    visit(argValue);
+    visit2(argValue);
   }
   function styles(...inputs) {
     const flat = {};
@@ -144,21 +144,21 @@
   };
 
   // ../ki-frame/src/domBuilder.ts
-  function addItems(element, ...args) {
+  function visit(element, fragment, ...args) {
     args.forEach((arg) => {
       if (arg === false || arg === void 0) {
       } else if (Array.isArray(arg)) {
-        addItems(element, ...arg);
+        visit(element, fragment, ...arg);
       } else if (isNode(arg)) {
-        element.appendChild(arg);
+        fragment.appendChild(arg);
       } else if (arg instanceof WrappedNode) {
-        element.appendChild(arg.node);
+        fragment.appendChild(arg.node);
       } else if (arg instanceof Styles) {
         setStyle(element, arg.styles);
       } else if (arg instanceof Events) {
         setEvents(element, arg);
       } else if (typeof arg === "string" || typeof arg === "number") {
-        element.appendChild(getDocument().createTextNode(String(arg)));
+        fragment.appendChild(getDocument().createTextNode(String(arg)));
       } else if (typeof arg === "object") {
         Object.entries(arg).forEach(([key, argValue]) => {
           if (key === "class") {
@@ -177,6 +177,16 @@
       }
     });
   }
+  function appendChildren(element, ...args) {
+    const fragment = getDocument().createDocumentFragment();
+    visit(element, fragment, ...args);
+    element.appendChild(fragment);
+  }
+  function replaceChildren(element, ...args) {
+    const fragment = getDocument().createDocumentFragment();
+    visit(element, fragment, ...args);
+    element.replaceChildren(fragment);
+  }
   var doc = typeof document !== "undefined" ? document : void 0;
   var isNode = (e) => {
     return typeof document !== "undefined" && !![HTMLElement, Text].find((value) => e instanceof value);
@@ -189,7 +199,7 @@
   }
   function createElement(tagName, ...args) {
     const element = getDocument().createElement(tagName);
-    addItems(element, ...args);
+    appendChildren(element, ...args);
     return element;
   }
   var createElementFn = (tagName) => (...args) => createElement(tagName, ...args);
@@ -305,6 +315,7 @@
   var varE = createElementFn("var");
   var video = createElementFn("video");
   var wbr = createElementFn("wbr");
+  var text = (arg = "") => getDocument().createTextNode(String(arg));
   var createInputFn = (type) => (...args) => createElement("input", { type }, ...args);
   var inputButton = createInputFn("button");
   var checkbox = createInputFn("checkbox");
@@ -2585,7 +2596,7 @@
   };
   function collectFormsInputs(root) {
     const out = [];
-    function visit(node, pathParts) {
+    function visit2(node, pathParts) {
       if (node == null) return;
       if (node instanceof FormsInput) {
         const path = pathParts.map((p2) => String(p2)).join(".");
@@ -2594,18 +2605,18 @@
       }
       if (Array.isArray(node)) {
         for (let i2 = 0; i2 < node.length; i2++) {
-          visit(node[i2], [...pathParts, i2]);
+          visit2(node[i2], [...pathParts, i2]);
         }
         return;
       }
       if (typeof node === "object") {
         for (const key of Object.keys(node)) {
-          visit(node[key], [...pathParts, key]);
+          visit2(node[key], [...pathParts, key]);
         }
         return;
       }
     }
-    visit(root, []);
+    visit2(root, []);
     return out;
   }
   function readRaw(node) {
@@ -3142,12 +3153,21 @@
   }
 
   // src/kaukolampo/util.ts
-  function debug(input2, label2) {
-    const root = label2 != null ? label2 : "value";
-    console.log(`${root}:`, JSON.stringify(input2, null, 2));
-  }
   function toDate(year, month2, day) {
     return new Date(Date.UTC(year, month2 - 1, day));
+  }
+  async function shortHexHash(input2, length) {
+    const encoder = new TextEncoder();
+    const data2 = encoder.encode(input2);
+    const buffer = await crypto.subtle.digest("SHA-256", data2);
+    const full = Array.from(new Uint8Array(buffer)).map((b2) => b2.toString(16).padStart(2, "0")).join("");
+    if (length === void 0) {
+      return full;
+    }
+    if (length < 0 || length > full.length) {
+      throw new Error(`Length must be between 0 and ${full.length}`);
+    }
+    return full.slice(0, length);
   }
 
   // src/kaukolampo/viivastyskorko.ts
@@ -3274,10 +3294,11 @@
           const prevPrice = monthlyPricing[index2 - 1] || price;
           const total = usedPowerPrice.add(price.monthlyFee);
           monthSummary[index2] = {
+            index: index2,
             ...price,
             usedPower,
             usedPowerPrice,
-            monthlyMWPriceDelta: price.powerPrice.sub(prevPrice.powerPrice).toNumber(),
+            mWPriceDelta: price.powerPrice.sub(prevPrice.powerPrice).toNumber(),
             monthlyFeeDelta: price.monthlyFee.sub(prevPrice.monthlyFee).toNumber(),
             total
           };
@@ -3363,8 +3384,6 @@
       function calculateInterestMultiplier(month2) {
         const startDate = toDate(year, month2, 1);
         const viivastyskorkoMultiplier = calculateViivastyskorkoMultiplier(startDate, /* @__PURE__ */ new Date(), true);
-        console.log("viiv\xE4styskorko", startDate);
-        debug(viivastyskorkoMultiplier);
         return viivastyskorkoMultiplier.multiplier;
       }
       function calculateExcessFromAveragePrices(originalBill, originalTotal, month2) {
@@ -3476,6 +3495,24 @@
     const to = indexToYm(idx - 1);
     return { from, to, numbers };
   }
+  function formatAsUnderscoreSeparated(input2) {
+    const { from, to, numbers } = input2;
+    const fromIdx = ymToIndex(from);
+    const toIdx = ymToIndex(to);
+    if (toIdx < fromIdx) {
+      throw new Error("to must be >= from");
+    }
+    const parts = [];
+    parts.push(`${from.year}-${from.month}`);
+    for (let idx = fromIdx; idx <= toIdx; idx++) {
+      const value = numbers[idx];
+      if (value === void 0) {
+        throw new Error(`Missing number for ${JSON.stringify(indexToYm(idx))}`);
+      }
+      parts.push(String(value));
+    }
+    return parts.join("_");
+  }
 
   // src/kaukolampo/prices/tuusulanjarvenLampo.ts
   var tuusulanjarvenLampo = {
@@ -3537,6 +3574,7 @@
   // src/kaukolampo/kaukolampoUi.ts
   var showIncrease = (inc) => styles({ backgroundColor: !inc || inc === 0 ? "" : inc > 0 ? "lightpink" : "lightgreen" });
   var borderLeft = { styles: { borderLeft: "2px solid #6b7280" } };
+  var pageBreakAfter = { class: "pagebreak" };
   function BillItemTDs() {
     const power = td(borderLeft);
     const mwPrice = td();
@@ -3544,18 +3582,22 @@
     const monthlyFee = td();
     const total = b();
     const setText = (info) => {
-      addItems(power, (info == null ? void 0 : info.usedPower) ? printPower(info.usedPower) : "");
-      addItems(mwPrice, (info == null ? void 0 : info.powerPrice) ? printMoney(info == null ? void 0 : info.powerPrice) : "", showIncrease(info.monthlyMWPriceDelta));
-      addItems(powerPrice, (info == null ? void 0 : info.usedPowerPrice) ? printMoney(info.usedPowerPrice) : "");
-      addItems(monthlyFee, (info == null ? void 0 : info.monthlyFee) ? printMoney(info.monthlyFee) : "", showIncrease(info.monthlyFeeDelta));
-      addItems(total, info.total ? printMoney(info.total) : "");
+      replaceChildren(power, (info == null ? void 0 : info.usedPower) ? printPower(info.usedPower) : "");
+      replaceChildren(mwPrice, (info == null ? void 0 : info.powerPrice) ? printMoney(info == null ? void 0 : info.powerPrice) : "", showIncrease(info.mWPriceDelta));
+      replaceChildren(powerPrice, (info == null ? void 0 : info.usedPowerPrice) ? printMoney(info.usedPowerPrice) : "");
+      replaceChildren(
+        monthlyFee,
+        (info == null ? void 0 : info.monthlyFee) ? printMoney(info.monthlyFee) : "",
+        showIncrease(info.monthlyFeeDelta)
+      );
+      replaceChildren(total, info.total ? printMoney(info.total) : "");
     };
     return {
       billTDList: [power, mwPrice, powerPrice, monthlyFee, td(total)],
       setText
     };
   }
-  function billSummary(address2, years, monthSummary, totalsByYear) {
+  function billSummary(address2, years, monthSummary, totalsByYear, powerUsageState) {
     const billRows = months.map(
       (month2) => tr(
         td(month2),
@@ -3590,23 +3632,61 @@
         return billTDList;
       })
     );
-    return {
-      bills: div(
-        h2(`${address2} laskut ${years[0]}-${years[years.length - 1]}`),
-        table(
-          styles({ width: "auto", textAlign: "right" }),
-          thead(
-            tr(
-              th({ rowSpan: 2 }),
-              years.map((y) => th(y, { colSpan: 5, ...borderLeft }))
-            ),
-            tr(years.map((y) => [th("Kulutus", borderLeft), th("\u20AC/MWh"), th("Energia \u20AC"), th("kk \u20AC"), th("Lasku \u20AC")]))
+    const priceChangeTBody = tbody();
+    monthSummary.onValueChange((summaries) => {
+      const allBills = years.flatMap((year) => months.map((month2) => summaries[ymToIndex({ year, month: month2 })]));
+      const billsWithChanges = allBills.filter((bill) => bill && (bill.monthlyFeeDelta != 0 || bill.mWPriceDelta != 0));
+      const rows = billsWithChanges.map((bill) => {
+        const prevBill = summaries[bill.index - 1];
+        const yearMonth = indexToYm(bill.index);
+        return tr(
+          td(`${yearMonth.year}.${yearMonth.month}`),
+          td(
+            `${printMoney(prevBill.powerPrice)}\u20AC/MW -> ${printMoney(bill.powerPrice)}\u20AC/MW`,
+            `, muutos ${printMoney(bill.powerPrice.div(prevBill.powerPrice).minus(1).mul(100))}%`
           ),
-          tbody(billRows, totalRow)
-        )
+          td(
+            `${printMoney(prevBill.monthlyFee)}\u20AC/kk -> ${printMoney(bill.monthlyFee)}\u20AC/kk`,
+            `, muutos ${printMoney(bill.monthlyFee.div(prevBill.monthlyFee).minus(1).mul(100))}%`
+          )
+        );
+      });
+      replaceChildren(priceChangeTBody, rows);
+    });
+    const powerUsageHashInfo = text();
+    const powerUsageAsLink = a("Kulutusarvot linkkin\xE4");
+    powerUsageState.onValueChange((powerUsage) => {
+      if (powerUsage) {
+        const data2 = formatAsUnderscoreSeparated(powerUsage);
+        const url2 = new URL(window.location.href);
+        url2.search = "";
+        url2.searchParams.set("p", data2);
+        appendChildren(powerUsageAsLink, { href: url2.toString() });
+        shortHexHash(data2, 12).then((s2) => powerUsageHashInfo.textContent = `Kulutusarvojen tarkisteluku: ${s2}`);
+      }
+    });
+    return div(
+      h2(`${address2} laskut ${years[0]}-${years[years.length - 1]}`),
+      table(
+        styles({ width: "auto", textAlign: "right" }),
+        thead(
+          tr(
+            th({ rowSpan: 2 }),
+            years.map((y) => th(y, { colSpan: 5, ...borderLeft }))
+          ),
+          tr(years.map((y) => [th("Kulutus", borderLeft), th("\u20AC/MWh"), th("Energia \u20AC"), th("$/kk"), th("Lasku \u20AC")]))
+        ),
+        tbody(billRows, totalRow)
       ),
-      totalsByYear
-    };
+      div(
+        { class: "no-print" },
+        button("Muokkaa kulutusarvoja", { class: "blueButton" }),
+        powerUsageAsLink,
+        powerUsageHashInfo
+      ),
+      h3("Hinnanmuutokset"),
+      table(styles({ width: "auto" }), priceChangeTBody)
+    );
   }
   var thisYearComparisonTitle = (y) => `t\xE4m\xE4n vuoden (${y}) tason laskeminen seuraavan vuoden (${y + 1}) korotuksen arviointia varten`;
   function compareYears(comparedYears, totalsByYear) {
@@ -3630,8 +3710,8 @@
           )
         )
       ] : [li("Korotus ei ylit\xE4 150e ja 15%")];
-      const prevAvgMwPrice = prevTotal.calculatedTotals.avgPowerPrice;
-      const explainAdjustment = () => priceIncreaseTooMuch && yearTotal.totalsBasedOnLastYearLevel && calculatedTotals.adjustmentMultiplier && prevTotal ? p(
+      const prevAvgMwPrice = prevTotal == null ? void 0 : prevTotal.calculatedTotals.avgPowerPrice;
+      const explainAdjustment = () => prevTotal && priceIncreaseTooMuch && yearTotal.totalsBasedOnLastYearLevel && calculatedTotals.adjustmentMultiplier ? p(
         ul(
           li(
             "Liian laskutuksen takia seuraavan vuoden laskutuksessa k\xE4ytet\xE4\xE4n t\xE4m\xE4n vuoden tasona viimevuoden tasoa * korjauskerroin"
@@ -3661,13 +3741,13 @@
           )
         )
       );
-      const prevAvgMonthlyFee = prevTotal.calculatedTotals.avgMonthlyFee;
+      const prevAvgMonthlyFee = prevTotal == null ? void 0 : prevTotal.calculatedTotals.avgMonthlyFee;
       const totalWithPrevYearLevel = ((_a2 = yearTotal.totalsBasedOnLastYearLevel) == null ? void 0 : _a2.total) || decimal_default(0);
       return div(
-        h3(`${y}, vertailu toteutuneella ja ${y - 1} tasolla`),
+        h3(prevTotal ? `${y}, vertailu toteutuneella ja ${y - 1} tasolla` : `${y} tason laskeminen`),
         table(
           styles({ width: "auto" }),
-          thead(tr(th(""), th("kulutus"), th("\u20AC/MWh"), th("kk \u20AC"), th("Lasku vuositasolla"), th("Liika laskutus"))),
+          thead(tr(th(""), th("kulutus"), th("\u20AC/MWh"), th("$/kk"), th("Lasku vuositasolla"), th("Liika laskutus"))),
           tbody(
             styles({ verticalAlign: "top" }),
             tr(
@@ -3678,7 +3758,7 @@
               td(printMoney(yearTotal.billedTotals.total)),
               td()
             ),
-            tr(
+            prevTotal && tr(
               td(
                 `edellisen vuoden taso ja lasku vuoden ${y} kulutuksella`,
                 ul(
@@ -3696,7 +3776,7 @@
               td(printMoney(totalWithPrevYearLevel)),
               td()
             ),
-            tr(
+            prevTotal && tr(
               td(
                 `Korotuksen arvionti vuodelle ${y}`,
                 ul(
@@ -3727,42 +3807,8 @@
       );
     });
   }
-  function firstYearCompareInfo(firstYear, totalsByYear) {
-    const firstYearTotals = totalsByYear[firstYear];
-    const firstAvgMwPrice = printMoney(firstYearTotals.calculatedTotals.avgPowerPrice);
-    const firstAvgMonthlyFee = printMoney(firstYearTotals.calculatedTotals.avgMonthlyFee);
-    return div(
-      h3(`${firstYear} tason laskeminen`),
-      table(
-        styles({ width: "auto" }),
-        thead(tr(th(""), th("kulutus"), th("\u20AC/MWh"), th("kk \u20AC"))),
-        tbody(
-          styles({ verticalAlign: "top" }),
-          tr(
-            td(
-              thisYearComparisonTitle(firstYear),
-              ul(
-                li(
-                  `${firstYear} Energian hinta \u20AC/MWh: ${printMoney(firstYearTotals.billedTotals.usedPowerPrice)} / ${printPower(firstYearTotals.usedPower)} = `,
-                  b(firstAvgMwPrice)
-                ),
-                li(
-                  `${firstYear} Kuukausimaksu: ${printMoney(firstYearTotals.billedTotals.monthlyFees)} / ${firstYearTotals.monthCount} = `,
-                  b(firstAvgMonthlyFee)
-                )
-              )
-            ),
-            td(printPower(firstYearTotals.usedPower)),
-            td(firstAvgMwPrice),
-            td(firstAvgMonthlyFee)
-          )
-        )
-      )
-    );
-  }
-  function excessBillingPaybackInterest(excessYears, totalsByYear, monthlyPricing) {
-    const paybackInterestYears = calculatePaybackInterest(excessYears, monthlyPricing, totalsByYear);
-    const years = paybackInterestYears.map(
+  function excessBillingPaybackInterest(paybackInterestYears) {
+    return paybackInterestYears.map(
       (info) => div(
         h3(info.year),
         table(
@@ -3824,46 +3870,12 @@
         )
       )
     );
-    return {
-      paybackInterestYears,
-      root: years
-    };
-  }
-  function priceIncreasesAndPaybackInterest(years, totalsByYear, monthlyPricing) {
-    const [firstYear, ...comparedYears] = years;
-    const excessYears = comparedYears.filter((y) => totalsByYear[y].calculatedTotals.excessBilling.toNumber() > 0);
-    const { root: paybackInterest, paybackInterestYears } = excessBillingPaybackInterest(
-      excessYears,
-      totalsByYear,
-      monthlyPricing
-    );
-    const paybackInterestTotal = paybackInterestYears.reduce(
-      (acc, y) => acc.add(y.fromAveragePricesTotals.interest),
-      decimal_default(0)
-    );
-    return div(
-      h2("Korotusten arviointi"),
-      firstYearCompareInfo(firstYear, totalsByYear),
-      compareYears(comparedYears, totalsByYear),
-      excessYears.length > 0 && div(
-        h2("Liiallinen laskutus ja viiv\xE4styskorko"),
-        ul(
-          { class: "pagebreak" },
-          excessYears.map((y) => li(`${y}: ${printMoney(totalsByYear[y].calculatedTotals.excessBilling)}\u20AC`)),
-          li(`Viiv\xE4styskorko: ${printMoney(paybackInterestTotal)}\u20AC`),
-          li(
-            `Yhteens\xE4: ${printMoney(excessYears.reduce((acc, y) => acc.add(totalsByYear[y].calculatedTotals.excessBilling), paybackInterestTotal))}\u20AC`
-          )
-        ),
-        h2("Kuukausikohtaisen viiv\xE4styskoron laskeminen"),
-        p(
-          "Viiv\xE4styskorko laskettuna korjattujen kuukausien laskujen maksup\xE4iv\xE4st\xE4. Korjattuina kuukausina rahaa on ker\xE4tty perusteettomasti"
-        ),
-        paybackInterest
-      )
-    );
   }
   var usage = "2022-4_1.945_1.33_0.941_0.897_0.876_1.336_1.758_3.038_3.922_3.597_2.869_2.766_1.683_1.21_1.11_0.973_0.904_0.876_2.278_3.017_3.717_4.456_3.313_2.798_2.096_0.926_0.701_0.73_0.683_0.66_1.721_2.438_3.238_3.357_3.177_2.656_1.558_1.196_0.851_0.789_0.778_0.841_2.2_2.485_2.899";
+  function getPUrlParameter() {
+    const url2 = new URL(window.location.href);
+    return url2.searchParams.get("p");
+  }
   function kaukolampoExcessPricingCalculator() {
     const contract = tuusulanjarvenLampo;
     const from = { year: 2022, month: 1 };
@@ -3871,22 +3883,54 @@
     const years = range2(from.year, to.year);
     const address2 = "J\xE4tintie 1 A";
     const monthlyPricing = resolveMonthlyPricingLookup(contract, from, to);
-    const powerUsage = parseUnderscoreSeparatedYmNumbers(usage);
-    const powerUsageState = createState({});
-    const totalsByYear = createState({});
-    const monthSummary = createState({});
-    const priceIncreases = div();
+    const pFromBrowserUrl = getPUrlParameter();
+    const powerUsage = parseUnderscoreSeparatedYmNumbers(pFromBrowserUrl || usage);
+    const powerUsageState = createState(void 0);
+    const totalsByYearState = createState({});
+    const monthSummaryState = createState({});
+    const summary2 = div();
+    const priceIncreases = div(pageBreakAfter);
+    const paybackInterest = div();
     powerUsageState.onValueChange((powerUsage2) => {
-      const newTotals = calculateMonthlyYearlyTotals(years, monthlyPricing, powerUsage2);
-      totalsByYear.set(newTotals.totalsByYear);
-      monthSummary.set(newTotals.monthSummary);
-      priceIncreases.replaceChildren(
-        priceIncreasesAndPaybackInterest(years, newTotals.totalsByYear, newTotals.monthSummary)
-      );
+      if (powerUsage2) {
+        const newTotals = calculateMonthlyYearlyTotals(years, monthlyPricing, powerUsage2.numbers);
+        const totalsByYear = newTotals.totalsByYear;
+        totalsByYearState.set(totalsByYear);
+        const monthBillInfos = newTotals.monthSummary;
+        monthSummaryState.set(monthBillInfos);
+        const excessYears = years.filter((y) => totalsByYear[y].calculatedTotals.excessBilling.toNumber() > 0);
+        const paybackInterestYears = calculatePaybackInterest(excessYears, monthBillInfos, totalsByYear);
+        const paybackInterestTotal = paybackInterestYears.reduce(
+          (acc, y) => acc.add(y.fromAveragePricesTotals.interest),
+          decimal_default(0)
+        );
+        replaceChildren(
+          summary2,
+          h2("Liiallinen laskutus ja viiv\xE4styskorko"),
+          ul(
+            excessYears.map((y) => li(`${y}: ${printMoney(totalsByYear[y].calculatedTotals.excessBilling)}\u20AC`)),
+            li(`Viiv\xE4styskorko: ${printMoney(paybackInterestTotal)}\u20AC`),
+            li(
+              `Yhteens\xE4: ${printMoney(excessYears.reduce((acc, y) => acc.add(totalsByYear[y].calculatedTotals.excessBilling), paybackInterestTotal))}\u20AC`
+            )
+          )
+        );
+        replaceChildren(priceIncreases, h2("Korotusten arviointi"), compareYears(years, totalsByYear));
+        replaceChildren(
+          paybackInterest,
+          excessYears.length > 0 && div(
+            h2("Kuukausikohtaisen viiv\xE4styskoron laskeminen"),
+            p(
+              "Viiv\xE4styskorko laskettuna korjattujen kuukausien laskujen maksup\xE4iv\xE4st\xE4. Korjattuina kuukausina rahaa on ker\xE4tty perusteettomasti"
+            ),
+            excessBillingPaybackInterest(paybackInterestYears)
+          )
+        );
+      }
     });
-    const { bills } = billSummary(address2, years, monthSummary, totalsByYear);
-    powerUsageState.set(powerUsage.numbers);
-    return div(bills, priceIncreases);
+    const bills = billSummary(address2, years, monthSummaryState, totalsByYearState, powerUsageState);
+    powerUsageState.set(powerUsage);
+    return div(summary2, div(pageBreakAfter, bills), priceIncreases, paybackInterest);
   }
 
   // src/kotibudjetti.ts

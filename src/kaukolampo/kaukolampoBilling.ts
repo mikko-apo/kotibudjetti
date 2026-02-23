@@ -12,7 +12,7 @@ import type {
   YearTotalTotals,
 } from "./kaukolampoTypes";
 import { range } from "./range";
-import { debug, toDate } from "./util";
+import { toDate } from "./util";
 import { calculateViivastyskorkoMultiplier } from "./viivastyskorko";
 
 export const ymToIndex = (ym: YearMonth) => ym.year * 12 + (ym.month - 1);
@@ -81,10 +81,11 @@ export function calculateMonthlyYearlyTotals(
         const prevPrice: MonthlyPrice = monthlyPricing[index - 1] || price;
         const total = usedPowerPrice.add(price.monthlyFee);
         monthSummary[index] = {
+          index,
           ...price,
           usedPower,
           usedPowerPrice,
-          monthlyMWPriceDelta: price.powerPrice.sub(prevPrice.powerPrice).toNumber(),
+          mWPriceDelta: price.powerPrice.sub(prevPrice.powerPrice).toNumber(),
           monthlyFeeDelta: price.monthlyFee.sub(prevPrice.monthlyFee).toNumber(),
           total,
         };
@@ -181,8 +182,6 @@ export function calculatePaybackInterest(
     function calculateInterestMultiplier(month: number) {
       const startDate = toDate(year, month, 1);
       const viivastyskorkoMultiplier = calculateViivastyskorkoMultiplier(startDate, new Date(), true);
-      console.log("viivästyskorko", startDate);
-      debug(viivastyskorkoMultiplier);
       return viivastyskorkoMultiplier.multiplier;
     }
     function calculateExcessFromAveragePrices(originalBill: MonthBillInfo, originalTotal: Decimal, month: number) {

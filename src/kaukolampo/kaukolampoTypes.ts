@@ -48,11 +48,12 @@ export type YearTotal = {
 };
 
 export type MonthBillInfo = MonthlyPrice & {
+  index: number;
   usedPower: Decimal;
   usedPowerPrice: Decimal;
   total: Decimal;
   monthlyFeeDelta: number;
-  monthlyMWPriceDelta: number;
+  mWPriceDelta: number;
 };
 
 export type PaybackInterestMonth = {

@@ -50,3 +50,30 @@ export function parseUnderscoreSeparatedYmNumbers(input: string): UnpackedPowerU
   const to = indexToYm(idx - 1); // last mapped month
   return { from, to, numbers };
 }
+
+export function formatAsUnderscoreSeparated(input: UnpackedPowerUsage): string {
+  const { from, to, numbers } = input;
+
+  const fromIdx = ymToIndex(from);
+  const toIdx = ymToIndex(to);
+
+  if (toIdx < fromIdx) {
+    throw new Error("to must be >= from");
+  }
+
+  const parts: string[] = [];
+
+  // First item: anchor
+  parts.push(`${from.year}-${from.month}`);
+
+  // Following items: numbers for each month
+  for (let idx = fromIdx; idx <= toIdx; idx++) {
+    const value = numbers[idx];
+    if (value === undefined) {
+      throw new Error(`Missing number for ${JSON.stringify(indexToYm(idx))}`);
+    }
+    parts.push(String(value));
+  }
+
+  return parts.join("_");
+}
