@@ -9,6 +9,7 @@ import {
   div,
   h2,
   h3,
+  inputText,
   li,
   p,
   replaceChildren,
@@ -21,6 +22,7 @@ import {
   tr,
   ul,
 } from "../../../ki-frame/src/domBuilder";
+import { events, setEvents } from "../../../ki-frame/src/domBuilderEvents";
 import { styles } from "../../../ki-frame/src/domBuilderStyles";
 import { printMoney, printPower } from "./formatting";
 import {
@@ -43,27 +45,39 @@ const showIncrease = (inc?: number) =>
 const borderLeft = { styles: { borderLeft: "2px solid #6b7280" } };
 const pageBreakAfter = { class: "pagebreak" };
 
-function BillItemTDs() {
-  const power = td(borderLeft);
+function BillItemTDs(index?: number) {
+  const usedPowerText = text();
+  const usedPowerTextDiv = div(usedPowerText);
+  const usedPowerInput = index && inputText({ name: index.toString(), hidden: true }, styles({ width: "6ch" }));
+  const usedPower = td(borderLeft, usedPowerTextDiv, usedPowerInput);
   const mwPrice = td();
   const powerPrice = td();
   const monthlyFee = td();
   const total = b();
-  const setText = (info: Partial<MonthBillInfo>) => {
-    replaceChildren(power, info?.usedPower ? printPower(info.usedPower) : "");
-    replaceChildren(mwPrice, info?.powerPrice ? printMoney(info?.powerPrice) : "", showIncrease(info.mWPriceDelta));
+  const setText = (info?: Partial<MonthBillInfo>) => {
+    if (info?.usedPower) {
+      usedPowerText.textContent = printPower(info.usedPower);
+      usedPowerInput && (usedPowerInput.value = printPower(info.usedPower));
+    } else {
+      usedPowerText.textContent = "";
+      usedPowerInput && (usedPowerInput.value = "");
+    }
+    replaceChildren(mwPrice, info?.powerPrice ? printMoney(info?.powerPrice) : "", showIncrease(info?.mWPriceDelta));
     replaceChildren(powerPrice, info?.usedPowerPrice ? printMoney(info.usedPowerPrice) : "");
     replaceChildren(
       monthlyFee,
       info?.monthlyFee ? printMoney(info.monthlyFee) : "",
-      showIncrease(info.monthlyFeeDelta),
+      showIncrease(info?.monthlyFeeDelta),
     );
-    replaceChildren(total, info.total ? printMoney(info.total) : "");
+    replaceChildren(total, info?.total ? printMoney(info.total) : "");
   };
 
   return {
-    billTDList: [power, mwPrice, powerPrice, monthlyFee, td(total)],
+    billTDList: [usedPower, mwPrice, powerPrice, monthlyFee, td(total)],
     setText,
+    usedPowerText,
+    usedPowerTextDiv,
+    usedPowerInput,
   };
 }
 
@@ -72,18 +86,50 @@ export function billSummary(
   years: number[],
   monthSummary: State<Record<number, MonthBillInfo>>,
   totalsByYear: State<Record<number, YearTotal>>,
-  powerUsageState: State<UnpackedPowerUsage | undefined>,
+  powerUsageState: State<UnpackedPowerUsage>,
 ) {
+  const usedPowerEditable = createState(false);
   const billRows = months.map((month) =>
     tr(
       td(month),
       years.map((year) => {
         const index = ymToIndex({ year, month });
-        const { billTDList, setText } = BillItemTDs();
+        const { billTDList, setText, usedPowerInput, usedPowerText, usedPowerTextDiv } = BillItemTDs(index);
+        // monthSummary has changed, update other fields than usedPower
         monthSummary.onValueChange((summaries) => {
           const monthInfo = summaries[index];
-          if (monthInfo) setText(monthInfo);
+          setText(monthInfo);
         });
+        if (usedPowerInput) {
+          // toggle input and text view
+          usedPowerEditable.onValueChange((showInput) => {
+            usedPowerInput.hidden = !showInput;
+            usedPowerTextDiv.hidden = showInput;
+          });
+          // catch change event and update other tables
+          setEvents<"input">(
+            usedPowerInput,
+            events({
+              change({ node, event }) {
+                const value = node.value;
+                const newUsedPower = ["0", ""].includes(value.trimEnd().trimStart()) ? undefined : Decimal(value);
+                usedPowerText.textContent = newUsedPower ? value : "";
+                powerUsageState.set((cur) => {
+                  const numbers = { ...cur.numbers };
+                  if (newUsedPower) {
+                    numbers[index] = Decimal(value);
+                  } else {
+                    delete numbers[index];
+                  }
+                  return {
+                    ...cur,
+                    numbers,
+                  };
+                });
+              },
+            }),
+          );
+        }
         return billTDList;
       }),
     ),
@@ -130,9 +176,70 @@ export function billSummary(
     });
     replaceChildren(priceChangeTBody, rows);
   });
+  const priceChangeComparedToFirstYear = div();
+  totalsByYear.onValueChange((yearTotals) => {
+    const [firstYear, ...compareYears] = years;
+    const firstData = yearTotals[firstYear].calculatedTotals;
+    replaceChildren(
+      priceChangeComparedToFirstYear,
+      table(
+        styles({ width: "auto", textAlign: "right" }),
+        thead(
+          tr(
+            th("Vuosi"),
+            th("Laskutuskuukausia"),
+            th("Kulutus"),
+            th("Toteutunut laskutus"),
+            th(`Laskutus edellisen vuoden tasolla`),
+            th("Korotus €"),
+            th("Korotus %"),
+            th("Ylilaskutus €"),
+            th(`Laskutus vuoden ${years[0]} tasolla`),
+            th("Korotus €"),
+            th("Korotus %"),
+          ),
+          years.map((y) => {
+            const currentYear = yearTotals[y];
+            const usedPower = currentYear.usedPower;
+            const totalOnFirstYearLevel = usedPower
+              .mul(firstData.avgPowerPrice)
+              .add(firstData.avgMonthlyFee.mul(currentYear.monthCount));
+            return tr(
+              td(y),
+              td(currentYear.monthCount),
+              td(printPower(usedPower), " MW"),
+              td(printMoney(currentYear.billedTotals.total), " €"),
+              td(
+                currentYear.totalsBasedOnLastYearLevel && printMoney(currentYear.totalsBasedOnLastYearLevel.total),
+                " €",
+              ),
+              td(
+                currentYear.totalsBasedOnLastYearLevel &&
+                  printMoney(currentYear.billedTotals.total.minus(currentYear.totalsBasedOnLastYearLevel.total)),
+                " €",
+              ),
+              td(
+                currentYear.totalsBasedOnLastYearLevel &&
+                  printPower(
+                    currentYear.billedTotals.total.div(currentYear.totalsBasedOnLastYearLevel.total).minus(1).mul(100),
+                  ),
+              ),
+              td(
+                currentYear.totalsBasedOnLastYearLevel && printMoney(currentYear.calculatedTotals.excessBilling),
+                " €",
+              ),
+              td(printMoney(totalOnFirstYearLevel), " €"),
+              td(printMoney(currentYear.billedTotals.total.minus(totalOnFirstYearLevel)), " €"),
+              td(printPower(currentYear.billedTotals.total.div(totalOnFirstYearLevel).minus(1).mul(100))),
+            );
+          }),
+        ),
+      ),
+    );
+  });
 
   const powerUsageHashInfo = text();
-  const powerUsageAsLink = a("Kulutusarvot linkkinä");
+  const powerUsageAsLink = a("Kulutusarvot linkkinä", { class: "no-print" });
   powerUsageState.onValueChange((powerUsage) => {
     if (powerUsage) {
       const data = formatAsUnderscoreSeparated(powerUsage);
@@ -157,18 +264,25 @@ export function billSummary(
       tbody(billRows, totalRow),
     ),
     div(
-      { class: "no-print" },
-      button("Muokkaa kulutusarvoja", { class: "blueButton" }),
+      button(
+        "Muokkaa kulutusarvoja",
+        { class: "blueButton" },
+        { class: "no-print" },
+        events({
+          click() {
+            usedPowerEditable.set((cur) => !cur);
+          },
+        }),
+      ),
       powerUsageAsLink,
       powerUsageHashInfo,
     ),
     h3("Hinnanmuutokset"),
     table(styles({ width: "auto" }), priceChangeTBody),
+    h3(`Hinnanmuutokset vuositasolla`),
+    priceChangeComparedToFirstYear,
   );
 }
-
-const thisYearComparisonTitle = (y: number) =>
-  `tämän vuoden (${y}) tason laskeminen seuraavan vuoden (${y + 1}) korotuksen arviointia varten`;
 
 function compareYears(comparedYears: number[], totalsByYear: Record<number, YearTotal>) {
   return comparedYears.map((y) => {
@@ -234,7 +348,16 @@ function compareYears(comparedYears: number[], totalsByYear: Record<number, Year
       h3(prevTotal ? `${y}, vertailu toteutuneella ja ${y - 1} tasolla` : `${y} tason laskeminen`),
       table(
         styles({ width: "auto" }),
-        thead(tr(th(""), th("kulutus"), th("€/MWh"), th("$/kk"), th("Lasku vuositasolla"), th("Liika laskutus"))),
+        thead(
+          tr(
+            th(""),
+            th("kulutus"),
+            th("€/MWh"),
+            th("$/kk"),
+            th("Lasku vuositasolla"),
+            priceIncreaseTooMuch && th(b("Liika laskutus")),
+          ),
+        ),
         tbody(
           styles({ verticalAlign: "top" }),
           tr(
@@ -243,7 +366,7 @@ function compareYears(comparedYears: number[], totalsByYear: Record<number, Year
             td(),
             td(),
             td(printMoney(yearTotal.billedTotals.total)),
-            td(),
+            priceIncreaseTooMuch && td(),
           ),
           prevTotal &&
             tr(
@@ -262,7 +385,7 @@ function compareYears(comparedYears: number[], totalsByYear: Record<number, Year
               td(printMoney(prevAvgMwPrice)),
               td(printMoney(prevAvgMonthlyFee)),
               td(printMoney(totalWithPrevYearLevel)),
-              td(),
+              priceIncreaseTooMuch && td(),
             ),
           prevTotal &&
             tr(
@@ -282,14 +405,18 @@ function compareYears(comparedYears: number[], totalsByYear: Record<number, Year
               td(),
               td(),
               td(priceIncreaseTooMuch && printMoney(calculatedTotals.total)),
-              td(priceIncreaseTooMuch && b(printMoney(calculatedTotals.excessBilling))),
+              priceIncreaseTooMuch && td(b(printMoney(calculatedTotals.excessBilling))),
             ),
           tr(
-            td(thisYearComparisonTitle(y), explainAdjustment()),
+            td(
+              `tämän vuoden (${y}) tason laskeminen seuraavan vuoden (${y + 1}) korotuksen arviointia varten`,
+              explainAdjustment(),
+            ),
             td(),
             td(printMoney(calculatedTotals.avgPowerPrice)),
             td(printMoney(calculatedTotals.avgMonthlyFee)),
             td(),
+            priceIncreaseTooMuch && td(),
           ),
         ),
       ),
@@ -380,7 +507,7 @@ export function kaukolampoExcessPricingCalculator() {
   const pFromBrowserUrl = getPUrlParameter();
   const powerUsage = parseUnderscoreSeparatedYmNumbers(pFromBrowserUrl || usage);
 
-  const powerUsageState = createState<UnpackedPowerUsage | undefined>(undefined);
+  const powerUsageState = createState<UnpackedPowerUsage>(powerUsage);
   const totalsByYearState = createState<Record<number, YearTotal>>({});
   const monthSummaryState = createState<Record<number, MonthBillInfo>>({});
 
@@ -434,6 +561,6 @@ export function kaukolampoExcessPricingCalculator() {
   });
 
   const bills = billSummary(address, years, monthSummaryState, totalsByYearState, powerUsageState);
-  powerUsageState.set(powerUsage);
+  powerUsageState.republish();
   return div(summary, div(pageBreakAfter, bills), priceIncreases, paybackInterest);
 }
