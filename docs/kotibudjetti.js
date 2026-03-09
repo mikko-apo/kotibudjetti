@@ -3146,6 +3146,100 @@
   var createState = defaultContext.createState.bind(defaultContext);
   var createForm = defaultContext.createForm.bind(defaultContext);
 
+  // ../ki-frame/src/stringFormatter.ts
+  var defaultFormatters = {
+    s: (v, spec) => {
+      let s2 = String(v != null ? v : "");
+      if (spec.precision !== void 0) s2 = s2.slice(0, spec.precision);
+      return pad(s2, spec.width);
+    },
+    d: (v, spec) => {
+      const n = Number(v);
+      const s2 = Number.isFinite(n) ? String(Math.trunc(n)) : "NaN";
+      return pad(s2, spec.width);
+    },
+    f: (v, spec) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return pad(String(n), spec.width);
+      const prec = spec.precision !== void 0 ? spec.precision : 6;
+      const s2 = n.toFixed(prec);
+      return pad(s2, spec.width);
+    },
+    j: (v) => {
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return String(v);
+      }
+    }
+  };
+  function pad(s2, width) {
+    if (width === void 0 || width <= s2.length) return s2;
+    return " ".repeat(width - s2.length) + s2;
+  }
+  function isPlainObject(v) {
+    return v !== null && typeof v === "object" && !Array.isArray(v);
+  }
+  function createFormatter(customFormatters = {}) {
+    const registry = /* @__PURE__ */ new Map();
+    const addMap = (map2) => {
+      for (const k of Object.keys(map2)) {
+        if (!/^[A-Za-z]+$/.test(k)) {
+          throw new Error(`format key must be letters only: "${k}"`);
+        }
+        registry.set(k, map2[k]);
+      }
+    };
+    addMap(defaultFormatters);
+    addMap(customFormatters);
+    function registerFormat(key, handler) {
+      if (!/^[A-Za-z]+$/.test(key)) throw new Error("format key must be letters only");
+      registry.set(key, handler);
+    }
+    function unregisterFormat(key) {
+      registry.delete(key);
+    }
+    function listFormats() {
+      return Array.from(registry.keys()).sort();
+    }
+    function sprintf(format, ...args) {
+      let argIndex = 0;
+      let previousWasNamedArg = false;
+      const tokenRE = /%(\(([^)]+)\))?([0-9]*)?(?:\.([0-9]+))?([A-Za-z]+)/g;
+      const result = format.replace(tokenRE, (match, _paren, name, widthStr, precStr, type) => {
+        const spec = {
+          key: name,
+          width: widthStr ? parseInt(widthStr, 10) : void 0,
+          precision: precStr ? parseInt(precStr, 10) : void 0,
+          raw: match,
+          type
+        };
+        let value;
+        if (name) {
+          value = args[0] !== void 0 && isPlainObject(args[argIndex]) ? args[argIndex][name] : void 0;
+          previousWasNamedArg = true;
+        } else {
+          if (previousWasNamedArg) {
+            argIndex++;
+            previousWasNamedArg = false;
+          }
+          value = args[argIndex++];
+        }
+        const handler = registry.get(type);
+        if (!handler) {
+          return match;
+        }
+        try {
+          return handler(value, spec);
+        } catch {
+          return pad(String(value != null ? value : ""), spec.width);
+        }
+      });
+      return result;
+    }
+    return sprintf;
+  }
+
   // src/kaukolampo/formatting.ts
   var printPower = (n) => n.toFixed(3);
   var printMoney = (n) => n.toFixed(2);
@@ -3576,17 +3670,27 @@
 
   // src/kaukolampo/kaukolampoUi.ts
   var showIncrease = (inc) => styles({ backgroundColor: !inc || inc === 0 ? "" : inc > 0 ? "lightpink" : "lightgreen" });
-  var borderLeft = { styles: { borderLeft: "2px solid #6b7280" } };
-  var pageBreakAfter = { class: "pagebreak" };
+  var uiStyles = {
+    pageBreakAfter: { class: "pagebreak" },
+    noPrint: { class: "no-print" },
+    borderLeft: styles({ borderLeft: "2px solid #6b7280" }),
+    numberTableRight: styles({ width: "auto", textAlign: "right", verticalAlign: "top" }),
+    numberTableLeft: styles({ width: "auto", verticalAlign: "top" }),
+    bold: styles({ fontWeight: "bold" })
+  };
+  var formatter = createFormatter({
+    P: printPower,
+    M: printMoney
+  });
   function BillItemTDs(index) {
     const usedPowerText = text();
     const usedPowerTextDiv = div(usedPowerText);
-    const usedPowerInput = index && inputText({ name: index.toString(), hidden: true }, styles({ width: "6ch" }));
-    const usedPower = td(borderLeft, usedPowerTextDiv, usedPowerInput);
+    const usedPowerInput = index && inputText({ name: index.toString(), hidden: true }, styles({ width: "7ch" }));
+    const usedPower = td(uiStyles.borderLeft, usedPowerTextDiv, usedPowerInput);
     const mwPrice = td();
     const powerPrice = td();
     const monthlyFee = td();
-    const total = b();
+    const total = td(uiStyles.bold);
     const setText = (info) => {
       if (info == null ? void 0 : info.usedPower) {
         usedPowerText.textContent = printPower(info.usedPower);
@@ -3605,7 +3709,7 @@
       replaceChildren(total, (info == null ? void 0 : info.total) ? printMoney(info.total) : "");
     };
     return {
-      billTDList: [usedPower, mwPrice, powerPrice, monthlyFee, td(total)],
+      billTDList: [usedPower, mwPrice, powerPrice, monthlyFee, total],
       setText,
       usedPowerText,
       usedPowerTextDiv,
@@ -3657,8 +3761,8 @@
       )
     );
     const totalRow = tr(
-      styles({ fontWeight: "bold" }),
-      td(b("Yhteens\xE4")),
+      uiStyles.bold,
+      td("Yhteens\xE4", uiStyles.bold),
       years.map((y) => {
         const { billTDList, setText } = BillItemTDs();
         totalsByYear.onValueChange((years2) => {
@@ -3704,18 +3808,18 @@
       replaceChildren(
         priceChangeComparedToFirstYear,
         table(
-          styles({ width: "auto", textAlign: "right" }),
+          uiStyles.numberTableRight,
           thead(
             tr(
               th("Vuosi"),
               th("Laskutuskuukausia"),
               th("Kulutus"),
               th("Toteutunut laskutus"),
-              th(`Laskutus edellisen vuoden tasolla`),
+              th(`Laskutus edellisen vuoden tasolla`, uiStyles.borderLeft),
               th("Korotus \u20AC"),
               th("Korotus %"),
               th("Ylilaskutus \u20AC"),
-              th(`Laskutus vuoden ${years[0]} tasolla`),
+              th(`Laskutus vuoden ${years[0]} tasolla`, uiStyles.borderLeft),
               th("Korotus \u20AC"),
               th("Korotus %")
             ),
@@ -3730,7 +3834,8 @@
                 td(printMoney(currentYear.billedTotals.total), " \u20AC"),
                 td(
                   currentYear.totalsBasedOnLastYearLevel && printMoney(currentYear.totalsBasedOnLastYearLevel.total),
-                  " \u20AC"
+                  " \u20AC",
+                  uiStyles.borderLeft
                 ),
                 td(
                   currentYear.totalsBasedOnLastYearLevel && printMoney(currentYear.billedTotals.total.minus(currentYear.totalsBasedOnLastYearLevel.total)),
@@ -3745,7 +3850,7 @@
                   currentYear.totalsBasedOnLastYearLevel && printMoney(currentYear.calculatedTotals.excessBilling),
                   " \u20AC"
                 ),
-                td(printMoney(totalOnFirstYearLevel), " \u20AC"),
+                td(printMoney(totalOnFirstYearLevel), " \u20AC", uiStyles.borderLeft),
                 td(printMoney(currentYear.billedTotals.total.minus(totalOnFirstYearLevel)), " \u20AC"),
                 td(printPower(currentYear.billedTotals.total.div(totalOnFirstYearLevel).minus(1).mul(100)))
               );
@@ -3755,7 +3860,7 @@
       );
     });
     const powerUsageHashInfo = text();
-    const powerUsageAsLink = a("Kulutusarvot linkkin\xE4", { class: "no-print" });
+    const powerUsageAsLink = a("Kulutusarvot linkkin\xE4", uiStyles.noPrint);
     powerUsageState.onValueChange((powerUsage) => {
       if (powerUsage) {
         const data2 = formatAsUnderscoreSeparated(powerUsage);
@@ -3769,32 +3874,70 @@
     return div(
       h2(`${address2} laskut ${years[0]}-${years[years.length - 1]}`),
       table(
-        styles({ width: "auto", textAlign: "right" }),
+        uiStyles.numberTableRight,
         thead(
           tr(
             th({ rowSpan: 2 }),
-            years.map((y) => th(y, { colSpan: 5, ...borderLeft }))
+            years.map((y) => th(y, { colSpan: 5 }, uiStyles.borderLeft))
           ),
-          tr(years.map((y) => [th("Kulutus", borderLeft), th("\u20AC/MWh"), th("Energia \u20AC"), th("$/kk"), th("Lasku \u20AC")]))
+          tr(
+            years.map((y) => [
+              th("Kulutus", uiStyles.borderLeft),
+              th("\u20AC/MWh"),
+              th("Energia \u20AC"),
+              th("$/kk"),
+              th("Lasku \u20AC")
+            ])
+          )
         ),
         tbody(billRows, totalRow)
       ),
       div(
+        powerUsageHashInfo,
+        powerUsageAsLink,
         button(
           "Muokkaa kulutusarvoja",
           { class: "blueButton" },
-          { class: "no-print" },
+          uiStyles.noPrint,
           events({
             click() {
               usedPowerEditable.set((cur) => !cur);
             }
           })
         ),
-        powerUsageAsLink,
-        powerUsageHashInfo
+        button(
+          "Tyhjenn\xE4",
+          events({
+            click() {
+              powerUsageState.set((old) => {
+                return { ...old, numbers: {} };
+              });
+              usedPowerEditable.set(true);
+            }
+          })
+        ),
+        button(
+          "Tallenna",
+          events({
+            click() {
+              localStorage.setItem("kaukolampo", formatAsUnderscoreSeparated(powerUsageState.get()));
+            }
+          })
+        ),
+        button(
+          "Lataa",
+          events({
+            click() {
+              const savedData = localStorage.getItem("kaukolampo");
+              if (savedData) {
+                powerUsageState.set(parseUnderscoreSeparatedYmNumbers(savedData));
+              }
+            }
+          })
+        )
       ),
-      h3("Hinnanmuutokset"),
-      table(styles({ width: "auto" }), priceChangeTBody),
+      h3("Hinnanmuutokset edelliseen kuukauteen verrattuna"),
+      table(uiStyles.numberTableRight, priceChangeTBody),
       h3(`Hinnanmuutokset vuositasolla`),
       priceChangeComparedToFirstYear
     );
@@ -3811,11 +3954,14 @@
         li("Korotus ylitt\xE4\xE4 15% ja 150e. Kuluttajariitalautakunnan suosituksen mukainen korotus olisi 150e"),
         ul(
           li(
-            `150\u20AC korotus edellisen vuoden tasolla laskettuun summaan: ${printMoney(yearTotal.totalsBasedOnLastYearLevel.total)} + 150 = `,
+            formatter(
+              `150\u20AC korotus edellisen vuoden tasolla laskettuun summaan: %M + 150 = `,
+              yearTotal.totalsBasedOnLastYearLevel.total
+            ),
             b(printMoney(calculatedTotals.total))
           ),
           li(
-            `Liika laskutus: ${printMoney(yearTotal.billedTotals.total)} - ${printMoney(calculatedTotals.total)}  = `,
+            formatter(`Liika laskutus: %M - %M  = `, yearTotal.billedTotals.total, calculatedTotals.total),
             b(printMoney(calculatedTotals.excessBilling))
           )
         )
@@ -3827,14 +3973,23 @@
             "Liian laskutuksen takia seuraavan vuoden laskutuksessa k\xE4ytet\xE4\xE4n t\xE4m\xE4n vuoden tasona viimevuoden tasoa * korjauskerroin"
           ),
           calculatedTotals.adjustmentMultiplier && li(
-            `Korjauskerroin: ${printMoney(calculatedTotals.total)}/${printMoney(yearTotal.totalsBasedOnLastYearLevel.total)} = ${printPower(calculatedTotals.adjustmentMultiplier)}`
+            formatter(
+              `Korjauskerroin: %M / %M = %P`,
+              calculatedTotals.total,
+              yearTotal.totalsBasedOnLastYearLevel.total,
+              calculatedTotals.adjustmentMultiplier
+            )
           ),
           li(
-            `Energian hinta: ${printMoney(prevAvgMwPrice)} * ${printPower(calculatedTotals.adjustmentMultiplier)} = `,
+            formatter(`Energian hinta: %M * %P} = `, prevAvgMwPrice, calculatedTotals.adjustmentMultiplier),
             b(printMoney(calculatedTotals.avgPowerPrice))
           ),
           li(
-            `Kuukausi: ${printMoney(prevTotal.calculatedTotals.avgMonthlyFee)} * ${printPower(calculatedTotals.adjustmentMultiplier)} = `,
+            formatter(
+              `Kuukausi: %M * %P = `,
+              prevTotal.calculatedTotals.avgMonthlyFee,
+              calculatedTotals.adjustmentMultiplier
+            ),
             b(printMoney(calculatedTotals.avgMonthlyFee))
           )
         )
@@ -3842,11 +3997,11 @@
         ul(
           li("Taso saadaan laskemalla keskiarvot"),
           li(
-            `Energian hinta: ${printMoney(yearTotal.billedTotals.usedPowerPrice)} / ${printPower(yearTotal.usedPower)} = `,
+            formatter(`Energian hinta: %M / %P = `, yearTotal.billedTotals.usedPowerPrice, yearTotal.usedPower),
             b(printMoney(yearTotal.calculatedTotals.avgPowerPrice))
           ),
           li(
-            `Kuukausi: ${printMoney(yearTotal.billedTotals.monthlyFees)} / ${yearTotal.monthCount} = `,
+            formatter(`Kuukausi: %M / %d = `, yearTotal.billedTotals.monthlyFees, yearTotal.monthCount),
             b(printMoney(yearTotal.calculatedTotals.avgMonthlyFee))
           )
         )
@@ -3856,7 +4011,7 @@
       return div(
         h3(prevTotal ? `${y}, vertailu toteutuneella ja ${y - 1} tasolla` : `${y} tason laskeminen`),
         table(
-          styles({ width: "auto" }),
+          uiStyles.numberTableLeft,
           thead(
             tr(
               th(""),
@@ -3864,11 +4019,10 @@
               th("\u20AC/MWh"),
               th("$/kk"),
               th("Lasku vuositasolla"),
-              priceIncreaseTooMuch && th(b("Liika laskutus"))
+              priceIncreaseTooMuch && th(uiStyles.bold, "Liika laskutus")
             )
           ),
           tbody(
-            styles({ verticalAlign: "top" }),
             tr(
               td(`${y} toteunut lasku`),
               td(printPower(yearTotal.usedPower)),
@@ -3884,7 +4038,13 @@
                   li(
                     `Vuoden ${y} energiakulutus ${printPower(yearTotal.usedPower)} vuoden ${y - 1} kuukausimaksulla ja energian hinnalla: `,
                     br(),
-                    `${printPower(yearTotal.usedPower)} * ${printMoney(prevAvgMwPrice)} + ${yearTotal.monthCount} * ${printMoney(prevAvgMonthlyFee)} = `,
+                    formatter(
+                      `%P * %M + %d * %M = `,
+                      yearTotal.usedPower,
+                      prevAvgMwPrice,
+                      yearTotal.monthCount,
+                      prevAvgMonthlyFee
+                    ),
                     b(printMoney(totalWithPrevYearLevel))
                   )
                 )
@@ -3900,10 +4060,18 @@
                 `Korotuksen arvionti vuodelle ${y}`,
                 ul(
                   li(
-                    `${y} yhteens\xE4 ${printMoney(yearTotal.billedTotals.total)}, ${prevYear} tasolla ${printMoney(totalWithPrevYearLevel)}`
+                    formatter(
+                      `${y} yhteens\xE4 %M, ${prevYear} tasolla %M`,
+                      yearTotal.billedTotals.total,
+                      totalWithPrevYearLevel
+                    )
                   ),
                   li(
-                    `Korotus ${printMoney(calculatedTotals.priceIncreaseEuros || decimal_default(0))} euroa ${printPower(calculatedTotals.priceIncreasePercents || decimal_default(0))} prosenttia`
+                    formatter(
+                      `Korotus %M euroa %P prosenttia`,
+                      calculatedTotals.priceIncreaseEuros || decimal_default(0),
+                      calculatedTotals.priceIncreasePercents || decimal_default(0)
+                    )
                   ),
                   princeIncreaseInfo
                 )
@@ -3912,7 +4080,7 @@
               td(),
               td(),
               td(priceIncreaseTooMuch && printMoney(calculatedTotals.total)),
-              priceIncreaseTooMuch && td(b(printMoney(calculatedTotals.excessBilling)))
+              priceIncreaseTooMuch && td(uiStyles.bold, printMoney(calculatedTotals.excessBilling))
             ),
             tr(
               td(
@@ -3935,23 +4103,23 @@
       (info) => div(
         h3(info.year),
         table(
-          styles({ width: "auto" }),
+          uiStyles.numberTableRight,
           thead(
             tr(
               th("Pohjatiedot", { colSpan: 3 }),
-              th("Ylilaskutus jos verrataan +150 tasoon vuoden yli", { colSpan: 3 }, borderLeft),
-              th("Ylilaskutus jos 150\u20AC annetaan kerty\xE4 vuoden alussa", { colSpan: 3 }, borderLeft)
+              th("Ylilaskutus jos verrataan +150 tasoon vuoden yli", { colSpan: 3 }, uiStyles.borderLeft),
+              th("Ylilaskutus jos 150\u20AC annetaan kerty\xE4 vuoden alussa", { colSpan: 3 }, uiStyles.borderLeft)
             ),
             tr(
               th("vuosi.kk"),
               th("Kulutus"),
               th("Alkuper\xE4inen lasku"),
               // keskiarvoon verrattu
-              th("Korjattu lasku", borderLeft),
+              th("Korjattu lasku", uiStyles.borderLeft),
               th("Ylilaskutus"),
               th("Viiv\xE4styskorko"),
               // viime vuoden taso ja 150e puskuri
-              th("Lasku aiemman vuoden tasolla", borderLeft),
+              th("Lasku aiemman vuoden tasolla", uiStyles.borderLeft),
               th("Korjattu lasku"),
               th("150 eurosta j\xE4ljell\xE4"),
               th("Ylilaskutus"),
@@ -3965,11 +4133,11 @@
                 td(printPower(m.originalBill.usedPower)),
                 td(printMoney(m.originalBill.total)),
                 // keskiarvoon verrattu
-                td(printMoney(m.excessFromAveragePrices.total), borderLeft),
+                td(printMoney(m.excessFromAveragePrices.total), uiStyles.borderLeft),
                 td(printMoney(m.excessFromAveragePrices.excess)),
                 td(printMoney(m.excessFromAveragePrices.interest)),
                 // viime vuoden taso ja 150e puskuri
-                td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.totalWithLastYearLevel), borderLeft),
+                td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.totalWithLastYearLevel), uiStyles.borderLeft),
                 td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.total)),
                 td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.leftFrom150)),
                 td(printMoney(m.excessComparingToPreviousYearAnd150Buffer.excess)),
@@ -3978,13 +4146,14 @@
             })
           ),
           tr(
+            uiStyles.bold,
             td("Yhteens\xE4"),
             td(),
             td(),
-            td(printMoney(info.fromAveragePricesTotals.total), borderLeft),
+            td(printMoney(info.fromAveragePricesTotals.total), uiStyles.borderLeft),
             td(printMoney(info.fromAveragePricesTotals.excess)),
             td(printMoney(info.fromAveragePricesTotals.interest)),
-            td(borderLeft),
+            td(uiStyles.borderLeft),
             td(printMoney(info.comparingToPreviousYearAnd150BufferTotals.total)),
             td(),
             td(printMoney(info.comparingToPreviousYearAnd150BufferTotals.excess)),
@@ -4012,7 +4181,7 @@
     const totalsByYearState = createState({});
     const monthSummaryState = createState({});
     const summary2 = div();
-    const priceIncreases = div(pageBreakAfter);
+    const priceIncreases = div(uiStyles.pageBreakAfter);
     const paybackInterest = div();
     powerUsageState.onValueChange((powerUsage2) => {
       if (powerUsage2) {
@@ -4053,7 +4222,7 @@
     });
     const bills = billSummary(address2, years, monthSummaryState, totalsByYearState, powerUsageState);
     powerUsageState.republish();
-    return div(summary2, div(pageBreakAfter, bills), priceIncreases, paybackInterest);
+    return div(summary2, div(uiStyles.pageBreakAfter, bills), priceIncreases, paybackInterest);
   }
 
   // src/kotibudjetti.ts

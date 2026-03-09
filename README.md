@@ -13,3 +13,4 @@ Account transaction reports, monthly / yearly planning
   - add Tuusulanjärven Lämpö due dates for accurate payback interest
   - google ads
   - printing hides input fields
+  
