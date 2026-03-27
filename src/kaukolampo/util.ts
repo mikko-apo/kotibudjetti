@@ -1,62 +1,62 @@
-import { createHash } from "node:crypto";
+import { createHash } from 'node:crypto'
 
 export function iterator<T>(items: T[]) {
-  let index = 0;
+  let index = 0
 
   return function next(): T {
     if (index >= items.length) {
-      throw new Error("No more items available.");
+      throw new Error('No more items available.')
     }
 
-    return items[index++];
-  };
+    return items[index++]
+  }
 }
 
 export function buildArray<T>(count: number, builderFn: (index: number) => T): T[] {
   if (count < 0) {
-    throw new Error("Count must be non-negative.");
+    throw new Error('Count must be non-negative.')
   }
 
-  return Array.from({ length: count }, (_, i) => builderFn(i));
+  return Array.from({ length: count }, (_, i) => builderFn(i))
 }
 
 export function arrayToRecord<T, K extends keyof T & PropertyKey>(items: T[], key: K): Record<T[K] & PropertyKey, T> {
   return items.reduce(
     (acc, item) => {
-      const recordKey = item[key] as T[K] & PropertyKey;
-      acc[recordKey] = item;
-      return acc;
+      const recordKey = item[key] as T[K] & PropertyKey
+      acc[recordKey] = item
+      return acc
     },
-    {} as Record<T[K] & PropertyKey, T>,
-  );
+    {} as Record<T[K] & PropertyKey, T>
+  )
 }
 
 export function debug(input: any, label?: string): void {
-  const root = label ?? "value";
-  console.log(`${root}:`, JSON.stringify(input, null, 2));
+  const root = label ?? 'value'
+  console.log(`${root}:`, JSON.stringify(input, null, 2))
 }
 
 export function toDate(year: number, month: number, day: number): Date {
-  return new Date(Date.UTC(year, month - 1, day));
+  return new Date(Date.UTC(year, month - 1, day))
 }
 
 export async function shortHexHash(input: string, length?: number): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(input);
+  const encoder = new TextEncoder()
+  const data = encoder.encode(input)
 
-  const buffer = await crypto.subtle.digest("SHA-256", data);
+  const buffer = await crypto.subtle.digest('SHA-256', data)
 
   const full = Array.from(new Uint8Array(buffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join(""); // 64 hex chars
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('') // 64 hex chars
 
   if (length === undefined) {
-    return full;
+    return full
   }
 
   if (length < 0 || length > full.length) {
-    throw new Error(`Length must be between 0 and ${full.length}`);
+    throw new Error(`Length must be between 0 and ${full.length}`)
   }
 
-  return full.slice(0, length);
+  return full.slice(0, length)
 }

@@ -1,428 +1,437 @@
 <!doctype html>
 <html lang="en">
-<head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Personal Finance — Dashboard</title>
     <style>
-        /* ===== Theme variables ===== */
-        :root {
-            --bg: #f7fafc; /* page background */
-            --panel: #ffffff; /* content panels */
-            --muted: #6b7280; /* muted text */
-            --accent: #2563eb; /* primary accent (blue) */
-            --accent-2: #1e40af;
-            --danger: #ef4444;
-            --glass: rgba(15, 23, 42, 0.04);
-            --radius: 12px;
-            --nav-width: 220px;
-            --nav-height-mobile: 64px;
-            --shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
-            --rounded-pill: 999px;
-            color-scheme: light;
-        }
+      /* ===== Theme variables ===== */
+      :root {
+        --bg: #f7fafc; /* page background */
+        --panel: #ffffff; /* content panels */
+        --muted: #6b7280; /* muted text */
+        --accent: #2563eb; /* primary accent (blue) */
+        --accent-2: #1e40af;
+        --danger: #ef4444;
+        --glass: rgba(15, 23, 42, 0.04);
+        --radius: 12px;
+        --nav-width: 220px;
+        --nav-height-mobile: 64px;
+        --shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+        --rounded-pill: 999px;
+        color-scheme: light;
+      }
 
-        /* ===== Reset-ish ===== */
-        * {
-            box-sizing: border-box
-        }
+      /* ===== Reset-ish ===== */
+      * {
+        box-sizing: border-box;
+      }
 
-        html, body {
-            height: 100%
-        }
+      html,
+      body {
+        height: 100%;
+      }
 
-        body {
-            margin: 0;
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-            background: var(--bg);
-            color: #0f172a;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            line-height: 1.35;
-            font-size: 14px;
-        }
+      body {
+        margin: 0;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          'Helvetica Neue',
+          Arial;
+        background: var(--bg);
+        color: #0f172a;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        line-height: 1.35;
+        font-size: 14px;
+      }
 
-        /* ===== Layout ===== */
+      /* ===== Layout ===== */
+      .app {
+        display: grid;
+        grid-template-columns: var(--nav-width) 1fr;
+        gap: 24px;
+        min-height: 100vh;
+        padding: 28px;
+        align-items: start;
+      }
+
+      /* Sidebar (desktop) */
+      .sidebar {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), var(--panel));
+        border-radius: var(--radius);
+        padding: 18px;
+        box-shadow: var(--shadow);
+        height: calc(100vh - 56px); /* account for page padding */
+        position: sticky;
+        top: 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-width: var(--nav-width);
+      }
+
+      .brand {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        display: grid;
+        place-items: center;
+        color: white;
+        font-weight: 700;
+        box-shadow: 0 6px 18px rgba(37, 99, 235, 0.16);
+        font-size: 18px;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 15px;
+        letter-spacing: -0.2px;
+      }
+
+      .brand p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .nav {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 6px;
+      }
+
+      .nav button {
+        all: unset;
+        cursor: pointer;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 10px 12px;
+        border-radius: 10px;
+        color: #0f172a;
+      }
+
+      .nav button .label {
+        font-weight: 600;
+      }
+
+      .nav button .sub {
+        font-size: 12px;
+        color: var(--muted);
+        margin-left: auto;
+      }
+
+      .nav button:hover {
+        background: var(--glass);
+      }
+
+      .nav button.active {
+        background: linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.03));
+        box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.06);
+      }
+
+      .nav button.active .icon svg {
+        stroke: var(--accent);
+        fill: var(--accent);
+      }
+
+      .nav .icon {
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        flex-shrink: 0;
+      }
+
+      .sidebar .meta {
+        margin-top: auto;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .sidebar .meta button {
+        all: unset;
+        cursor: pointer;
+        color: var(--muted);
+      }
+
+      /* ===== Main content ===== */
+      .main {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        min-height: calc(100vh - 56px);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .search {
+        flex: 1;
+        background: var(--panel);
+        border-radius: 12px;
+        padding: 10px 12px;
+        box-shadow: var(--shadow);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .search input {
+        border: 0;
+        outline: 0;
+        background: transparent;
+        font-size: 14px;
+        width: 100%;
+      }
+
+      .blueButton {
+        background: var(--accent);
+        color: white;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 0;
+        cursor: pointer;
+        font-weight: 600;
+        box-shadow: 0 6px 18px rgba(37, 99, 235, 0.12);
+      }
+
+      .card {
+        background: var(--panel);
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: var(--shadow);
+      }
+
+      /* Transactions table (simple) */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      table thead th {
+        text-align: left;
+        padding: 10px 8px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+      }
+
+      table tbody tr:hover {
+        background: rgba(15, 23, 42, 0.02);
+      }
+
+      td {
+        padding: 12px 8px;
+        border-bottom: 1px solid rgba(15, 23, 42, 0.04);
+      }
+
+      .amount {
+        font-weight: 700;
+        text-align: right;
+      }
+
+      .amount.negative {
+        color: var(--danger);
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        background: rgba(15, 23, 42, 0.04);
+        color: var(--muted);
+      }
+
+      /* ===== Bottom nav (mobile) ===== */
+      .bottom-nav {
+        display: none; /* hidden on desktop */
+      }
+
+      .mobile-floating {
+        display: none;
+      }
+
+      /* ===== Responsive: switch to single-column with bottom nav ===== */
+      @media (max-width: 880px) {
         .app {
-            display: grid;
-            grid-template-columns: var(--nav-width) 1fr;
-            gap: 24px;
-            min-height: 100vh;
-            padding: 28px;
-            align-items: start;
+          grid-template-columns: 1fr;
+          padding: 16px;
         }
 
-        /* Sidebar (desktop) */
         .sidebar {
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), var(--panel));
-            border-radius: var(--radius);
-            padding: 18px;
-            box-shadow: var(--shadow);
-            height: calc(100vh - 56px); /* account for page padding */
-            position: sticky;
-            top: 28px;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-            min-width: var(--nav-width);
+          position: fixed;
+          left: 16px;
+          top: 16px;
+          height: auto;
+          padding: 10px;
+          border-radius: 12px;
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+          gap: 10px;
+          box-shadow: 0 10px 30px rgba(2, 6, 23, 0.12);
+          z-index: 30;
+          transform: translateY(0);
         }
 
-        .brand {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-        }
-
-        .logo {
-            width: 44px;
-            height: 44px;
-            border-radius: 10px;
-            background: linear-gradient(135deg, var(--accent), var(--accent-2));
-            display: grid;
-            place-items: center;
-            color: white;
-            font-weight: 700;
-            box-shadow: 0 6px 18px rgba(37, 99, 235, 0.16);
-            font-size: 18px;
-        }
-
-        .brand h1 {
-            margin: 0;
-            font-size: 15px;
-            letter-spacing: -0.2px;
-        }
-
-        .brand p {
-            margin: 0;
-            color: var(--muted);
-            font-size: 12px
-        }
-
-        .nav {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            margin-top: 6px;
-        }
-
-        .nav button {
-            all: unset;
-            cursor: pointer;
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            padding: 10px 12px;
-            border-radius: 10px;
-            color: #0f172a;
-        }
-
-        .nav button .label {
-            font-weight: 600
-        }
-
-        .nav button .sub {
-            font-size: 12px;
-            color: var(--muted);
-            margin-left: auto
-        }
-
-        .nav button:hover {
-            background: var(--glass);
-        }
-
-        .nav button.active {
-            background: linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.03));
-            box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.06);
-        }
-
-        .nav button.active .icon svg {
-            stroke: var(--accent);
-            fill: var(--accent)
-        }
-
-        .nav .icon {
-            width: 20px;
-            height: 20px;
-            display: grid;
-            place-items: center;
-            color: var(--muted);
-            flex-shrink: 0;
+        .sidebar .nav {
+          flex-direction: row;
+          gap: 6px;
+          margin-top: 0;
         }
 
         .sidebar .meta {
-            margin-top: auto;
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            font-size: 13px;
-            color: var(--muted);
+          display: none;
         }
 
-        .sidebar .meta button {
-            all: unset;
-            cursor: pointer;
-            color: var(--muted)
-        }
-
-        /* ===== Main content ===== */
         .main {
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-            min-height: calc(100vh - 56px);
+          padding-top: 64px;
         }
 
-        .topbar {
-            display: flex;
-            align-items: center;
-            gap: 12px;
+        .bottom-nav {
+          display: flex;
+          position: fixed;
+          bottom: 16px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: calc(100% - 32px);
+          max-width: 900px;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), var(--panel));
+          box-shadow: 0 12px 40px rgba(2, 6, 23, 0.14);
+          border-radius: 14px;
+          padding: 8px;
+          gap: 6px;
+          z-index: 40;
+          justify-content: space-between;
+          align-items: center;
         }
 
-        .search {
-            flex: 1;
-            background: var(--panel);
-            border-radius: 12px;
-            padding: 10px 12px;
-            box-shadow: var(--shadow);
-            display: flex;
-            gap: 10px;
-            align-items: center;
+        .bottom-nav button {
+          all: unset;
+          cursor: pointer;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 6px;
+          border-radius: 10px;
+          min-width: 56px;
+          color: var(--muted);
         }
 
-        .search input {
-            border: 0;
-            outline: 0;
-            background: transparent;
-            font-size: 14px;
-            width: 100%;
+        .bottom-nav button.active {
+          color: var(--accent);
+          background: rgba(37, 99, 235, 0.06);
         }
 
-        .blueButton {
-            background: var(--accent);
-            color: white;
-            padding: 10px 14px;
-            border-radius: 10px;
-            border: 0;
-            cursor: pointer;
-            font-weight: 600;
-            box-shadow: 0 6px 18px rgba(37, 99, 235, 0.12);
+        .bottom-nav .icon {
+          width: 20px;
+          height: 20px;
+        }
+
+        /* Hide the big sidebar brand to avoid duplication - keep small icons only */
+        .brand h1,
+        .brand p,
+        .logo {
+          display: none;
+        }
+
+        .sidebar {
+          padding: 8px;
+        }
+
+        .sidebar .nav button {
+          padding: 8px;
+        }
+      }
+
+      /* small visual niceties */
+      .heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .heading h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .chip {
+        background: rgba(0, 0, 0, 0.04);
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 13px;
+      }
+
+      @media print {
+        .no-print {
+          display: none !important;
+        }
+
+        .pagebreak {
+          break-after: page;
+        }
+
+        .main {
+          display: block;
+        }
+
+        .app {
+          display: block;
         }
 
         .card {
-            background: var(--panel);
-            border-radius: 12px;
-            padding: 16px;
-            box-shadow: var(--shadow);
+          padding: 0;
+          border-radius: 0;
+          box-shadow: none;
         }
-
-        /* Transactions table (simple) */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-
-        table thead th {
-            text-align: left;
-            padding: 10px 8px;
-            color: var(--muted);
-            font-size: 12px;
-            font-weight: 600;
-            border-bottom: 1px solid rgba(15, 23, 42, 0.06);
-        }
-
-        table tbody tr:hover {
-            background: rgba(15, 23, 42, 0.02)
-        }
-
-        td {
-            padding: 12px 8px;
-            border-bottom: 1px solid rgba(15, 23, 42, 0.04);
-        }
-
-        .amount {
-            font-weight: 700;
-            text-align: right
-        }
-
-        .amount.negative {
-            color: var(--danger)
-        }
-
-        .tag {
-            display: inline-block;
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: 12px;
-            background: rgba(15, 23, 42, 0.04);
-            color: var(--muted)
-        }
-
-        /* ===== Bottom nav (mobile) ===== */
-        .bottom-nav {
-            display: none; /* hidden on desktop */
-        }
-
-        .mobile-floating {
-            display: none;
-        }
-
-        /* ===== Responsive: switch to single-column with bottom nav ===== */
-        @media (max-width: 880px) {
-            .app {
-                grid-template-columns: 1fr;
-                padding: 16px;
-            }
-
-            .sidebar {
-                position: fixed;
-                left: 16px;
-                top: 16px;
-                height: auto;
-                padding: 10px;
-                border-radius: 12px;
-                display: flex;
-                flex-direction: row;
-                align-items: center;
-                gap: 10px;
-                box-shadow: 0 10px 30px rgba(2, 6, 23, 0.12);
-                z-index: 30;
-                transform: translateY(0);
-            }
-
-            .sidebar .nav {
-                flex-direction: row;
-                gap: 6px;
-                margin-top: 0
-            }
-
-            .sidebar .meta {
-                display: none
-            }
-
-            .main {
-                padding-top: 64px
-            }
-
-            .bottom-nav {
-                display: flex;
-                position: fixed;
-                bottom: 16px;
-                left: 50%;
-                transform: translateX(-50%);
-                width: calc(100% - 32px);
-                max-width: 900px;
-                background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), var(--panel));
-                box-shadow: 0 12px 40px rgba(2, 6, 23, 0.14);
-                border-radius: 14px;
-                padding: 8px;
-                gap: 6px;
-                z-index: 40;
-                justify-content: space-between;
-                align-items: center;
-            }
-
-            .bottom-nav button {
-                all: unset;
-                cursor: pointer;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 6px;
-                padding: 8px 6px;
-                border-radius: 10px;
-                min-width: 56px;
-                color: var(--muted);
-            }
-
-            .bottom-nav button.active {
-                color: var(--accent);
-                background: rgba(37, 99, 235, 0.06)
-            }
-
-            .bottom-nav .icon {
-                width: 20px;
-                height: 20px
-            }
-
-            /* Hide the big sidebar brand to avoid duplication - keep small icons only */
-            .brand h1, .brand p, .logo {
-                display: none
-            }
-
-            .sidebar {
-                padding: 8px
-            }
-
-            .sidebar .nav button {
-                padding: 8px
-            }
-        }
-
-        /* small visual niceties */
-        .heading {
-            display: flex;
-            align-items: end;
-            justify-content: space-between;
-            gap: 12px
-        }
-
-        .heading h2 {
-            margin: 0;
-            font-size: 18px
-        }
-
-        .muted {
-            color: var(--muted);
-            font-size: 13px
-        }
-
-        .chip {
-            background: rgba(0, 0, 0, 0.04);
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: 13px
-        }
-
-        @media print {
-            .no-print {
-                display: none !important;
-            }
-
-            .pagebreak {
-                break-after: page;
-            }
-
-            .main {
-                display: block;
-            }
-
-            .app {
-                display: block;
-            }
-
-            .card {
-                padding: 0;
-                border-radius: 0;
-                box-shadow: none;
-            }
-        }
-
+      }
     </style>
-</head>
-<body>
-<div class="app" role="application" aria-label="Personal finance app">
-    <!-- Sidebar (left on desktop) -->
-    <aside class="sidebar no-print" aria-label="Main navigation">
-    </aside>
+  </head>
+  <body>
+    <div class="app" role="application" aria-label="Personal finance app">
+      <!-- Sidebar (left on desktop) -->
+      <aside class="sidebar no-print" aria-label="Main navigation"></aside>
 
-    <!-- Main content -->
-    <main class="main" id="main">
+      <!-- Main content -->
+      <main class="main" id="main">
         <section class="card">
-            <div id="app"></div>
-            <script type="module" src="kotibudjetti.js"></script>
+          <div id="app"></div>
+          <script type="module" src="kotibudjetti.js"></script>
         </section>
-    </main>
-</div>
-</body>
+      </main>
+    </div>
+  </body>
 </html>

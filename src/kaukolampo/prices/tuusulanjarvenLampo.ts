@@ -1,9 +1,9 @@
-import type { ContractPricing } from "../kaukolampoTypes";
+import type { ContractPricing } from '../kaukolampoTypes'
 
 export const tuusulanjarvenLampo: ContractPricing = {
-  id: "tula-pepi",
-  companyName: "Tuusulanjärven Lämpö",
-  contractTypeName: "Peruslämpö Pientalo",
+  id: 'tula-pepi',
+  companyName: 'Tuusulanjärven Lämpö',
+  contractTypeName: 'Peruslämpö Pientalo',
   monthlyPricing: [
     {
       year: 2022,
@@ -54,4 +54,4 @@ export const tuusulanjarvenLampo: ContractPricing = {
       },
     },
   ],
-};
+}
