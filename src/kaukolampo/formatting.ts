@@ -1,4 +1,4 @@
-import type Decimal from "decimal.js";
+import type Decimal from 'decimal.js'
 
-export const printPower = (n: Decimal) => n.toFixed(3);
-export const printMoney = (n: Decimal) => n.toFixed(2);
+export const printPower = (n: Decimal) => n.toFixed(3)
+export const printMoney = (n: Decimal) => n.toFixed(2)
