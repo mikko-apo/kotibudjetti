@@ -5,7 +5,7 @@ import { defineConfig } from 'eslint/config'
 
 export default defineConfig([
   {
-    ignores: ['docs/ki-frame-demo.js'],
+    ignores: ['docs/kotibudjetti.js'],
   },
   {
     files: ['**/*.{js,mjs,cjs,ts,mts,cts}'],

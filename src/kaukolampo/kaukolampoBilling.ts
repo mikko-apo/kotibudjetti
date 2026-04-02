@@ -46,13 +46,13 @@ export function resolveMonthlyPricingLookup(
 
 export const months = range(1, 12)
 
-export function calculateMonthlyYearlyTotals(
+export function calculateValues(
   years: number[],
   monthlyPricing: Record<number, MonthlyPrice>,
   powerUsage: Record<number, Decimal>
 ) {
   const totalsByYear: Record<number, YearTotal> = {}
-  const monthSummary: Record<number, MonthBillInfo> = {}
+  const monthBillInfos: Record<number, MonthBillInfo> = {}
   years.forEach((year, index) => {
     const yearTotal: YearTotal = {
       usedPower: Decimal(0),
@@ -80,7 +80,7 @@ export function calculateMonthlyYearlyTotals(
         const usedPowerPrice = usedPower.mul(price.powerPrice)
         const prevPrice: MonthlyPrice = monthlyPricing[index - 1] || price
         const total = usedPowerPrice.add(price.monthlyFee)
-        monthSummary[index] = {
+        monthBillInfos[index] = {
           index,
           ...price,
           usedPower,
@@ -149,7 +149,9 @@ export function calculateMonthlyYearlyTotals(
 
     totalsByYear[year] = yearTotal
   })
-  return { totalsByYear, monthSummary }
+  const excessYears = years.filter((y) => totalsByYear[y].calculatedTotals.excessBilling.toNumber() > 0)
+  const paybackInterestYears = calculatePaybackInterest(excessYears, monthBillInfos, totalsByYear)
+  return { totalsByYear, monthBillInfos, excessYears, paybackInterestYears, years }
 }
 
 function decimalMin(a: Decimal, b: Decimal) {
@@ -203,9 +205,10 @@ export function calculatePaybackInterest(
     }
     let leftFrom150 = Decimal(150)
 
-    const months = range(1, 12).map((month): PaybackInterestMonth => {
+    const months = range(1, 12).map((month): PaybackInterestMonth | undefined => {
       const index = ymToIndex({ year, month })
       const originalBill = originalBills[index]
+      if (!originalBill) return undefined
       const originalTotal = originalBill.total
       billedTotal = billedTotal.add(originalTotal)
 
@@ -252,7 +255,7 @@ export function calculatePaybackInterest(
     })
     return {
       year,
-      months,
+      months: months.filter(isDefined),
       billedTotal,
       fromAveragePricesTotals,
       comparingToPreviousYearAnd150BufferTotals,

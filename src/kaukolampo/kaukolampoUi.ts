@@ -26,14 +26,7 @@ import { events, setEvents } from '../../../ki-frame/src/domBuilderEvents'
 import { styles } from '../../../ki-frame/src/domBuilderStyles'
 import { createFormatter } from '../../../ki-frame/src/stringFormatter'
 import { printMoney, printPower } from './formatting'
-import {
-  calculateMonthlyYearlyTotals,
-  calculatePaybackInterest,
-  indexToYm,
-  months,
-  resolveMonthlyPricingLookup,
-  ymToIndex,
-} from './kaukolampoBilling'
+import { calculateValues, indexToYm, months, resolveMonthlyPricingLookup, ymToIndex } from './kaukolampoBilling'
 import type { MonthBillInfo, PaybackInterestYear, UnpackedPowerUsage, YearTotal } from './kaukolampoTypes'
 import { formatAsUnderscoreSeparated, parseUnderscoreSeparatedYmNumbers } from './powerUsageString'
 import { tuusulanjarvenLampo } from './prices/tuusulanjarvenLampo'
@@ -41,25 +34,19 @@ import { range } from './range'
 import { shortHexHash } from './util'
 
 const showIncrease = (inc?: number) =>
-  styles({
-    backgroundColor: !inc || inc === 0 ? '' : inc > 0 ? 'lightpink' : 'lightgreen',
-  })
+  styles({ backgroundColor: !inc || inc === 0 ? '' : inc > 0 ? 'lightpink' : 'lightgreen' })
 
 const uiStyles = {
   pageBreakAfter: { class: 'pagebreak' },
   noPrint: { class: 'no-print' },
   borderLeft: styles({ borderLeft: '2px solid #6b7280' }),
-  numberTableRight: styles({
-    width: 'auto',
-    textAlign: 'right',
-    verticalAlign: 'top',
-  }),
+  numberTableRight: styles({ width: 'auto', textAlign: 'right', verticalAlign: 'top' }),
   numberTableLeft: styles({ width: 'auto', verticalAlign: 'top' }),
   bold: styles({ fontWeight: 'bold' }),
 }
 
 const formatter = createFormatter({
-  P: printPower,
+  P: (v, s) => Decimal(v).toFixed(s.precision || 3),
   M: printMoney,
 })
 
@@ -73,13 +60,14 @@ function BillItemTDs(index?: number) {
   const monthlyFee = td()
   const total = td(uiStyles.bold)
   const setText = (info?: Partial<MonthBillInfo>) => {
-    if (info?.usedPower) {
-      usedPowerText.textContent = printPower(info.usedPower)
-      usedPowerInput && (usedPowerInput.value = printPower(info.usedPower))
-    } else {
-      usedPowerText.textContent = ''
-      usedPowerInput && (usedPowerInput.value = '')
-    }
+    if (usedPowerInput)
+      if (info?.usedPower) {
+        usedPowerText.textContent = printPower(info.usedPower)
+        usedPowerInput.value = printPower(info.usedPower)
+      } else {
+        usedPowerText.textContent = ''
+        usedPowerInput.value = ''
+      }
     replaceChildren(mwPrice, info?.powerPrice ? printMoney(info?.powerPrice) : '', showIncrease(info?.mWPriceDelta))
     replaceChildren(powerPrice, info?.usedPowerPrice ? printMoney(info.usedPowerPrice) : '')
     replaceChildren(
@@ -99,105 +87,11 @@ function BillItemTDs(index?: number) {
   }
 }
 
-export function billSummary(
-  address: string,
-  years: number[],
-  monthSummary: State<Record<number, MonthBillInfo>>,
-  totalsByYear: State<Record<number, YearTotal>>,
-  powerUsageState: State<UnpackedPowerUsage>
-) {
-  const usedPowerEditable = createState(false)
-  const billRows = months.map((month) =>
-    tr(
-      td(month),
-      years.map((year) => {
-        const index = ymToIndex({ year, month })
-        const { billTDList, setText, usedPowerInput, usedPowerText, usedPowerTextDiv } = BillItemTDs(index)
-        // monthSummary has changed, update other fields than usedPower
-        monthSummary.onValueChange((summaries) => {
-          const monthInfo = summaries[index]
-          setText(monthInfo)
-        })
-        if (usedPowerInput) {
-          // toggle input and text view
-          usedPowerEditable.onValueChange((showInput) => {
-            usedPowerInput.hidden = !showInput
-            usedPowerTextDiv.hidden = showInput
-          })
-          // catch change event and update other tables
-          setEvents<'input'>(
-            usedPowerInput,
-            events({
-              change({ node, event }) {
-                const value = node.value
-                const newUsedPower = ['0', ''].includes(value.trimEnd().trimStart()) ? undefined : Decimal(value)
-                usedPowerText.textContent = newUsedPower ? value : ''
-                powerUsageState.set((cur) => {
-                  const numbers = { ...cur.numbers }
-                  if (newUsedPower) {
-                    numbers[index] = Decimal(value)
-                  } else {
-                    delete numbers[index]
-                  }
-                  return {
-                    ...cur,
-                    numbers,
-                  }
-                })
-              },
-            })
-          )
-        }
-        return billTDList
-      })
-    )
-  )
-  const totalRow = tr(
-    uiStyles.bold,
-    td('Yhteensä', uiStyles.bold),
-    years.map((y) => {
-      const { billTDList, setText } = BillItemTDs()
-      totalsByYear.onValueChange((years) => {
-        const {
-          billedTotals: { monthlyFees, usedPowerPrice, total },
-          usedPower,
-        } = years[y]
-        setText({
-          usedPower,
-          usedPowerPrice,
-          monthlyFee: monthlyFees,
-          total,
-        })
-      })
-      return billTDList
-    })
-  )
-
-  const priceChangeTBody = tbody()
-  monthSummary.onValueChange((summaries) => {
-    const allBills = years.flatMap((year) => months.map((month) => summaries[ymToIndex({ year, month })]))
-    const billsWithChanges = allBills.filter((bill) => bill && (bill.monthlyFeeDelta != 0 || bill.mWPriceDelta != 0))
-    const rows = billsWithChanges.map((bill) => {
-      const prevBill = summaries[bill.index - 1]
-      const yearMonth = indexToYm(bill.index)
-      return tr(
-        td(`${yearMonth.year}.${yearMonth.month}`),
-        td(
-          `${printMoney(prevBill.powerPrice)}€/MW -> ${printMoney(bill.powerPrice)}€/MW`,
-          `, muutos ${printMoney(bill.powerPrice.div(prevBill.powerPrice).minus(1).mul(100))}%`
-        ),
-        td(
-          `${printMoney(prevBill.monthlyFee)}€/kk -> ${printMoney(bill.monthlyFee)}€/kk`,
-          `, muutos ${printMoney(bill.monthlyFee.div(prevBill.monthlyFee).minus(1).mul(100))}%`
-        )
-      )
-    })
-    replaceChildren(priceChangeTBody, rows)
-  })
+function priceChangeComparedToFirstYear(state: CalculatedValuesState) {
   const priceChangeComparedToFirstYear = div()
-  totalsByYear.onValueChange((yearTotals) => {
-    const [firstYear, ...compareYears] = years
-    const firstData = yearTotals[firstYear].calculatedTotals
+  state.onValueChange(({ totalsByYear, years }) => {
+    const [firstYear] = years
+    const firstData = totalsByYear[firstYear].calculatedTotals
     replaceChildren(
       priceChangeComparedToFirstYear,
       table(
@@ -217,7 +111,7 @@ export function billSummary(
             th('Korotus %')
           ),
           years.map((y) => {
-            const currentYear = yearTotals[y]
+            const currentYear = totalsByYear[y]
             const usedPower = currentYear.usedPower
             const totalOnFirstYearLevel = usedPower
               .mul(firstData.avgPowerPrice)
@@ -256,21 +150,116 @@ export function billSummary(
       )
     )
   })
+  return priceChangeComparedToFirstYear
+}
+
+function priceChangesByMonth(state: CalculatedValuesState) {
+  const priceChangeTBody = tbody()
+  state.onValueChange(({ years, monthBillInfos }) => {
+    const allBills = years.flatMap((year) => months.map((month) => monthBillInfos[ymToIndex({ year, month })]))
+    const billsWithChanges = allBills.filter((bill) => bill && (bill.monthlyFeeDelta != 0 || bill.mWPriceDelta != 0))
+    const rows = billsWithChanges.map((bill) => {
+      const prevBill = monthBillInfos[bill.index - 1]
+      const yearMonth = indexToYm(bill.index)
+      return tr(
+        td(`${yearMonth.year}.${yearMonth.month}`),
+        td(
+          `${printMoney(prevBill.powerPrice)}€/MW -> ${printMoney(bill.powerPrice)}€/MW`,
+          `, muutos ${printMoney(bill.powerPrice.div(prevBill.powerPrice).minus(1).mul(100))}%`
+        ),
+        td(
+          `${printMoney(prevBill.monthlyFee)}€/kk -> ${printMoney(bill.monthlyFee)}€/kk`,
+          `, muutos ${printMoney(bill.monthlyFee.div(prevBill.monthlyFee).minus(1).mul(100))}%`
+        )
+      )
+    })
+    replaceChildren(priceChangeTBody, rows)
+  })
+  return table(uiStyles.numberTableRight, priceChangeTBody)
+}
+
+export function billSummary(
+  years: number[],
+  calculatedValuesState: CalculatedValuesState,
+  powerUsageState: State<UnpackedPowerUsage>
+) {
+  const usedPowerEditable = createState(false)
+  const billRows = months.map((month) =>
+    tr(
+      td(month),
+      years.map((year) => {
+        const index = ymToIndex({ year, month })
+        const { billTDList, setText, usedPowerInput, usedPowerText, usedPowerTextDiv } = BillItemTDs(index)
+        // monthSummary has changed, update other fields than usedPower
+        calculatedValuesState.onValueChange(({ monthBillInfos }) => {
+          setText(monthBillInfos[index])
+        })
+        if (usedPowerInput) {
+          // toggle input and text view
+          usedPowerEditable.onValueChange((showInput) => {
+            usedPowerInput.hidden = !showInput
+            usedPowerTextDiv.hidden = showInput
+          })
+          // catch change event and update other tables
+          setEvents<'input'>(
+            usedPowerInput,
+            events({
+              change({ node }) {
+                const value = node.value
+                const newUsedPower = ['0', ''].includes(value.trimEnd().trimStart()) ? undefined : Decimal(value)
+                usedPowerText.textContent = newUsedPower ? value : ''
+                powerUsageState.set((cur) => {
+                  const numbers = { ...cur.numbers }
+                  if (newUsedPower) {
+                    numbers[index] = Decimal(value)
+                  } else {
+                    delete numbers[index]
+                  }
+                  return {
+                    ...cur,
+                    numbers,
+                  }
+                })
+              },
+            })
+          )
+        }
+        return billTDList
+      })
+    )
+  )
+  const totalRow = tr(
+    uiStyles.bold,
+    td('Yhteensä', uiStyles.bold),
+    years.map((y) => {
+      const { billTDList, setText } = BillItemTDs()
+      calculatedValuesState.onValueChange(({ totalsByYear }) => {
+        const {
+          billedTotals: { monthlyFees, usedPowerPrice, total },
+          usedPower,
+        } = totalsByYear[y]
+        setText({
+          usedPower,
+          usedPowerPrice,
+          monthlyFee: monthlyFees,
+          total,
+        })
+      })
+      return billTDList
+    })
+  )
 
   const powerUsageHashInfo = text()
   const powerUsageAsLink = a('Kulutusarvot linkkinä', uiStyles.noPrint)
   powerUsageState.onValueChange((powerUsage) => {
-    if (powerUsage) {
-      const data = formatAsUnderscoreSeparated(powerUsage)
-      const url = new URL(window.location.href)
-      url.search = ''
-      url.searchParams.set('p', data)
-      appendChildren(powerUsageAsLink, { href: url.toString() })
-      shortHexHash(data, 12).then((s) => (powerUsageHashInfo.textContent = `Kulutusarvojen tarkisteluku: ${s}`))
-    }
+    const data = formatAsUnderscoreSeparated(powerUsage)
+    const url = new URL(window.location.href)
+    url.search = ''
+    url.searchParams.set('p', data)
+    appendChildren(powerUsageAsLink, { href: url.toString() })
+    shortHexHash(data, 12).then((s) => (powerUsageHashInfo.textContent = `Kulutusarvojen tarkisteluku: ${s}`))
   })
   return div(
-    h2(`${address} laskut ${years[0]}-${years[years.length - 1]}`),
     table(
       uiStyles.numberTableRight,
       thead(
@@ -279,13 +268,7 @@ export function billSummary(
           years.map((y) => th(y, { colSpan: 5 }, uiStyles.borderLeft))
         ),
         tr(
-          years.map((y) => [
-            th('Kulutus', uiStyles.borderLeft),
-            th('€/MWh'),
-            th('Energia €'),
-            th('$/kk'),
-            th('Lasku €'),
-          ])
+          years.map(() => [th('Kulutus', uiStyles.borderLeft), th('€/MWh'), th('Energia €'), th('$/kk'), th('Lasku €')])
         )
       ),
       tbody(billRows, totalRow)
@@ -315,172 +298,167 @@ export function billSummary(
   )
 }
 
-function compareYears(comparedYears: number[], totalsByYear: Record<number, YearTotal>) {
-  return comparedYears.map((y) => {
-    const yearTotal = totalsByYear[y]
-    const prevYear = y - 1
-    const prevTotal: YearTotal | undefined = totalsByYear[prevYear]
-    const calculatedTotals = yearTotal.calculatedTotals
-    const { priceIncreaseTooMuch } = calculatedTotals
-    const princeIncreaseInfo =
-      priceIncreaseTooMuch && yearTotal.totalsBasedOnLastYearLevel
-        ? [
-            li('Korotus ylittää 15% ja 150e. Kuluttajariitalautakunnan suosituksen mukainen korotus olisi 150e'),
-            ul(
-              li(
-                formatter(
-                  `150€ korotus edellisen vuoden tasolla laskettuun summaan: %M + 150 = `,
-                  yearTotal.totalsBasedOnLastYearLevel.total
-                ),
-                b(printMoney(calculatedTotals.total))
+function compareYearPriceIncrease(yearTotal: YearTotal, prevTotal: YearTotal, y: number, prevYear: number) {
+  const calculatedTotals = yearTotal.calculatedTotals
+  const { priceIncreaseTooMuch } = calculatedTotals
+  const princeIncreaseInfo =
+    priceIncreaseTooMuch && yearTotal.totalsBasedOnLastYearLevel
+      ? [
+          li('Korotus ylittää 15% ja 150e. Kuluttajariitalautakunnan suosituksen mukainen korotus olisi 150e'),
+          ul(
+            li(
+              formatter(
+                `150€ korotus edellisen vuoden tasolla laskettuun summaan: %M + 150 = `,
+                yearTotal.totalsBasedOnLastYearLevel.total
               ),
-              li(
-                formatter(`Liika laskutus: %M - %M  = `, yearTotal.billedTotals.total, calculatedTotals.total),
-                b(printMoney(calculatedTotals.excessBilling))
-              )
+              b(printMoney(calculatedTotals.total))
             ),
-          ]
-        : [li('Korotus ei ylitä 150e ja 15%')]
-    const prevAvgMwPrice = prevTotal?.calculatedTotals.avgPowerPrice
-    const explainAdjustment = () =>
-      prevTotal && priceIncreaseTooMuch && yearTotal.totalsBasedOnLastYearLevel && calculatedTotals.adjustmentMultiplier
-        ? p(
-            ul(
-              li(
-                'Liian laskutuksen takia seuraavan vuoden laskutuksessa käytetään tämän vuoden tasona viimevuoden tasoa * korjauskerroin'
-              ),
-              calculatedTotals.adjustmentMultiplier &&
-                li(
-                  formatter(
-                    `Korjauskerroin: %M / %M = %P`,
-                    calculatedTotals.total,
-                    yearTotal.totalsBasedOnLastYearLevel.total,
-                    calculatedTotals.adjustmentMultiplier
-                  )
-                ),
-              li(
-                formatter(`Energian hinta: %M * %P} = `, prevAvgMwPrice, calculatedTotals.adjustmentMultiplier),
-                b(printMoney(calculatedTotals.avgPowerPrice))
-              ),
-              li(
-                formatter(
-                  `Kuukausi: %M * %P = `,
-                  prevTotal.calculatedTotals.avgMonthlyFee,
-                  calculatedTotals.adjustmentMultiplier
-                ),
-                b(printMoney(calculatedTotals.avgMonthlyFee))
-              )
+            li(
+              formatter(`Liika laskutus: %M - %M  = `, yearTotal.billedTotals.total, calculatedTotals.total),
+              b(printMoney(calculatedTotals.excessBilling))
             )
-          )
-        : p(
-            ul(
-              li('Taso saadaan laskemalla keskiarvot'),
-              li(
-                formatter(`Energian hinta: %M / %P = `, yearTotal.billedTotals.usedPowerPrice, yearTotal.usedPower),
-                b(printMoney(yearTotal.calculatedTotals.avgPowerPrice))
-              ),
-              li(
-                formatter(`Kuukausi: %M / %d = `, yearTotal.billedTotals.monthlyFees, yearTotal.monthCount),
-                b(printMoney(yearTotal.calculatedTotals.avgMonthlyFee))
-              )
-            )
-          )
-    const prevAvgMonthlyFee = prevTotal?.calculatedTotals.avgMonthlyFee
-    const totalWithPrevYearLevel = yearTotal.totalsBasedOnLastYearLevel?.total || Decimal(0)
-    return div(
-      h3(prevTotal ? `${y}, vertailu toteutuneella ja ${y - 1} tasolla` : `${y} tason laskeminen`),
-      table(
-        uiStyles.numberTableLeft,
-        thead(
-          tr(
-            th(''),
-            th('kulutus'),
-            th('€/MWh'),
-            th('$/kk'),
-            th('Lasku vuositasolla'),
-            priceIncreaseTooMuch && th(uiStyles.bold, 'Liika laskutus')
-          )
-        ),
-        tbody(
-          tr(
-            td(`${y} toteunut lasku`),
-            td(printPower(yearTotal.usedPower)),
-            td(),
-            td(),
-            td(printMoney(yearTotal.billedTotals.total)),
-            priceIncreaseTooMuch && td()
           ),
-          prevTotal &&
-            tr(
-              td(
-                `edellisen vuoden taso ja lasku vuoden ${y} kulutuksella`,
-                ul(
-                  li(
-                    `Vuoden ${y} energiakulutus ${printPower(yearTotal.usedPower)} vuoden ${y - 1} kuukausimaksulla ja energian hinnalla: `,
-                    br(),
-                    formatter(
-                      `%P * %M + %d * %M = `,
-                      yearTotal.usedPower,
-                      prevAvgMwPrice,
-                      yearTotal.monthCount,
-                      prevAvgMonthlyFee
-                    ),
-                    b(printMoney(totalWithPrevYearLevel))
-                  )
+        ]
+      : [li('Korotus ei ylitä 150e ja 15%')]
+  const prevAvgMwPrice = prevTotal?.calculatedTotals.avgPowerPrice
+  const explainAdjustment = () =>
+    prevTotal && priceIncreaseTooMuch && yearTotal.totalsBasedOnLastYearLevel && calculatedTotals.adjustmentMultiplier
+      ? p(
+          ul(
+            li(
+              'Liian laskutuksen takia seuraavan vuoden laskutuksessa käytetään tämän vuoden tasona viimevuoden tasoa * korjauskerroin'
+            ),
+            calculatedTotals.adjustmentMultiplier &&
+              li(
+                formatter(
+                  `Korjauskerroin: %M / %M = %P`,
+                  calculatedTotals.total,
+                  yearTotal.totalsBasedOnLastYearLevel.total,
+                  calculatedTotals.adjustmentMultiplier
                 )
               ),
-              td(printPower(yearTotal.usedPower)),
-              td(printMoney(prevAvgMwPrice)),
-              td(printMoney(prevAvgMonthlyFee)),
-              td(printMoney(totalWithPrevYearLevel)),
-              priceIncreaseTooMuch && td()
+            li(
+              formatter(`Energian hinta: %M * %P} = `, prevAvgMwPrice, calculatedTotals.adjustmentMultiplier),
+              b(printMoney(calculatedTotals.avgPowerPrice))
             ),
-          prevTotal &&
-            tr(
-              td(
-                `Korotuksen arvionti vuodelle ${y}`,
-                ul(
-                  li(
-                    formatter(
-                      `${y} yhteensä %M, ${prevYear} tasolla %M`,
-                      yearTotal.billedTotals.total,
-                      totalWithPrevYearLevel
-                    )
-                  ),
-                  li(
-                    formatter(
-                      `Korotus %M euroa %P prosenttia`,
-                      calculatedTotals.priceIncreaseEuros || Decimal(0),
-                      calculatedTotals.priceIncreasePercents || Decimal(0)
-                    )
-                  ),
-                  princeIncreaseInfo
-                )
+            li(
+              formatter(
+                `Kuukausi: %M * %P = `,
+                prevTotal.calculatedTotals.avgMonthlyFee,
+                calculatedTotals.adjustmentMultiplier
               ),
-              td(),
-              td(),
-              td(),
-              td(priceIncreaseTooMuch && printMoney(calculatedTotals.total)),
-              priceIncreaseTooMuch && td(uiStyles.bold, printMoney(calculatedTotals.excessBilling))
+              b(printMoney(calculatedTotals.avgMonthlyFee))
+            )
+          )
+        )
+      : p(
+          ul(
+            li('Taso saadaan laskemalla keskiarvot'),
+            li(
+              formatter(`Energian hinta: %M / %P = `, yearTotal.billedTotals.usedPowerPrice, yearTotal.usedPower),
+              b(printMoney(yearTotal.calculatedTotals.avgPowerPrice))
             ),
+            li(
+              formatter(`Kuukausi: %M / %d = `, yearTotal.billedTotals.monthlyFees, yearTotal.monthCount),
+              b(printMoney(yearTotal.calculatedTotals.avgMonthlyFee))
+            )
+          )
+        )
+  const prevAvgMonthlyFee = prevTotal?.calculatedTotals.avgMonthlyFee
+  const totalWithPrevYearLevel = yearTotal.totalsBasedOnLastYearLevel?.total || Decimal(0)
+  return div(
+    h3(prevTotal ? `${y}, vertailu toteutuneella ja ${y - 1} tasolla` : `${y} tason laskeminen`),
+    table(
+      uiStyles.numberTableLeft,
+      thead(
+        tr(
+          th(''),
+          th('kulutus'),
+          th('€/MWh'),
+          th('$/kk'),
+          th('Lasku vuositasolla'),
+          priceIncreaseTooMuch && th(uiStyles.bold, 'Liika laskutus')
+        )
+      ),
+      tbody(
+        tr(
+          td(`${y} toteunut lasku`),
+          td(printPower(yearTotal.usedPower)),
+          td(),
+          td(),
+          td(printMoney(yearTotal.billedTotals.total)),
+          priceIncreaseTooMuch && td()
+        ),
+        prevTotal &&
           tr(
             td(
-              `tämän vuoden (${y}) tason laskeminen seuraavan vuoden (${y + 1}) korotuksen arviointia varten`,
-              explainAdjustment()
+              `edellisen vuoden taso ja lasku vuoden ${y} kulutuksella`,
+              ul(
+                li(
+                  `Vuoden ${y} energiakulutus ${printPower(yearTotal.usedPower)} vuoden ${y - 1} kuukausimaksulla ja energian hinnalla: `,
+                  br(),
+                  formatter(
+                    `%P * %M + %d * %M = `,
+                    yearTotal.usedPower,
+                    prevAvgMwPrice,
+                    yearTotal.monthCount,
+                    prevAvgMonthlyFee
+                  ),
+                  b(printMoney(totalWithPrevYearLevel))
+                )
+              )
+            ),
+            td(printPower(yearTotal.usedPower)),
+            td(printMoney(prevAvgMwPrice)),
+            td(printMoney(prevAvgMonthlyFee)),
+            td(printMoney(totalWithPrevYearLevel)),
+            priceIncreaseTooMuch && td()
+          ),
+        prevTotal &&
+          tr(
+            td(
+              `Korotuksen arvionti vuodelle ${y}`,
+              ul(
+                li(
+                  formatter(
+                    `${y} yhteensä %M, ${prevYear} tasolla %M`,
+                    yearTotal.billedTotals.total,
+                    totalWithPrevYearLevel
+                  )
+                ),
+                li(
+                  formatter(
+                    `Korotus %M euroa %P prosenttia`,
+                    calculatedTotals.priceIncreaseEuros || Decimal(0),
+                    calculatedTotals.priceIncreasePercents || Decimal(0)
+                  )
+                ),
+                princeIncreaseInfo
+              )
             ),
             td(),
-            td(printMoney(calculatedTotals.avgPowerPrice)),
-            td(printMoney(calculatedTotals.avgMonthlyFee)),
             td(),
-            priceIncreaseTooMuch && td()
-          )
+            td(),
+            td(priceIncreaseTooMuch && printMoney(calculatedTotals.total)),
+            priceIncreaseTooMuch && td(uiStyles.bold, printMoney(calculatedTotals.excessBilling))
+          ),
+        tr(
+          td(
+            `tämän vuoden (${y}) tason laskeminen seuraavan vuoden (${y + 1}) korotuksen arviointia varten`,
+            explainAdjustment()
+          ),
+          td(),
+          td(printMoney(calculatedTotals.avgPowerPrice)),
+          td(printMoney(calculatedTotals.avgMonthlyFee)),
+          td(),
+          priceIncreaseTooMuch && td()
         )
       )
     )
-  })
+  )
 }
 
-function excessBillingPaybackInterest(paybackInterestYears: PaybackInterestYear[]) {
+function excessBillingPaybackInterestTable(paybackInterestYears: PaybackInterestYear[]) {
   return paybackInterestYears.map((info) =>
     div(
       h3(info.year),
@@ -554,6 +532,68 @@ function getPUrlParameter(): string | null {
   return url.searchParams.get('p')
 }
 
+function summaryList(
+  excessYears: number[],
+  totalsByYear: Record<number, YearTotal>,
+  paybackInterestYears: PaybackInterestYear[]
+) {
+  const paybackInterestTotal = paybackInterestYears.reduce(
+    (acc, y) => acc.add(y.fromAveragePricesTotals.interest),
+    Decimal(0)
+  )
+  return ul(
+    excessYears.map((y) => li(`${y}: ${printMoney(totalsByYear[y].calculatedTotals.excessBilling)}€`)),
+    li(`Viivästyskorko: ${printMoney(paybackInterestTotal)}€`),
+    li(
+      `Yhteensä: ${printMoney(excessYears.reduce((acc, y) => acc.add(totalsByYear[y].calculatedTotals.excessBilling), paybackInterestTotal))}€`
+    )
+  )
+}
+
+function priceIncreaseByYear(state: CalculatedValuesState) {
+  const priceIncreases = div()
+  state.onValueChange(({ totalsByYear, years }) => {
+    replaceChildren(
+      priceIncreases,
+      years.map((y) => {
+        const yearTotal = totalsByYear[y]
+        const prevYear = y - 1
+        const prevTotal: YearTotal | undefined = totalsByYear[prevYear]
+        return compareYearPriceIncrease(yearTotal, prevTotal, y, prevYear)
+      })
+    )
+  })
+  return priceIncreases
+}
+
+type CalculatedValues = ReturnType<typeof calculateValues>
+type CalculatedValuesState = State<CalculatedValues>
+
+function summaryOfExcessBillingAndInterest(calculatedValuesState: State<CalculatedValues>) {
+  const summary = div()
+  calculatedValuesState.onValueChange(({ excessYears, totalsByYear, paybackInterestYears }) => {
+    replaceChildren(summary, summaryList(excessYears, totalsByYear, paybackInterestYears))
+  })
+  return summary
+}
+
+function analysisOfPaybackInterest(calculatedValuesState: State<CalculatedValues>) {
+  const paybackInterest = div()
+  calculatedValuesState.onValueChange(({ excessYears, paybackInterestYears }) => {
+    replaceChildren(
+      paybackInterest,
+      excessYears.length > 0 &&
+        div(
+          p(
+            'Viivästyskorko laskettuna korjattujen kuukausien laskujen maksupäivästä. Korjattuina kuukausina rahaa on kerätty perusteettomasti'
+          ),
+          excessBillingPaybackInterestTable(paybackInterestYears)
+        )
+    )
+  })
+  return paybackInterest
+}
+
 export function kaukolampoExcessPricingCalculator() {
   const contract = tuusulanjarvenLampo
   const from = { year: 2022, month: 1 }
@@ -565,59 +605,31 @@ export function kaukolampoExcessPricingCalculator() {
   const powerUsage = parseUnderscoreSeparatedYmNumbers(pFromBrowserUrl || usage)
 
   const powerUsageState = createState<UnpackedPowerUsage>(powerUsage)
-  const totalsByYearState = createState<Record<number, YearTotal>>({})
-  const monthSummaryState = createState<Record<number, MonthBillInfo>>({})
-
-  const summary = div()
-  const priceIncreases = div(uiStyles.pageBreakAfter)
-  const paybackInterest = div()
-
-  powerUsageState.onValueChange((powerUsage) => {
-    if (powerUsage) {
-      // recalculation of values
-      const newTotals = calculateMonthlyYearlyTotals(years, monthlyPricing, powerUsage.numbers)
-      const totalsByYear = newTotals.totalsByYear
-      const monthBillInfos = newTotals.monthSummary
-      const excessYears = years.filter((y) => totalsByYear[y].calculatedTotals.excessBilling.toNumber() > 0)
-      const paybackInterestYears = calculatePaybackInterest(excessYears, monthBillInfos, totalsByYear)
-      const paybackInterestTotal = paybackInterestYears.reduce(
-        (acc, y) => acc.add(y.fromAveragePricesTotals.interest),
-        Decimal(0)
-      )
-
-      replaceChildren(
-        summary,
-        h2('Liiallinen laskutus ja viivästyskorko'),
-        ul(
-          excessYears.map((y) => li(`${y}: ${printMoney(totalsByYear[y].calculatedTotals.excessBilling)}€`)),
-          li(`Viivästyskorko: ${printMoney(paybackInterestTotal)}€`),
-          li(
-            `Yhteensä: ${printMoney(excessYears.reduce((acc, y) => acc.add(totalsByYear[y].calculatedTotals.excessBilling), paybackInterestTotal))}€`
-          )
-        )
-      )
-
-      // render bill data
-      totalsByYearState.set(totalsByYear)
-      monthSummaryState.set(monthBillInfos)
-
-      replaceChildren(priceIncreases, h2('Korotusten arviointi'), compareYears(years, totalsByYear))
-
-      replaceChildren(
-        paybackInterest,
-        excessYears.length > 0 &&
-          div(
-            h2('Kuukausikohtaisen viivästyskoron laskeminen'),
-            p(
-              'Viivästyskorko laskettuna korjattujen kuukausien laskujen maksupäivästä. Korjattuina kuukausina rahaa on kerätty perusteettomasti'
-            ),
-            excessBillingPaybackInterest(paybackInterestYears)
-          )
-      )
-    }
+  const calculatedValuesState = createState<CalculatedValues>({
+    totalsByYear: {},
+    monthBillInfos: {},
+    paybackInterestYears: [],
+    excessYears: [],
+    years: [],
   })
 
-  const bills = billSummary(address, years, monthSummaryState, totalsByYearState, powerUsageState)
-  powerUsageState.republish()
-  return div(summary, div(uiStyles.pageBreakAfter, bills), priceIncreases, paybackInterest)
+  powerUsageState.onValueChange((powerUsage) => {
+    calculatedValuesState.set(calculateValues(years, monthlyPricing, powerUsage.numbers))
+  })
+
+  return div(
+    div(
+      h2('Liiallinen laskutus ja viivästyskorko'),
+      summaryOfExcessBillingAndInterest(calculatedValuesState),
+      h2(`${address} laskut ${years[0]}-${years[years.length - 1]}`),
+      billSummary(years, calculatedValuesState, powerUsageState),
+      h3('Hinnanmuutokset edelliseen kuukauteen verrattuna'),
+      priceChangesByMonth(calculatedValuesState),
+      h3(`Hinnanmuutokset vuositasolla`),
+      priceChangeComparedToFirstYear(calculatedValuesState),
+      uiStyles.pageBreakAfter
+    ),
+    div(h2('Korotusten arviointi vuositasolla'), priceIncreaseByYear(calculatedValuesState), uiStyles.pageBreakAfter),
+    div(h2('Kuukausikohtaisen viivästyskoron laskeminen'), analysisOfPaybackInterest(calculatedValuesState))
+  )
 }
