@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js'
 import { describe, expect, it } from 'vitest'
-import { calculateMonthlyYearlyTotals, resolveMonthlyPricingLookup, ymToIndex } from './kaukolampoBilling'
+import { calculateValues, resolveMonthlyPricingLookup, ymToIndex } from './kaukolampoBilling'
 import type { ContractPricing, MonthlyPrice } from './kaukolampoTypes'
 import { tuusulanjarvenLampo } from './prices/tuusulanjarvenLampo'
 
@@ -31,7 +31,7 @@ describe(resolveMonthlyPricingLookup, () => {
   })
 })
 
-describe(calculateMonthlyYearlyTotals, () => {
+describe(calculateValues, () => {
   it('calculates billed totals and monthly deltas from monthly pricing and power usage', () => {
     const monthlyPricing: Record<number, MonthlyPrice> = {
       [ymToIndex({ year: 2024, month: 1 })]: {
@@ -48,7 +48,7 @@ describe(calculateMonthlyYearlyTotals, () => {
       [ymToIndex({ year: 2024, month: 2 })]: Decimal('2'),
     }
 
-    const { totalsByYear, monthSummary } = calculateMonthlyYearlyTotals([2024], monthlyPricing, powerUsage)
+    const { totalsByYear, monthBillInfos } = calculateValues([2024], monthlyPricing, powerUsage)
 
     expectPower(totalsByYear[2024].usedPower, '3.500')
     expect(totalsByYear[2024].monthCount).toBe(2)
@@ -58,8 +58,8 @@ describe(calculateMonthlyYearlyTotals, () => {
     expectMoney(totalsByYear[2024].calculatedTotals.avgPowerPrice, '105.71')
     expectMoney(totalsByYear[2024].calculatedTotals.avgMonthlyFee, '11.00')
 
-    const january = monthSummary[ymToIndex({ year: 2024, month: 1 })]
-    const february = monthSummary[ymToIndex({ year: 2024, month: 2 })]
+    const january = monthBillInfos[ymToIndex({ year: 2024, month: 1 })]
+    const february = monthBillInfos[ymToIndex({ year: 2024, month: 2 })]
     expectMoney(january.total, '160.00')
     expect(january.mWPriceDelta).toBe(0)
     expect(january.monthlyFeeDelta).toBe(0)
@@ -84,7 +84,7 @@ describe(calculateMonthlyYearlyTotals, () => {
       [ymToIndex({ year: 2025, month: 1 })]: Decimal(1),
     }
 
-    const { totalsByYear } = calculateMonthlyYearlyTotals([2024, 2025], monthlyPricing, powerUsage)
+    const { totalsByYear } = calculateValues([2024, 2025], monthlyPricing, powerUsage)
 
     expectMoney(totalsByYear[2024].billedTotals.total, '200.00')
     expectMoney(totalsByYear[2025].billedTotals.total, '400.00')
@@ -115,7 +115,7 @@ describe(calculateMonthlyYearlyTotals, () => {
       [ymToIndex({ year: 2025, month: 1 })]: Decimal(1),
     }
 
-    const { totalsByYear } = calculateMonthlyYearlyTotals([2024, 2025], monthlyPricing, powerUsage)
+    const { totalsByYear } = calculateValues([2024, 2025], monthlyPricing, powerUsage)
 
     expectMoney(totalsByYear[2025].billedTotals.total, '260.00')
     expectMoney(totalsByYear[2025].totalsBasedOnLastYearLevel!.total, '200.00')
@@ -127,7 +127,7 @@ describe(calculateMonthlyYearlyTotals, () => {
   })
 })
 
-describe(calculateMonthlyYearlyTotals, () => {
+describe(calculateValues, () => {
   it('uses carried-forward contract prices in annual totals', () => {
     const contract: ContractPricing = {
       id: 'test-contract',
@@ -159,7 +159,7 @@ describe(calculateMonthlyYearlyTotals, () => {
       [ymToIndex({ year: 2024, month: 3 })]: Decimal(1),
     }
 
-    const { totalsByYear } = calculateMonthlyYearlyTotals([2024], pricing, powerUsage)
+    const { totalsByYear } = calculateValues([2024], pricing, powerUsage)
 
     expectMoney(totalsByYear[2024].billedTotals.usedPowerPrice, '320.00')
     expectMoney(totalsByYear[2024].billedTotals.monthlyFees, '160.00')
