@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js'
-import { createState, type State } from '../../../ki-frame/src'
+import { createState, State, StateListener } from '../../../ki-frame/src'
 import {
   a,
   appendChildren,
@@ -183,7 +183,7 @@ export function billSummary(
   calculatedValuesState: CalculatedValuesState,
   powerUsageState: State<UnpackedPowerUsage>
 ) {
-  const usedPowerEditable = createState(false)
+  const usedPowerEditable = createState({ value: false })
   const billRows = months.map((month) =>
     tr(
       td(month),
@@ -567,9 +567,9 @@ function priceIncreaseByYear(state: CalculatedValuesState) {
 }
 
 type CalculatedValues = ReturnType<typeof calculateValues>
-type CalculatedValuesState = State<CalculatedValues>
+type CalculatedValuesState = StateListener<CalculatedValues>
 
-function summaryOfExcessBillingAndInterest(calculatedValuesState: State<CalculatedValues>) {
+function summaryOfExcessBillingAndInterest(calculatedValuesState: CalculatedValuesState) {
   const summary = div()
   calculatedValuesState.onValueChange(({ excessYears, totalsByYear, paybackInterestYears }) => {
     replaceChildren(summary, summaryList(excessYears, totalsByYear, paybackInterestYears))
@@ -577,7 +577,7 @@ function summaryOfExcessBillingAndInterest(calculatedValuesState: State<Calculat
   return summary
 }
 
-function analysisOfPaybackInterest(calculatedValuesState: State<CalculatedValues>) {
+function analysisOfPaybackInterest(calculatedValuesState: CalculatedValuesState) {
   const paybackInterest = div()
   calculatedValuesState.onValueChange(({ excessYears, paybackInterestYears }) => {
     replaceChildren(
@@ -604,18 +604,10 @@ export function kaukolampoExcessPricingCalculator() {
   const pFromBrowserUrl = getPUrlParameter()
   const powerUsage = parseUnderscoreSeparatedYmNumbers(pFromBrowserUrl || usage)
 
-  const powerUsageState = createState<UnpackedPowerUsage>(powerUsage)
-  const calculatedValuesState = createState<CalculatedValues>({
-    totalsByYear: {},
-    monthBillInfos: {},
-    paybackInterestYears: [],
-    excessYears: [],
-    years: [],
-  })
-
-  powerUsageState.onValueChange((powerUsage) => {
-    calculatedValuesState.set(calculateValues(years, monthlyPricing, powerUsage.numbers))
-  })
+  const powerUsageState = createState({ value: powerUsage })
+  const calculatedValuesState = powerUsageState.map((powerUsage) =>
+    calculateValues(years, monthlyPricing, powerUsage.numbers)
+  )
 
   return div(
     div(
