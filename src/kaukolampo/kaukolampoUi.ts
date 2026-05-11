@@ -286,15 +286,40 @@ export function billSummary(
           },
         })
       ),
-      powerUsageAsLink,
-      powerUsageHashInfo
-    ),
-    h3('Hinnanmuutokset'),
-    table(styles({ width: 'auto' }), priceChangeTBody),
-    h3('Hinnanmuutokset edelliseen kuukauteen verrattuna'),
-    table(uiStyles.numberTableRight, priceChangeTBody),
-    h3(`Hinnanmuutokset vuositasolla`),
-    priceChangeComparedToFirstYear
+      button(
+        'Tyhjennä',
+        events({
+          click() {
+            powerUsageState.set((old) => {
+              return { ...(old || {}), numbers: {} }
+            })
+            usedPowerEditable.set(true)
+          },
+        })
+      ),
+      button(
+        'Tallenna',
+        events({
+          click() {
+            const input = powerUsageState.get()
+            if (input) {
+              localStorage.setItem('kaukolampo', formatAsUnderscoreSeparated(input))
+            }
+          },
+        })
+      ),
+      button(
+        'Lataa',
+        events({
+          click() {
+            const savedData = localStorage.getItem('kaukolampo')
+            if (savedData) {
+              powerUsageState.set(parseUnderscoreSeparatedYmNumbers(savedData))
+            }
+          },
+        })
+      )
+    )
   )
 }
 
