@@ -1,4 +1,4 @@
-import { createState } from '../../../ki-frame/src'
+import { createState, mergeStates, type State } from '../../../ki-frame/src'
 import {
   a,
   b,
@@ -10,8 +10,8 @@ import {
   inputs,
   label,
   li,
-  p,
   option,
+  p,
   replaceChildren,
   section,
   select,
@@ -30,21 +30,18 @@ import { styles } from '../../../ki-frame/src/domBuilderStyles'
 import {
   calculateOsakkeet,
   type IpoDetailsInput,
-  type IpoSellDetailsInput,
-  type MathematicalShareValueInput,
   type OsakkeetCalculation,
   type OsakkeetFormData,
-  type ShareReimbursementInput,
-  type ShareSubscriptionInput,
 } from './osakkeetCalculator'
-
-type Language = 'fi' | 'en'
+import { getOsakkeetLocalization, type Language, type OsakkeetLocalization } from './osakkeetLocalizations'
 
 const pageStyles = {
   stack: styles({ display: 'flex', flexDirection: 'column', gap: '18px' }),
   denseStack: styles({ display: 'flex', flexDirection: 'column', gap: '10px' }),
   gridTwo: styles({ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }),
   field: styles({ display: 'flex', flexDirection: 'column', gap: '6px' }),
+  compactField: styles({ width: '140px' }),
+  compactTable: styles({ width: 'auto', maxWidth: 'fit-content', tableLayout: 'auto' }),
   rowButtons: styles({ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }),
   summaryGrid: styles({ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }),
   summaryItem: styles({
@@ -107,290 +104,102 @@ function multiplier(value: { toFixed: (precision?: number) => string }) {
   return `${value.toFixed(2)}x`
 }
 
-function isYearMathValueWarning(warning: string) {
-  return warning.includes('osinkoverotuksen jakoa ei voitu laskea ilman vuoden matemaattista arvoa / osake')
-}
-
 function createId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function languageStorageKey() {
-  return 'osakkeet-language'
-}
+const storageKeys = {
+  language: 'osakkeet-language',
+  formData: 'osakkeet-ipo-laskuri',
+} as const
 
 function tryLoadLanguage(): Language {
-  return localStorage.getItem(languageStorageKey()) === 'en' ? 'en' : 'fi'
+  return localStorage.getItem(storageKeys.language) === 'en' ? 'en' : 'fi'
 }
 
-function texts(language: Language) {
-  return language === 'en'
-    ? {
-        languageTitle: 'Language',
-        ipoCalculatorTitle: 'IPO calculator for shares',
-        intro:
-          'Calculates how capital repayments are allocated, how acquisition cost remains, and what the IPO sale produces before and after tax.',
-        unlistedIntro:
-          'This calculator is intended for an unlisted company before listing. From the IPO date onward, distributions are treated as dividends in this view.',
-        assumptions: 'Calculation assumptions',
-        subscriptions: 'Share subscriptions',
-        rows: 'rows',
-        subscriptionsHelp: 'Enter all subscription lots in acquisition order. FIFO is used for sales.',
-        date: 'Date',
-        amount: 'Amount',
-        totalPrice: 'Total price',
-        originalShareValue: 'Original share value',
-        capitalRepaymentPerShare: 'Capital repayment / share',
-        remainingCostPerShare: 'Remaining acquisition cost / share',
-        remove: 'Remove',
-        addSubscription: 'Add subscription',
-        payouts: 'Dividends and capital repayments',
-        payoutsHelp:
-          'Total amount and cash paid are calculated automatically from the per-share amount, holdings, and withholding.',
-        type: 'Type',
-        amountPerShare: 'EUR / share',
-        total: 'Total',
-        withholding: 'To tax office in advance',
-        cashPaid: 'Paid in cash',
-        capitalRepayment: 'Capital repayment',
-        dividend: 'Dividend',
-        addPayout: 'Add distribution',
-        ipoDetails: 'IPO details',
-        ipoDate: 'IPO date',
-        totalShareCount: 'Total share count',
-        totalIpoCost: 'Total IPO costs',
-        currentShareValue: 'Current share value',
-        currentTotalValue: 'Current total value',
-        estimatedPreIpoValue: 'Estimated pre-IPO value',
-        ipoSharePrice: 'IPO share price',
-        increasePercent: 'Increase %',
-        increaseMultiplier: 'Multiplier',
-        secondarySellPercent: 'Estimated secondary sell %',
-        secondaryHelp: 'Used to allocate IPO cost per sold share.',
-        mathematicalValues: 'Mathematical value / share for known years',
-        year: 'Year',
-        valuePerShare: 'Value / share',
-        addYear: 'Add year',
-        summary: 'Summary',
-        subscribedShares: 'Subscribed shares',
-        subscribedCost: 'Subscription acquisition cost',
-        ipoPricePerShare: 'IPO price / share',
-        currentValuePerShare: 'Current value / share',
-        ipoCostPerSecondaryShare: 'IPO cost / secondary share',
-        secondarySharesTotal: 'Secondary shares total',
-        allocationByLot: 'Allocation by subscription lot',
-        distribution: 'Distribution',
-        shares: 'Shares',
-        remainingPerShare: 'Remaining / share',
-        ipoSellDetails: 'IPO sell details',
-        sharesToSell: 'Number of shares to sell',
-        ipoPriceTotal: 'Total IPO price',
-        actualCosts: 'Actual costs',
-        hmo20: 'HMO 20%',
-        hmo40: 'HMO 40%',
-        capitalGain: 'Capital gain',
-        taxFreePart: 'Tax-free part',
-        taxedPart: 'Taxed part',
-        totalRow: 'Total',
-        ipoSummary: 'IPO summary',
-        grossSale: 'Gross sale',
-        netCash: 'In cash',
-        taxMan: 'To tax man',
-        totalLosses: 'Total losses',
-        taxableCapitalGain: 'Taxable capital gain',
-        sharesLeft: 'Shares remaining',
-        taxReturns: 'Tax return summary',
-        yearWarningMissingMathValue:
-          'Dividend tax split could not be calculated without the year-specific mathematical value / share.',
-        taxableCapitalIncome: 'Taxable capital income',
-        taxFreeCapitalIncome: 'Tax-free capital income',
-        taxableEarnedDividend: 'Taxable earned-income dividend',
-        taxFreeEarnedDividend: 'Tax-free earned-income dividend',
-        ipoSaleAllocation: 'IPO sale allocation',
-        save: 'Save to browser',
-        load: 'Load saved',
-        restoreExample: 'Restore example',
-        clearExample: 'Clear example',
-        storage: 'Storage',
-        saved: 'Saved',
-        loaded: 'Loaded',
-        exampleRestored: 'Example restored',
-        exampleCleared: 'Example data cleared',
-        sourceDividends: 'Tax Admin: Dividends from an unlisted company',
-        source9a: 'Tax Admin: Form 9A instructions',
-        sourceSales: 'Tax Admin: Sale of shares',
-        typeCapitalReturn: 'Capital repayment',
-        typeDividend: 'Dividend',
-      }
-    : {
-        languageTitle: 'Kieli',
-        ipoCalculatorTitle: 'IPO-laskuri osakkeille',
-        intro:
-          'Laskee pääomanpalautusten kohdistuksen, hankintamenon jäljellä olevan määrän sekä IPO-myynnin verollisen ja nettomääräisen lopputuloksen.',
-        unlistedIntro:
-          'Tämä laskuri on tarkoitettu ennen listautumista olevalle listaamattomalle yhtiölle. IPO-päivästä eteenpäin varojenjako käsitellään tässä näkymässä osinkona.',
-        assumptions: 'Laskennan oletukset',
-        subscriptions: 'Osakemerkinnät',
-        rows: 'riviä',
-        subscriptionsHelp:
-          'Syötä kaikki merkintäerät omassa hankintajärjestyksessä. Myynnissä käytetään FIFO-periaatetta.',
-        date: 'Päivä',
-        amount: 'Määrä',
-        totalPrice: 'Kokonaishinta',
-        originalShareValue: 'Alkuperäinen osakkeen arvo',
-        capitalRepaymentPerShare: 'Pääomanpalautus / osake',
-        remainingCostPerShare: 'Jäljellä oleva hankintameno / osake',
-        remove: 'Poista',
-        addSubscription: 'Lisää merkintä',
-        payouts: 'Osingot ja pääomanpalautukset',
-        payoutsHelp:
-          'Yhteensä ja maksettu käteisenä lasketaan automaattisesti osakekohtaisen määrän, omistuksen ja ennakonpidätyksen perusteella.',
-        type: 'Tyyppi',
-        amountPerShare: '€/osake',
-        total: 'Yhteensä',
-        withholding: 'Ennakko verottajalle',
-        cashPaid: 'Maksettu käteisenä',
-        capitalRepayment: 'Pääomanpalautus',
-        dividend: 'Osinko',
-        addPayout: 'Lisää varojenjako',
-        ipoDetails: 'IPO-tiedot',
-        ipoDate: 'IPO-päivä',
-        totalShareCount: 'Osakkeiden kokonaismäärä',
-        totalIpoCost: 'IPO-kulut yhteensä',
-        currentShareValue: 'Nykyinen osakkeen arvo',
-        currentTotalValue: 'Nykyinen kokonaisarvo',
-        estimatedPreIpoValue: 'Arvioitu pre-IPO-arvo',
-        ipoSharePrice: 'IPO-hinta / osake',
-        increasePercent: 'Nousu %',
-        increaseMultiplier: 'Kerroin',
-        secondarySellPercent: 'Arvioitu secondary-myynti %',
-        secondaryHelp: 'Käytetään IPO-kulun allokointiin per myyty osake.',
-        mathematicalValues: 'Matemaattinen arvo / osake tunnetuille vuosille',
-        year: 'Vuosi',
-        valuePerShare: 'Arvo / osake',
-        addYear: 'Lisää vuosi',
-        summary: 'Yhteenveto',
-        subscribedShares: 'Merkittyjä osakkeita',
-        subscribedCost: 'Merkintöjen hankintameno',
-        ipoPricePerShare: 'IPO-hinta / osake',
-        currentValuePerShare: 'Nykyarvo / osake',
-        ipoCostPerSecondaryShare: 'IPO-kulu / secondary-osake',
-        secondarySharesTotal: 'Secondary-osakkeita yhteensä',
-        allocationByLot: 'Kohdistus merkintäerille',
-        distribution: 'Varojenjako',
-        shares: 'Osakkeita',
-        remainingPerShare: 'Jäljellä / osake',
-        ipoSellDetails: 'IPO-myynnin tiedot',
-        sharesToSell: 'Myytävien osakkeiden määrä',
-        ipoPriceTotal: 'IPO-hinta yhteensä',
-        actualCosts: 'Todelliset kulut',
-        hmo20: 'HMO 20 %',
-        hmo40: 'HMO 40 %',
-        capitalGain: 'Luovutusvoitto',
-        taxFreePart: 'Veroton osa',
-        taxedPart: 'Verotettava osa',
-        totalRow: 'Yhteensä',
-        ipoSummary: 'IPOn yhteenveto',
-        grossSale: 'Myynti brutto',
-        netCash: 'Käteen',
-        taxMan: 'Verottajalle',
-        totalLosses: 'Tappiot yhteensä',
-        taxableCapitalGain: 'Verotettava luovutusvoitto',
-        sharesLeft: 'Osakkeita jäljelle',
-        taxReturns: 'Yhteenveto veroilmoituksista',
-        yearWarningMissingMathValue: 'Osinkoverotuksen jakoa ei voitu laskea ilman vuoden matemaattista arvoa / osake.',
-        taxableCapitalIncome: 'Veronalaista pääomatuloa',
-        taxFreeCapitalIncome: 'Verotonta pääomatuloa',
-        taxableEarnedDividend: 'Veronalaista ansiotulo-osinkoa',
-        taxFreeEarnedDividend: 'Verotonta ansiotulo-osinkoa',
-        ipoSaleAllocation: 'IPO-myynnin jako',
-        save: 'Tallenna selaimeen',
-        load: 'Lataa tallennettu',
-        restoreExample: 'Palauta esimerkki',
-        clearExample: 'Poista esimerkki',
-        storage: 'Tallennus',
-        saved: 'Tallennettu',
-        loaded: 'Ladattu',
-        exampleRestored: 'Esimerkki palautettu',
-        exampleCleared: 'Esimerkkidata poistettu',
-        sourceDividends: 'Verohallinto: Osingot listaamattomasta yhtiöstä',
-        source9a: 'Verohallinto: 9A täyttöohje',
-        sourceSales: 'Verohallinto: Osakkeiden myynti',
-        typeCapitalReturn: 'Pääomanpalautus',
-        typeDividend: 'Osinko',
-      }
-}
-
-function initialSubscriptions(): ShareSubscriptionInput[] {
-  return [
-    { id: createId('sub'), date: '15.05.2017', amount: '100000', totalPrice: '8000', originalShareValue: '0.08' },
-    { id: createId('sub'), date: '01.10.2021', amount: '25000', totalPrice: '11250', originalShareValue: '0.45' },
-  ]
-}
-
-function initialReimbursements(): ShareReimbursementInput[] {
-  return [
-    { id: createId('reimb'), type: 'capital_return', date: '30.06.2024', amountPerShare: '0.12' },
-    { id: createId('reimb'), type: 'dividend', date: '30.06.2025', amountPerShare: '0.20' },
-  ]
-}
-
-function initialMathematicalShareValues(): MathematicalShareValueInput[] {
-  return [
-    { id: createId('math'), year: '2024', valuePerShare: '1.28' },
-    { id: createId('math'), year: '2025', valuePerShare: '1.35' },
-    { id: createId('math'), year: '2026', valuePerShare: '1.40' },
-  ]
-}
-
-function initialIpoDetails(): IpoDetailsInput {
+function createOsakkeetFormData(demo: boolean): OsakkeetFormData {
   return {
-    ipoDate: '15.09.2026',
-    totalShareCount: '2500000',
-    totalIpoCost: '1800000',
-    currentShareValue: '66',
-    estimatedPreIpoValue: '125000000',
-    estimatedSecondaryShareSellPercentage: '12',
-  }
-}
-
-function initialSellDetails(): IpoSellDetailsInput {
-  return {
-    amount: '50000',
-  }
-}
-
-function createDefaultData(): OsakkeetFormData {
-  return {
-    subscriptions: initialSubscriptions(),
-    reimbursements: initialReimbursements(),
-    mathematicalShareValues: initialMathematicalShareValues(),
-    ipo: initialIpoDetails(),
-    sell: initialSellDetails(),
-  }
-}
-
-function createEmptyData(): OsakkeetFormData {
-  return {
-    subscriptions: [{ id: createId('sub'), date: '', amount: '', totalPrice: '', originalShareValue: '' }],
-    reimbursements: [{ id: createId('reimb'), type: 'capital_return', date: '', amountPerShare: '' }],
-    mathematicalShareValues: [{ id: createId('math'), year: '', valuePerShare: '' }],
+    subscriptions: demo
+      ? [
+          {
+            id: createId('sub'),
+            date: '15.05.2017',
+            vestingEndsOn: '',
+            amount: '100000',
+            totalPrice: '8000',
+            originalShareValue: '0.08',
+          },
+          {
+            id: createId('sub'),
+            date: '01.10.2021',
+            vestingEndsOn: '',
+            amount: '25000',
+            totalPrice: '11250',
+            originalShareValue: '0.45',
+          },
+        ]
+      : [{ id: createId('sub'), date: '', vestingEndsOn: '', amount: '', totalPrice: '', originalShareValue: '' }],
+    cashDistributions: demo
+      ? [
+          { id: createId('distribution'), type: 'capital_return', date: '30.06.2024', amountPerShare: '0.12' },
+          { id: createId('distribution'), type: 'dividend', date: '30.06.2025', amountPerShare: '0.20' },
+        ]
+      : [{ id: createId('distribution'), type: 'capital_return', date: '', amountPerShare: '' }],
+    mathematicalShareValues: demo
+      ? [
+          { id: createId('math'), year: '2024', valuePerShare: '1.28' },
+          { id: createId('math'), year: '2025', valuePerShare: '1.35' },
+          { id: createId('math'), year: '2026', valuePerShare: '1.40' },
+        ]
+      : [{ id: createId('math'), year: '', valuePerShare: '' }],
     ipo: {
-      ipoDate: '',
-      totalShareCount: '',
-      totalIpoCost: '',
-      currentShareValue: '',
-      estimatedPreIpoValue: '',
-      estimatedSecondaryShareSellPercentage: '',
+      ipoDate: demo ? '15.09.2026' : '',
+      totalShareCount: demo ? '2500000' : '',
+      totalIpoCost: demo ? '1800000' : '',
+      currentShareValue: demo ? '66' : '',
+      estimatedPreIpoValue: demo ? '125000000' : '',
+      estimatedSecondaryShareSellPercentage: demo ? '12' : '',
     },
     sell: {
-      amount: '',
+      amount: demo ? '50000' : '',
     },
   }
 }
 
-function formStorageKey() {
-  return 'osakkeet-ipo-laskuri'
+function sanitizeOsakkeetFormData(data: Partial<OsakkeetFormData>): OsakkeetFormData {
+  const ipo = (data.ipo || {}) as Partial<IpoDetailsInput>
+  return {
+    subscriptions: (data.subscriptions || []).map((subscription) => ({
+      id: subscription.id || createId('sub'),
+      date: subscription.date || '',
+      vestingEndsOn: subscription.vestingEndsOn || '',
+      amount: subscription.amount || '',
+      totalPrice: subscription.totalPrice || subscription.pricePerShare || '',
+      originalShareValue: subscription.originalShareValue || subscription.pricePerShare || '',
+    })),
+    cashDistributions: (data.cashDistributions || []).map((cashDistribution) => ({
+      id: cashDistribution.id || createId('distribution'),
+      date: cashDistribution.date || '',
+      type: cashDistribution.type || 'capital_return',
+      amountPerShare: cashDistribution.amountPerShare || '',
+    })),
+    mathematicalShareValues: (data.mathematicalShareValues || []).map((row) => ({
+      id: row.id || createId('math'),
+      year: row.year || '',
+      valuePerShare: row.valuePerShare || '',
+    })),
+    ipo: {
+      ipoDate: ipo.ipoDate || '',
+      totalShareCount: ipo.totalShareCount || '',
+      totalIpoCost: ipo.totalIpoCost || '',
+      currentShareValue: ipo.currentShareValue || '',
+      estimatedPreIpoValue: ipo.estimatedPreIpoValue || '',
+      estimatedSecondaryShareSellPercentage: ipo.estimatedSecondaryShareSellPercentage || '',
+    },
+    sell: {
+      amount: data.sell?.amount || '',
+    },
+  }
 }
 
 function normalizeLoadedData(parsed: Partial<OsakkeetFormData>): OsakkeetFormData {
@@ -398,12 +207,15 @@ function normalizeLoadedData(parsed: Partial<OsakkeetFormData>): OsakkeetFormDat
   return {
     subscriptions: (parsed.subscriptions || []).map((subscription) => ({
       ...subscription,
+      vestingEndsOn: subscription.vestingEndsOn || '',
       totalPrice: subscription.totalPrice || subscription.pricePerShare || '',
       originalShareValue: subscription.originalShareValue || subscription.pricePerShare || '',
     })),
-    reimbursements: (parsed.reimbursements || []).map((reimbursement) => ({
-      ...reimbursement,
-      type: reimbursement.type || 'capital_return',
+    cashDistributions: (parsed.cashDistributions || []).map((cashDistribution) => ({
+      id: cashDistribution.id || createId('distribution'),
+      date: cashDistribution.date || '',
+      type: cashDistribution.type || 'capital_return',
+      amountPerShare: cashDistribution.amountPerShare || '',
     })),
     mathematicalShareValues: (parsed.mathematicalShareValues || []).map((row) => ({
       ...row,
@@ -417,20 +229,20 @@ function normalizeLoadedData(parsed: Partial<OsakkeetFormData>): OsakkeetFormDat
       estimatedSecondaryShareSellPercentage: ipo.estimatedSecondaryShareSellPercentage || '',
     },
     sell: {
-      ...createEmptyData().sell,
+      ...createOsakkeetFormData(false).sell,
       ...parsed.sell,
     },
   }
 }
 
 function tryLoadSavedData(): OsakkeetFormData {
-  const saved = localStorage.getItem(formStorageKey())
-  if (!saved) return createDefaultData()
+  const saved = localStorage.getItem(storageKeys.formData)
+  if (!saved) return createOsakkeetFormData(true)
   try {
     const parsed = JSON.parse(saved) as Partial<OsakkeetFormData>
     return normalizeLoadedData(parsed)
   } catch {
-    return createDefaultData()
+    return createOsakkeetFormData(true)
   }
 }
 
@@ -442,11 +254,55 @@ function removeArrayItem<T extends { id: string }>(items: T[], id: string) {
   return items.filter((item) => item.id !== id)
 }
 
-function textField(labelText: string, inputNode: HTMLInputElement | HTMLSelectElement, help?: string) {
-  return div(pageStyles.field, label(labelText), inputNode, help && span({ class: 'muted' }, help))
+type FormArrayKey = 'subscriptions' | 'cashDistributions' | 'mathematicalShareValues'
+type FormArrayItem<Key extends FormArrayKey> = OsakkeetFormData[Key][number]
+
+function updateFormArrayItem<Key extends FormArrayKey>(
+  dataState: State<OsakkeetFormData>,
+  key: Key,
+  id: string,
+  patch: Partial<FormArrayItem<Key>>
+) {
+  const items = dataState.get()[key] as FormArrayItem<Key>[]
+  dataState.update({
+    [key]: updateArrayItem(items, id, patch),
+  } as Pick<OsakkeetFormData, Key>)
 }
 
-function finnishDateInput(value: string, onInput: (value: string) => void, onChange?: (value: string) => void) {
+function removeFormArrayItem<Key extends FormArrayKey>(dataState: State<OsakkeetFormData>, key: Key, id: string) {
+  const items = dataState.get()[key] as FormArrayItem<Key>[]
+  dataState.update({
+    [key]: removeArrayItem(items, id),
+  } as Pick<OsakkeetFormData, Key>)
+}
+
+function appendFormArrayItem<Key extends FormArrayKey>(
+  dataState: State<OsakkeetFormData>,
+  key: Key,
+  item: FormArrayItem<Key>
+) {
+  const items = dataState.get()[key] as FormArrayItem<Key>[]
+  dataState.update({
+    [key]: [...items, item],
+  } as Pick<OsakkeetFormData, Key>)
+}
+
+function numberInput(value: string, options: { step: string; min: string }, onInput: (value: string) => void) {
+  return inputs.number(
+    {
+      ...options,
+      value,
+    },
+    pageStyles.input,
+    events({
+      input({ node }) {
+        onInput(node.value)
+      },
+    })
+  )
+}
+
+function finnishDateInput(value: string, onInput: (value: string) => void) {
   return inputs.text(
     {
       value,
@@ -458,10 +314,24 @@ function finnishDateInput(value: string, onInput: (value: string) => void, onCha
       input({ node }) {
         onInput(node.value)
       },
-      change({ node }) {
-        onChange?.(node.value)
-      },
     })
+  )
+}
+
+function enumSelectInput<Value extends string>(
+  value: Value,
+  options: Array<{ label: string; value: Value }>,
+  onChange: (value: Value) => void
+) {
+  return select(
+    pageStyles.input,
+    { value },
+    events({
+      change({ node }) {
+        onChange(node.value as Value)
+      },
+    }),
+    options.map((optionValue) => option(optionValue.label, { value: optionValue.value }))
   )
 }
 
@@ -469,155 +339,227 @@ function infoCard(title: string, value: string, help?: string) {
   return div(pageStyles.summaryItem, span({ class: 'muted' }, title), b(value), help && span({ class: 'muted' }, help))
 }
 
+function hoverValue(value: string, tooltip: string, emphasized = false) {
+  const node = span({ title: tooltip }, value)
+  return emphasized ? b(node) : node
+}
+
 function linkToSource(textValue: string, href: string) {
   return a(textValue, { href, target: '_blank', rel: 'noreferrer' })
 }
 
-function assumptionsContent(language: Language) {
-  const t = texts(language)
+function setTextValue(node: Node, value: string) {
+  if (node.textContent !== value) {
+    node.textContent = value
+  }
+}
+
+function setInputValue(node: HTMLInputElement, value: string) {
+  if (node.value !== value) {
+    node.value = value
+  }
+}
+
+function setSelectValue(node: HTMLSelectElement, value: string) {
+  if (node.value !== value) {
+    node.value = value
+  }
+}
+
+function setButtonVariant(node: HTMLButtonElement, primary: boolean) {
+  node.className = primary ? 'blueButton' : String(pageStyles.smallButton)
+}
+
+function createRemoveButton(dataState: State<OsakkeetFormData>, remove: () => void) {
+  const labelNode = text('')
+  const buttonNode = button(
+    labelNode,
+    pageStyles.smallButton,
+    events({
+      click() {
+        remove()
+      },
+    })
+  ) as HTMLButtonElement
+  return {
+    buttonNode,
+    setLabel({ texts }: Pick<OsakkeetPageReadModel, 'texts'>) {
+      setTextValue(labelNode, texts.common.remove)
+    },
+  }
+}
+
+function createActionButton(labelNode: Text, variant: 'primary' | 'secondary', onClick: () => void) {
+  return button(
+    labelNode,
+    variant === 'primary' ? { class: 'blueButton' } : pageStyles.smallButton,
+    events({
+      click() {
+        onClick()
+      },
+    })
+  ) as HTMLButtonElement
+}
+
+type RowController<T extends { id: string }> = {
+  id: string
+  node: HTMLTableRowElement
+  set: (value: T, pageReadModel: OsakkeetPageReadModel) => void
+}
+
+function syncRowControllers<T extends { id: string }>(
+  tbodyNode: HTMLElement,
+  rowControllers: Map<string, RowController<T>>,
+  values: T[],
+  pageReadModel: OsakkeetPageReadModel,
+  createRowController: (value: T) => RowController<T>
+) {
+  const nextControllers = new Map<string, RowController<T>>()
+  const desiredIds = values.map((value) => value.id)
+  for (const value of values) {
+    const rowController = rowControllers.get(value.id) || createRowController(value)
+    rowController.set(value, pageReadModel)
+    nextControllers.set(value.id, rowController)
+  }
+  for (const [id, rowController] of rowControllers) {
+    if (!nextControllers.has(id)) {
+      rowController.node.remove()
+    }
+  }
+  values.forEach((value, index) => {
+    const rowController = nextControllers.get(value.id)!
+    const existingNode = tbodyNode.children[index]
+    if (existingNode !== rowController.node) {
+      tbodyNode.insertBefore(rowController.node, existingNode || null)
+    }
+  })
+  while (tbodyNode.children.length > desiredIds.length) {
+    tbodyNode.lastElementChild?.remove()
+  }
+  rowControllers.clear()
+  nextControllers.forEach((rowController, id) => rowControllers.set(id, rowController))
+}
+
+function assumptionsContent(t: OsakkeetLocalization) {
   return div(
     pageStyles.denseStack,
-    h3(t.assumptions),
-    ul(
-      li(
-        language === 'en'
-          ? 'Sales are allocated to subscription lots using FIFO.'
-          : 'Myynti kohdistetaan merkintäeriin FIFO-järjestyksessä.'
-      ),
-      li(
-        language === 'en'
-          ? 'Before the IPO date, distributions from invested unrestricted equity are treated as capital repayment only to the extent the same shareholder gets back their own investment made within the last 10 years.'
-          : 'Ennen IPO-päivää tehdyt SVOP-varojenjaot käsitellään pääomanpalautuksena vain siltä osin kuin sama osakas saa takaisin omaa enintään 10 vuotta vanhaa sijoitustaan.'
-      ),
-      li(
-        language === 'en'
-          ? 'On and after the IPO date, distributions are treated as dividends in this calculator.'
-          : 'IPO-päivänä tai sen jälkeen tehdyt varojenjaot käsitellään tässä laskurissa kokonaan osinkona.'
-      ),
-      li(
-        language === 'en'
-          ? 'Tax categories for dividends from an unlisted company are calculated using the entered mathematical value per share for each year.'
-          : 'Listaamattoman yhtiön osingon verolajit lasketaan syötetyn osakkeiden matemaattisen arvon perusteella.'
-      ),
-      li(
-        language === 'en'
-          ? 'The deemed acquisition cost is compared separately for each subscription lot used in the sale.'
-          : 'Hankintameno-olettama vertaillaan jokaiselle käytetylle merkintäerälle erikseen.'
-      ),
-      li(
-        language === 'en'
-          ? 'Capital income tax is estimated only for this sale using the 2026 30% / 34% rates.'
-          : 'Pääomatulovero arvioidaan vain tämän myynnin perusteella vuoden 2026 30 % / 34 % verokannoilla.'
-      )
-    ),
+    h3(t.assumptions.title),
+    ul(t.assumptions.items.map((item) => li(item))),
     p(
       { class: 'muted' },
-      language === 'en' ? 'Sources: ' : 'Lähteet: ',
+      t.assumptions.sourcesLabel,
       linkToSource(
-        t.sourceDividends,
+        t.sources.dividends,
         'https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osingot/osingot-listaamattomasta-yhtiosta/'
       ),
       ', ',
       linkToSource(
-        t.source9a,
+        t.sources.form9a,
         'https://www.vero.fi/tietoa-verohallinnosta/yhteystiedot-ja-asiointi/lomakkeet/tayttoohjeet/9a-arvopapereiden-luovutusvoitot-ja--tappiot-t%C3%A4ytt%C3%B6ohje/'
       ),
       ', ',
-      linkToSource(t.sourceSales, 'https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osakkeiden_myynt/')
+      linkToSource(t.sources.sales, 'https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osakkeiden_myynt/')
     )
   )
 }
 
-function renderMathematicalShareValuesEditor(
-  target: HTMLElement,
-  dataState: ReturnType<typeof createState<OsakkeetFormData>>,
-  language: Language
+function createIpoNumberUpdater(
+  dataState: State<OsakkeetFormData>,
+  key: keyof Pick<
+    IpoDetailsInput,
+    | 'currentShareValue'
+    | 'totalShareCount'
+    | 'estimatedPreIpoValue'
+    | 'totalIpoCost'
+    | 'estimatedSecondaryShareSellPercentage'
+  >
 ) {
-  const t = texts(language)
-  replaceChildren(
-    target,
-    h3(t.mathematicalValues),
-    table(
-      thead(tr(th(t.year), th(t.valuePerShare), th({ class: 'no-print' }, ''))),
-      tbody(
-        dataState.get().mathematicalShareValues.map((row) =>
-          tr(
-            td(
-              inputs.number(
-                { step: '1', min: '0', value: row.year },
-                pageStyles.input,
-                events({
-                  input({ node }) {
-                    dataState.update({
-                      mathematicalShareValues: updateArrayItem(dataState.get().mathematicalShareValues, row.id, {
-                        year: node.value,
-                      }),
-                    })
-                  },
-                })
-              )
-            ),
-            td(
-              inputs.number(
-                { step: '0.0001', min: '0', value: row.valuePerShare },
-                pageStyles.input,
-                events({
-                  input({ node }) {
-                    dataState.update({
-                      mathematicalShareValues: updateArrayItem(dataState.get().mathematicalShareValues, row.id, {
-                        valuePerShare: node.value,
-                      }),
-                    })
-                  },
-                })
-              )
-            ),
-            td(
-              { class: 'no-print' },
-              button(
-                t.remove,
-                pageStyles.smallButton,
-                events({
-                  click() {
-                    dataState.update({
-                      mathematicalShareValues: removeArrayItem(dataState.get().mathematicalShareValues, row.id),
-                    })
-                    renderMathematicalShareValuesEditor(target, dataState, language)
-                  },
-                })
-              )
-            )
-          )
-        )
-      )
-    ),
-    div(
-      pageStyles.rowButtons,
-      button(
-        t.addYear,
-        { class: 'blueButton' },
-        events({
-          click() {
-            dataState.update({
-              mathematicalShareValues: [
-                ...dataState.get().mathematicalShareValues,
-                { id: createId('math'), year: '', valuePerShare: '' },
-              ],
-            })
-            renderMathematicalShareValuesEditor(target, dataState, language)
-          },
-        })
-      )
-    )
-  )
+  return (value: string) => {
+    dataState.update({ ipo: { ...dataState.get().ipo, [key]: value } })
+  }
 }
 
-function taxSummarySection(calculation: OsakkeetCalculation, language: Language) {
-  const t = texts(language)
+function createIpoTextUpdater(dataState: State<OsakkeetFormData>, key: keyof Pick<IpoDetailsInput, 'ipoDate'>) {
+  return (value: string) => {
+    dataState.update({ ipo: { ...dataState.get().ipo, [key]: value } })
+  }
+}
+
+function createMathematicalShareValuesEditor(dataState: State<OsakkeetFormData>) {
+  const titleNode = text('')
+  const yearHeaderNode = text('')
+  const valueHeaderNode = text('')
+  const addButtonLabelNode = text('')
+  const tbodyNode = tbody()
+  const rowControllers = new Map<string, RowController<{ id: string; year: string; valuePerShare: string }>>()
+
+  const createRowController = (row: { id: string; year: string; valuePerShare: string }) => {
+    const yearInput = numberInput(row.year, { step: '1', min: '0' }, (value) => {
+      updateFormArrayItem(dataState, 'mathematicalShareValues', row.id, { year: value })
+    })
+    const valuePerShareInput = numberInput(row.valuePerShare, { step: '0.0001', min: '0' }, (value) => {
+      updateFormArrayItem(dataState, 'mathematicalShareValues', row.id, { valuePerShare: value })
+    })
+    const removeButton = createRemoveButton(dataState, () => {
+      removeFormArrayItem(dataState, 'mathematicalShareValues', row.id)
+    })
+
+    return {
+      id: row.id,
+      node: tr(
+        td(div(pageStyles.compactField, yearInput)),
+        td(div(pageStyles.compactField, valuePerShareInput)),
+        td({ class: 'no-print' }, removeButton.buttonNode)
+      ),
+      set(nextRow, pageReadModel) {
+        setInputValue(yearInput, nextRow.year)
+        setInputValue(valuePerShareInput, nextRow.valuePerShare)
+        removeButton.setLabel(pageReadModel)
+      },
+    } satisfies RowController<{ id: string; year: string; valuePerShare: string }>
+  }
+
+  const addButton = createActionButton(addButtonLabelNode, 'primary', () => {
+    appendFormArrayItem(dataState, 'mathematicalShareValues', {
+      id: createId('math'),
+      year: '',
+      valuePerShare: '',
+    })
+  })
+
+  const root = div(
+    h3(titleNode),
+    table(
+      pageStyles.compactTable,
+      thead(tr(th(yearHeaderNode), th(valueHeaderNode), th({ class: 'no-print' }, ''))),
+      tbodyNode
+    ),
+    div(pageStyles.rowButtons, addButton)
+  )
+
+  return {
+    root,
+    set({ texts, osakkeetCalculation, ...rest }: OsakkeetPageReadModel) {
+      setTextValue(titleNode, texts.mathematicalShareValues.title)
+      setTextValue(yearHeaderNode, texts.mathematicalShareValues.fields.year)
+      setTextValue(valueHeaderNode, texts.mathematicalShareValues.fields.valuePerShare)
+      setTextValue(addButtonLabelNode, texts.mathematicalShareValues.actions.add)
+      syncRowControllers(
+        tbodyNode,
+        rowControllers,
+        osakkeetCalculation.formData.mathematicalShareValues,
+        { texts, osakkeetCalculation, ...rest },
+        createRowController
+      )
+    },
+  }
+}
+
+function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocalization) {
   const zeroMoney = calculation.ipo.totalIpoCost.mul(0)
   const yearSet = new Set<number>()
-  calculation.reimbursements.forEach((reimbursement) => {
-    const date = reimbursement.date.match(/(\d{4})$/)?.[1]
+  calculation.cashDistributions.forEach((cashDistribution) => {
+    const date = cashDistribution.date.match(/(\d{4})$/)?.[1]
     if (date) yearSet.add(Number(date))
   })
   const ipoYear = calculation.ipo.ipoDate?.getUTCFullYear()
@@ -630,8 +572,8 @@ function taxSummarySection(calculation: OsakkeetCalculation, language: Language)
 
   return div(
     years.map((year) => {
-      const yearEntries = calculation.reimbursements.filter((reimbursement) =>
-        reimbursement.date.endsWith(String(year))
+      const yearEntries = calculation.cashDistributions.filter((cashDistribution) =>
+        cashDistribution.date.endsWith(String(year))
       )
       const yearMathWarnings = yearEntries.filter(
         (row) => row.dividendTotal.gt(0) && row.shareholderMathematicalValue.eq(0)
@@ -652,28 +594,32 @@ function taxSummarySection(calculation: OsakkeetCalculation, language: Language)
         yearMathWarnings.length > 0 &&
           div(
             pageStyles.warningBox,
-            ul(yearMathWarnings.map((row) => li(`${row.date}: ${t.yearWarningMissingMathValue}`)))
+            ul(yearMathWarnings.map((row) => li(`${row.date}: ${t.taxReturns.yearWarningMissingMathValue}`)))
           ),
         yearEntries.length > 0 &&
           table(
             thead(
               tr(
-                th(t.date),
-                th(t.type),
-                th(t.capitalRepayment),
-                th(t.taxableCapitalIncome),
-                th(t.taxFreeCapitalIncome),
-                th(t.taxableEarnedDividend),
-                th(t.taxFreeEarnedDividend),
-                th(t.withholding),
-                th(t.cashPaid)
+                th(t.common.date),
+                th(t.common.type),
+                th(t.cashDistributions.fields.capitalRepayment),
+                th(t.taxReturns.fields.taxableCapitalIncome),
+                th(t.taxReturns.fields.taxFreeCapitalIncome),
+                th(t.taxReturns.fields.taxableEarnedDividend),
+                th(t.taxReturns.fields.taxFreeEarnedDividend),
+                th(t.cashDistributions.fields.withholding),
+                th(t.cashDistributions.fields.cashPaid)
               )
             ),
             tbody(
               yearEntries.map((row) =>
                 tr(
                   td(row.date),
-                  td(row.type === 'dividend' ? t.typeDividend : t.typeCapitalReturn),
+                  td(
+                    row.type === 'dividend'
+                      ? t.cashDistributions.types.dividend
+                      : t.cashDistributions.types.capitalReturn
+                  ),
                   td(euro(row.capitalRepaymentTotal)),
                   td(euro(row.taxableCapitalIncome)),
                   td(euro(row.taxFreeCapitalIncomePortion)),
@@ -684,7 +630,7 @@ function taxSummarySection(calculation: OsakkeetCalculation, language: Language)
                 )
               ),
               tr(
-                td(b(t.totalRow)),
+                td(b(t.summary.totalRow)),
                 td(),
                 td(euro(totalCapitalRepayment)),
                 td(euro(totalTaxableCapitalIncome)),
@@ -700,22 +646,14 @@ function taxSummarySection(calculation: OsakkeetCalculation, language: Language)
           calculation.sell.grossTotal.gt(0) &&
           div(
             pageStyles.denseStack,
-            h3(t.ipoSaleAllocation),
+            h3(t.taxReturns.fields.ipoSaleAllocation),
             div(
               pageStyles.summaryGrid,
-              infoCard(t.grossSale, euro(calculation.sell.grossTotal)),
-              infoCard(t.totalIpoCost, euro(calculation.sell.totalIpoCostAllocated)),
-              infoCard(t.taxableCapitalGain, euro(calculation.sell.taxableGainTotal)),
-              infoCard(t.taxMan, euro(calculation.sell.estimatedTax)),
-              infoCard(t.netCash, euro(calculation.sell.netAfterTaxAndIpoCost)),
-              infoCard(
-                t.totalLosses,
-                euro(
-                  calculation.sell.grossTotal
-                    .minus(calculation.sell.netAfterTaxAndIpoCost)
-                    .minus(calculation.sell.estimatedTax)
-                )
-              )
+              infoCard(t.summary.ipoSell.cards.grossSale, euro(calculation.sell.grossTotal)),
+              infoCard(t.summary.ipoSell.cards.ipoCostsAllocated, euro(calculation.sell.totalIpoCostAllocated)),
+              infoCard(t.summary.ipoSell.cards.taxableCapitalGain, euro(calculation.sell.taxableGainTotal)),
+              infoCard(t.summary.ipoSell.cards.taxMan, euro(calculation.sell.estimatedTax)),
+              infoCard(t.summary.ipoSell.cards.netCash, euro(calculation.sell.netAfterTaxAndIpoCost))
             )
           )
       )
@@ -723,567 +661,827 @@ function taxSummarySection(calculation: OsakkeetCalculation, language: Language)
   )
 }
 
-function renderSubscriptionsEditor(
-  target: HTMLElement,
-  dataState: ReturnType<typeof createState<OsakkeetFormData>>,
-  calculation: OsakkeetCalculation,
-  language: Language
-) {
-  const t = texts(language)
-  const current = dataState.get()
-  const summariesById = Object.fromEntries(
-    calculation.subscriptions.map((subscription) => [subscription.id, subscription])
-  )
-  replaceChildren(
-    target,
-    div(
-      { class: 'heading' },
-      h2(t.subscriptions),
-      span({ class: 'muted' }, `${current.subscriptions.length} ${t.rows}`)
-    ),
-    p({ class: 'muted' }, t.subscriptionsHelp),
-    table(
-      thead(
-        tr(
-          th(t.date),
-          th(t.amount),
-          th(t.totalPrice),
-          th(t.originalShareValue),
-          th(t.capitalRepaymentPerShare),
-          th(t.remainingCostPerShare),
-          th({ class: 'no-print' }, '')
-        )
-      ),
-      tbody(
-        current.subscriptions.map((subscription) =>
-          tr(
-            td(
-              finnishDateInput(
-                subscription.date,
-                (value) => {
-                  dataState.update({
-                    subscriptions: updateArrayItem(dataState.get().subscriptions, subscription.id, {
-                      date: value,
-                    }),
-                  })
-                },
-                () => renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
-              )
-            ),
-            td(
-              inputs.number(
-                {
-                  step: '1',
-                  min: '0',
-                  value: subscription.amount,
-                },
-                pageStyles.input,
-                events({
-                  input({ node }) {
-                    dataState.update({
-                      subscriptions: updateArrayItem(dataState.get().subscriptions, subscription.id, {
-                        amount: node.value,
-                      }),
-                    })
-                  },
-                  change() {
-                    renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
-                  },
-                })
-              )
-            ),
-            td(
-              inputs.number(
-                {
-                  step: '0.01',
-                  min: '0',
-                  value: subscription.totalPrice,
-                },
-                pageStyles.input,
-                events({
-                  input({ node }) {
-                    dataState.update({
-                      subscriptions: updateArrayItem(dataState.get().subscriptions, subscription.id, {
-                        totalPrice: node.value,
-                      }),
-                    })
-                  },
-                  change() {
-                    renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
-                  },
-                })
-              )
-            ),
-            td(
-              inputs.number(
-                {
-                  step: '0.0001',
-                  min: '0',
-                  value: subscription.originalShareValue,
-                },
-                pageStyles.input,
-                events({
-                  input({ node }) {
-                    dataState.update({
-                      subscriptions: updateArrayItem(dataState.get().subscriptions, subscription.id, {
-                        originalShareValue: node.value,
-                      }),
-                    })
-                  },
-                })
-              )
-            ),
-            td(summariesById[subscription.id] ? euro(summariesById[subscription.id].capitalRepaymentPerShare) : '-'),
-            td(summariesById[subscription.id] ? euro(summariesById[subscription.id].remainingCostPerShare) : '-'),
-            td(
-              { class: 'no-print' },
-              button(
-                t.remove,
-                pageStyles.smallButton,
-                events({
-                  click() {
-                    dataState.update({
-                      subscriptions: removeArrayItem(dataState.get().subscriptions, subscription.id),
-                    })
-                    renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
-                  },
-                })
-              )
-            )
-          )
-        )
-      )
-    ),
-    div(
-      pageStyles.rowButtons,
-      button(
-        t.addSubscription,
-        { class: 'blueButton' },
-        events({
-          click() {
-            dataState.update({
-              subscriptions: [
-                ...dataState.get().subscriptions,
-                { id: createId('sub'), date: '', amount: '', totalPrice: '', originalShareValue: '' },
-              ],
-            })
-            renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
-          },
-        })
-      )
-    )
-  )
-}
+function createSubscriptionsSection(dataState: State<OsakkeetFormData>) {
+  const titleNode = text('')
+  const countNode = text('')
+  const helpNode = text('')
+  const summaryRoot = div(pageStyles.summaryGrid)
+  const dateHeaderNode = text('')
+  const vestingEndsOnHeaderNode = text('')
+  const amountHeaderNode = text('')
+  const totalPriceHeaderNode = text('')
+  const originalShareValueHeaderNode = text('')
+  const capitalRepaymentHeaderNode = text('')
+  const remainingCostHeaderNode = text('')
+  const addButtonLabelNode = text('')
+  const tbodyNode = tbody()
+  const rowControllers = new Map<
+    string,
+    RowController<{
+      id: string
+      date: string
+      vestingEndsOn: string
+      amount: string
+      totalPrice: string
+      originalShareValue: string
+      capitalRepaymentPerShare: string
+      remainingCostPerShare: string
+    }>
+  >()
 
-function renderReimbursementsEditor(
-  target: HTMLElement,
-  dataState: ReturnType<typeof createState<OsakkeetFormData>>,
-  calculation: OsakkeetCalculation,
-  refreshRelatedValues: () => void,
-  language: Language
-) {
-  const t = texts(language)
-  const current = dataState.get()
-  const summariesById = Object.fromEntries(
-    calculation.reimbursements.map((reimbursement) => [reimbursement.id, reimbursement])
-  )
-  replaceChildren(
-    target,
-    div({ class: 'heading' }, h2(t.payouts), span({ class: 'muted' }, `${current.reimbursements.length} ${t.rows}`)),
-    p({ class: 'muted' }, t.payoutsHelp),
-    table(
-      thead(
-        tr(
-          th(t.date),
-          th(t.type),
-          th(t.amountPerShare),
-          th(t.total),
-          th(t.withholding),
-          th(t.cashPaid),
-          th(t.capitalRepayment),
-          th(t.dividend),
-          th({ class: 'no-print' }, '')
-        )
-      ),
-      tbody(
-        current.reimbursements.map((reimbursement) =>
-          tr(
-            td(
-              finnishDateInput(
-                reimbursement.date,
-                (value) => {
-                  dataState.update({
-                    reimbursements: updateArrayItem(dataState.get().reimbursements, reimbursement.id, {
-                      date: value,
-                    }),
-                  })
-                },
-                () => refreshRelatedValues()
-              )
-            ),
-            td(
-              select(
-                pageStyles.input,
-                { value: reimbursement.type },
-                events({
-                  change({ node }) {
-                    dataState.update({
-                      reimbursements: updateArrayItem(dataState.get().reimbursements, reimbursement.id, {
-                        type: node.value as ShareReimbursementInput['type'],
-                      }),
-                    })
-                    refreshRelatedValues()
-                  },
-                }),
-                option(t.typeCapitalReturn, { value: 'capital_return' }),
-                option(t.typeDividend, { value: 'dividend' })
-              )
-            ),
-            td(
-              inputs.number(
-                { step: '0.0001', min: '0', value: reimbursement.amountPerShare },
-                pageStyles.input,
-                events({
-                  input({ node }) {
-                    dataState.update({
-                      reimbursements: updateArrayItem(dataState.get().reimbursements, reimbursement.id, {
-                        amountPerShare: node.value,
-                      }),
-                    })
-                  },
-                  change() {
-                    refreshRelatedValues()
-                  },
-                })
-              )
-            ),
-            td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].grossTotal) : '-'),
-            td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].withholdingToTaxOffice) : '-'),
-            td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].paidInCash) : '-'),
-            td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].capitalRepaymentTotal) : '-'),
-            td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].dividendTotal) : '-'),
-            td(
-              { class: 'no-print' },
-              button(
-                t.remove,
-                pageStyles.smallButton,
-                events({
-                  click() {
-                    dataState.update({
-                      reimbursements: removeArrayItem(dataState.get().reimbursements, reimbursement.id),
-                    })
-                    refreshRelatedValues()
-                  },
-                })
-              )
-            )
-          )
-        )
-      )
-    ),
-    div(
-      pageStyles.rowButtons,
-      button(
-        t.addPayout,
-        { class: 'blueButton' },
-        events({
-          click() {
-            dataState.update({
-              reimbursements: [
-                ...dataState.get().reimbursements,
-                { id: createId('reimb'), type: 'capital_return', date: '', amountPerShare: '' },
-              ],
-            })
-            refreshRelatedValues()
-          },
-        })
-      )
-    )
-  )
-}
+  const createRowController = (row: {
+    id: string
+    date: string
+    vestingEndsOn: string
+    amount: string
+    totalPrice: string
+    originalShareValue: string
+    capitalRepaymentPerShare: string
+    remainingCostPerShare: string
+  }) => {
+    const dateInput = finnishDateInput(row.date, (value) => {
+      updateFormArrayItem(dataState, 'subscriptions', row.id, { date: value })
+    })
+    const vestingEndsOnInput = finnishDateInput(row.vestingEndsOn, (value) => {
+      updateFormArrayItem(dataState, 'subscriptions', row.id, { vestingEndsOn: value })
+    })
+    const amountInput = numberInput(row.amount, { step: '1', min: '0' }, (value) => {
+      updateFormArrayItem(dataState, 'subscriptions', row.id, { amount: value })
+    })
+    const totalPriceInput = numberInput(row.totalPrice, { step: '0.01', min: '0' }, (value) => {
+      updateFormArrayItem(dataState, 'subscriptions', row.id, { totalPrice: value })
+    })
+    const originalShareValueInput = numberInput(row.originalShareValue, { step: '0.0001', min: '0' }, (value) => {
+      updateFormArrayItem(dataState, 'subscriptions', row.id, { originalShareValue: value })
+    })
+    const capitalRepaymentNode = text('-')
+    const remainingCostNode = text('-')
+    const removeButton = createRemoveButton(dataState, () => {
+      removeFormArrayItem(dataState, 'subscriptions', row.id)
+    })
 
-function renderIpoEditor(
-  target: HTMLElement,
-  dataState: ReturnType<typeof createState<OsakkeetFormData>>,
-  calculation: OsakkeetCalculation,
-  language: Language
-) {
-  const t = texts(language)
-  const { ipo } = dataState.get()
-  const currentTotalValueNode = b(euro(calculation.ipo.currentTotalValue))
-  const ipoSharePriceNode = b(euro(calculation.ipo.ipoPricePerShare))
-  const increasePercentNode = b(percentage(calculation.ipo.increasePercentage))
-  const increaseMultiplierNode = b(multiplier(calculation.ipo.increaseMultiplier))
-  const updateDerivedIpoValues = () => {
-    const nextIpo = calculateOsakkeet(dataState.get()).ipo
-    currentTotalValueNode.textContent = euro(nextIpo.currentTotalValue)
-    ipoSharePriceNode.textContent = euro(nextIpo.ipoPricePerShare)
-    increasePercentNode.textContent = percentage(nextIpo.increasePercentage)
-    increaseMultiplierNode.textContent = multiplier(nextIpo.increaseMultiplier)
+    return {
+      id: row.id,
+      node: tr(
+        td(dateInput),
+        td(vestingEndsOnInput),
+        td(amountInput),
+        td(totalPriceInput),
+        td(originalShareValueInput),
+        td(capitalRepaymentNode),
+        td(remainingCostNode),
+        td({ class: 'no-print' }, removeButton.buttonNode)
+      ),
+      set(nextRow, pageReadModel) {
+        setInputValue(dateInput, nextRow.date)
+        setInputValue(vestingEndsOnInput, nextRow.vestingEndsOn)
+        setInputValue(amountInput, nextRow.amount)
+        setInputValue(totalPriceInput, nextRow.totalPrice)
+        setInputValue(originalShareValueInput, nextRow.originalShareValue)
+        setTextValue(capitalRepaymentNode, nextRow.capitalRepaymentPerShare)
+        setTextValue(remainingCostNode, nextRow.remainingCostPerShare)
+        removeButton.setLabel(pageReadModel)
+      },
+    } satisfies RowController<{
+      id: string
+      date: string
+      vestingEndsOn: string
+      amount: string
+      totalPrice: string
+      originalShareValue: string
+      capitalRepaymentPerShare: string
+      remainingCostPerShare: string
+    }>
   }
-  replaceChildren(
-    target,
-    h2(t.ipoDetails),
-    div(
-      pageStyles.gridTwo,
-      textField(
-        t.currentShareValue,
-        inputs.number(
-          { step: '0.01', min: '0', value: ipo.currentShareValue },
-          pageStyles.input,
-          events({
-            input({ node }) {
-              dataState.update({ ipo: { ...dataState.get().ipo, currentShareValue: node.value } })
-              updateDerivedIpoValues()
-            },
-          })
+
+  const addButton = createActionButton(addButtonLabelNode, 'primary', () => {
+    appendFormArrayItem(dataState, 'subscriptions', {
+      id: createId('sub'),
+      date: '',
+      vestingEndsOn: '',
+      amount: '',
+      totalPrice: '',
+      originalShareValue: '',
+    })
+  })
+
+  const root = section(
+    { class: 'card' },
+    div({ class: 'heading' }, h2(titleNode), span({ class: 'muted' }, countNode)),
+    p({ class: 'muted' }, helpNode),
+    summaryRoot,
+    table(
+      thead(
+        tr(
+          th(dateHeaderNode),
+          th(vestingEndsOnHeaderNode),
+          th(amountHeaderNode),
+          th(totalPriceHeaderNode),
+          th(originalShareValueHeaderNode),
+          th(capitalRepaymentHeaderNode),
+          th(remainingCostHeaderNode),
+          th({ class: 'no-print' }, '')
         )
       ),
-      textField(
-        t.totalShareCount,
-        inputs.number(
-          { step: '1', min: '0', value: ipo.totalShareCount },
-          pageStyles.input,
-          events({
-            input({ node }) {
-              dataState.update({ ipo: { ...dataState.get().ipo, totalShareCount: node.value } })
-              updateDerivedIpoValues()
-            },
-          })
-        )
-      ),
-      div(pageStyles.field, label(t.currentTotalValue), currentTotalValueNode),
-      div()
+      tbodyNode
     ),
-    div(
-      pageStyles.gridTwo,
-      textField(
-        t.estimatedPreIpoValue,
-        inputs.number(
-          { step: '0.01', min: '0', value: ipo.estimatedPreIpoValue },
-          pageStyles.input,
-          events({
-            input({ node }) {
-              dataState.update({ ipo: { ...dataState.get().ipo, estimatedPreIpoValue: node.value } })
-              updateDerivedIpoValues()
-            },
-          })
-        )
-      ),
-      div(pageStyles.field, label(t.ipoSharePrice), ipoSharePriceNode),
-      textField(
-        t.totalIpoCost,
-        inputs.number(
-          { step: '0.01', min: '0', value: ipo.totalIpoCost },
-          pageStyles.input,
-          events({
-            input({ node }) {
-              dataState.update({ ipo: { ...dataState.get().ipo, totalIpoCost: node.value } })
-            },
-          })
-        )
-      ),
-      textField(
-        t.secondarySellPercent,
-        inputs.number(
-          { step: '0.01', min: '0', value: ipo.estimatedSecondaryShareSellPercentage },
-          pageStyles.input,
-          events({
-            input({ node }) {
-              dataState.update({
-                ipo: { ...dataState.get().ipo, estimatedSecondaryShareSellPercentage: node.value },
-              })
-            },
-          })
-        ),
-        t.secondaryHelp
-      ),
-      textField(
-        t.ipoDate,
-        finnishDateInput(ipo.ipoDate, (value) => {
-          dataState.update({ ipo: { ...dataState.get().ipo, ipoDate: value } })
-        }),
-        language === 'en'
-          ? 'Format dd.mm.yyyy. The same date is used when checking eligibility for the 10-year deemed acquisition cost.'
-          : 'Muoto pp.kk.vvvv. Samaa päivää käytetään 10 vuoden hankintameno-olettaman tarkistukseen.'
-      )
-    ),
-    div(
-      pageStyles.gridTwo,
-      div(pageStyles.field, label(t.increasePercent), increasePercentNode),
-      div(pageStyles.field, label(t.increaseMultiplier), increaseMultiplierNode)
-    )
+    div(pageStyles.rowButtons, addButton)
   )
+
+  return {
+    root,
+    set({ osakkeetCalculation, texts, ...rest }: OsakkeetPageReadModel) {
+      const current = osakkeetCalculation.formData
+      const totalShares = osakkeetCalculation.vesting.totalShares
+      const vestedShares = osakkeetCalculation.vesting.vestedShares
+      const unvestedShares = osakkeetCalculation.vesting.unvestedShares
+      const sharePercent = (value: typeof totalShares) =>
+        totalShares.gt(0)
+          ? `${amount(value)} (${percentage(value.div(totalShares).mul(100))})`
+          : `${amount(value)} (0.00 %)`
+      const summariesById = Object.fromEntries(
+        osakkeetCalculation.subscriptions.map((subscription) => [subscription.id, subscription])
+      )
+      setTextValue(titleNode, texts.subscriptions.title)
+      setTextValue(countNode, `${current.subscriptions.length} ${texts.common.rows}`)
+      setTextValue(helpNode, texts.subscriptions.help)
+      setTextValue(dateHeaderNode, texts.common.date)
+      setTextValue(vestingEndsOnHeaderNode, texts.subscriptions.fields.vestingEndsOn)
+      setTextValue(amountHeaderNode, texts.common.amount)
+      setTextValue(totalPriceHeaderNode, texts.subscriptions.fields.totalPrice)
+      setTextValue(originalShareValueHeaderNode, texts.subscriptions.fields.originalShareValue)
+      setTextValue(capitalRepaymentHeaderNode, texts.subscriptions.fields.capitalRepaymentPerShare)
+      setTextValue(remainingCostHeaderNode, texts.subscriptions.fields.remainingCostPerShare)
+      setTextValue(addButtonLabelNode, texts.subscriptions.actions.add)
+      replaceChildren(
+        summaryRoot,
+        infoCard(texts.subscriptions.summary.totalShares, amount(totalShares)),
+        infoCard(texts.subscriptions.summary.vestedShares, sharePercent(vestedShares)),
+        infoCard(texts.subscriptions.summary.unvestedShares, sharePercent(unvestedShares))
+      )
+      syncRowControllers(
+        tbodyNode,
+        rowControllers,
+        current.subscriptions.map((subscription) => ({
+          id: subscription.id,
+          date: subscription.date,
+          vestingEndsOn: subscription.vestingEndsOn || '',
+          amount: subscription.amount,
+          totalPrice: subscription.totalPrice,
+          originalShareValue: subscription.originalShareValue || '',
+          capitalRepaymentPerShare: summariesById[subscription.id]
+            ? euro(summariesById[subscription.id].capitalRepaymentPerShare)
+            : '-',
+          remainingCostPerShare: summariesById[subscription.id]
+            ? euro(summariesById[subscription.id].remainingCostPerShare)
+            : '-',
+        })),
+        { osakkeetCalculation, texts, ...rest },
+        createRowController
+      )
+    },
+  }
 }
 
-function renderResultSummary(
-  target: HTMLElement,
-  calculation: OsakkeetCalculation,
-  dataState: ReturnType<typeof createState<OsakkeetFormData>>,
-  language: Language
-) {
-  const t = texts(language)
-  const reimbursementRows = calculation.reimbursements.flatMap((entry) =>
-    entry.allocations.map((allocation) =>
-      tr(
-        td(entry.date),
-        td(allocation.subscriptionDate),
-        td(amount(allocation.shares)),
-        td(euro(allocation.capitalRepayment)),
-        td(euro(allocation.dividend)),
-        td(euro(allocation.remainingCostPerShareAfter))
+function createCashDistributionsSection(dataState: State<OsakkeetFormData>) {
+  const titleNode = text('')
+  const countNode = text('')
+  const helpNode = text('')
+  const dateHeaderNode = text('')
+  const typeHeaderNode = text('')
+  const amountPerShareHeaderNode = text('')
+  const totalHeaderNode = text('')
+  const withholdingHeaderNode = text('')
+  const cashPaidHeaderNode = text('')
+  const capitalRepaymentHeaderNode = text('')
+  const dividendHeaderNode = text('')
+  const addButtonLabelNode = text('')
+  const tbodyNode = tbody()
+  const rowControllers = new Map<
+    string,
+    RowController<{
+      id: string
+      date: string
+      type: 'capital_return' | 'dividend'
+      amountPerShare: string
+      grossTotal: string
+      withholdingToTaxOffice: string
+      paidInCash: string
+      capitalRepaymentTotal: string
+      dividendTotal: string
+    }>
+  >()
+
+  const createRowController = (row: {
+    id: string
+    date: string
+    type: 'capital_return' | 'dividend'
+    amountPerShare: string
+    grossTotal: string
+    withholdingToTaxOffice: string
+    paidInCash: string
+    capitalRepaymentTotal: string
+    dividendTotal: string
+  }) => {
+    const dateInput = finnishDateInput(row.date, (value) => {
+      updateFormArrayItem(dataState, 'cashDistributions', row.id, { date: value })
+    })
+    const typeInput = enumSelectInput(
+      row.type,
+      [
+        { label: '', value: 'capital_return' },
+        { label: '', value: 'dividend' },
+      ],
+      (value) => {
+        updateFormArrayItem(dataState, 'cashDistributions', row.id, { type: value })
+      }
+    )
+    const amountPerShareInput = numberInput(row.amountPerShare, { step: '0.0001', min: '0' }, (value) => {
+      updateFormArrayItem(dataState, 'cashDistributions', row.id, { amountPerShare: value })
+    })
+    const grossTotalNode = text('-')
+    const withholdingNode = text('-')
+    const paidInCashNode = text('-')
+    const capitalRepaymentNode = text('-')
+    const dividendNode = text('-')
+    const removeButton = createRemoveButton(dataState, () => {
+      removeFormArrayItem(dataState, 'cashDistributions', row.id)
+    })
+
+    return {
+      id: row.id,
+      node: tr(
+        td(dateInput),
+        td(typeInput),
+        td(amountPerShareInput),
+        td(grossTotalNode),
+        td(withholdingNode),
+        td(paidInCashNode),
+        td(capitalRepaymentNode),
+        td(dividendNode),
+        td({ class: 'no-print' }, removeButton.buttonNode)
+      ),
+      set(nextRow, pageReadModel) {
+        setInputValue(dateInput, nextRow.date)
+        setSelectValue(typeInput, nextRow.type)
+        typeInput.options[0]!.textContent = pageReadModel.texts.cashDistributions.types.capitalReturn
+        typeInput.options[1]!.textContent = pageReadModel.texts.cashDistributions.types.dividend
+        setInputValue(amountPerShareInput, nextRow.amountPerShare)
+        setTextValue(grossTotalNode, nextRow.grossTotal)
+        setTextValue(withholdingNode, nextRow.withholdingToTaxOffice)
+        setTextValue(paidInCashNode, nextRow.paidInCash)
+        setTextValue(capitalRepaymentNode, nextRow.capitalRepaymentTotal)
+        setTextValue(dividendNode, nextRow.dividendTotal)
+        removeButton.setLabel(pageReadModel)
+      },
+    } satisfies RowController<{
+      id: string
+      date: string
+      type: 'capital_return' | 'dividend'
+      amountPerShare: string
+      grossTotal: string
+      withholdingToTaxOffice: string
+      paidInCash: string
+      capitalRepaymentTotal: string
+      dividendTotal: string
+    }>
+  }
+
+  const addButton = createActionButton(addButtonLabelNode, 'primary', () => {
+    appendFormArrayItem(dataState, 'cashDistributions', {
+      id: createId('distribution'),
+      type: 'capital_return',
+      date: '',
+      amountPerShare: '',
+    })
+  })
+
+  const root = section(
+    { class: 'card' },
+    div({ class: 'heading' }, h2(titleNode), span({ class: 'muted' }, countNode)),
+    p({ class: 'muted' }, helpNode),
+    table(
+      thead(
+        tr(
+          th(dateHeaderNode),
+          th(typeHeaderNode),
+          th(amountPerShareHeaderNode),
+          th(totalHeaderNode),
+          th(withholdingHeaderNode),
+          th(cashPaidHeaderNode),
+          th(capitalRepaymentHeaderNode),
+          th(dividendHeaderNode),
+          th({ class: 'no-print' }, '')
+        )
+      ),
+      tbodyNode
+    ),
+    div(pageStyles.rowButtons, addButton)
+  )
+
+  return {
+    root,
+    set({ osakkeetCalculation, texts, ...rest }: OsakkeetPageReadModel) {
+      const current = osakkeetCalculation.formData
+      const summariesById = Object.fromEntries(
+        osakkeetCalculation.cashDistributions.map((cashDistribution) => [cashDistribution.id, cashDistribution])
       )
+      setTextValue(titleNode, texts.cashDistributions.title)
+      setTextValue(countNode, `${current.cashDistributions.length} ${texts.common.rows}`)
+      setTextValue(helpNode, texts.cashDistributions.help)
+      setTextValue(dateHeaderNode, texts.common.date)
+      setTextValue(typeHeaderNode, texts.common.type)
+      setTextValue(amountPerShareHeaderNode, texts.cashDistributions.fields.amountPerShare)
+      setTextValue(totalHeaderNode, texts.common.total)
+      setTextValue(withholdingHeaderNode, texts.cashDistributions.fields.withholding)
+      setTextValue(cashPaidHeaderNode, texts.cashDistributions.fields.cashPaid)
+      setTextValue(capitalRepaymentHeaderNode, texts.cashDistributions.fields.capitalRepayment)
+      setTextValue(dividendHeaderNode, texts.cashDistributions.fields.dividend)
+      setTextValue(addButtonLabelNode, texts.cashDistributions.actions.add)
+      syncRowControllers(
+        tbodyNode,
+        rowControllers,
+        current.cashDistributions.map((cashDistribution) => ({
+          id: cashDistribution.id,
+          date: cashDistribution.date,
+          type: cashDistribution.type,
+          amountPerShare: cashDistribution.amountPerShare,
+          grossTotal: summariesById[cashDistribution.id] ? euro(summariesById[cashDistribution.id].grossTotal) : '-',
+          withholdingToTaxOffice: summariesById[cashDistribution.id]
+            ? euro(summariesById[cashDistribution.id].withholdingToTaxOffice)
+            : '-',
+          paidInCash: summariesById[cashDistribution.id] ? euro(summariesById[cashDistribution.id].paidInCash) : '-',
+          capitalRepaymentTotal: summariesById[cashDistribution.id]
+            ? euro(summariesById[cashDistribution.id].capitalRepaymentTotal)
+            : '-',
+          dividendTotal: summariesById[cashDistribution.id]
+            ? euro(summariesById[cashDistribution.id].dividendTotal)
+            : '-',
+        })),
+        { osakkeetCalculation, texts, ...rest },
+        createRowController
+      )
+    },
+  }
+}
+
+function createIpoSection(dataState: State<OsakkeetFormData>) {
+  const titleNode = text('')
+  const currentShareValueLabelNode = text('')
+  const totalShareCountLabelNode = text('')
+  const currentTotalValueLabelNode = text('')
+  const subscribedSharesLabelNode = text('')
+  const estimatedPreIpoValueLabelNode = text('')
+  const ipoSharePriceLabelNode = text('')
+  const increasePercentLabelNode = text('')
+  const increaseMultiplierLabelNode = text('')
+  const totalIpoCostLabelNode = text('')
+  const secondarySellPercentLabelNode = text('')
+  const ipoCostPerSecondaryShareLabelNode = text('')
+  const secondarySharesTotalLabelNode = text('')
+  const ipoDateLabelNode = text('')
+  const secondarySellHelpNode = text('')
+  const ipoDateHelpNode = text('')
+  const currentTotalValueNode = text('')
+  const subscribedSharesNode = text('')
+  const ipoSharePriceNode = text('')
+  const increasePercentNode = text('')
+  const increaseMultiplierNode = text('')
+  const ipoCostPerSecondaryShareNode = text('')
+  const secondarySharesTotalNode = text('')
+
+  const currentShareValueInput = numberInput(
+    '',
+    { step: '0.01', min: '0' },
+    createIpoNumberUpdater(dataState, 'currentShareValue')
+  )
+  const totalShareCountInput = numberInput(
+    '',
+    { step: '1', min: '0' },
+    createIpoNumberUpdater(dataState, 'totalShareCount')
+  )
+  const estimatedPreIpoValueInput = numberInput(
+    '',
+    { step: '0.01', min: '0' },
+    createIpoNumberUpdater(dataState, 'estimatedPreIpoValue')
+  )
+  const totalIpoCostInput = numberInput(
+    '',
+    { step: '0.01', min: '0' },
+    createIpoNumberUpdater(dataState, 'totalIpoCost')
+  )
+  const secondarySellPercentInput = numberInput(
+    '',
+    { step: '0.01', min: '0' },
+    createIpoNumberUpdater(dataState, 'estimatedSecondaryShareSellPercentage')
+  )
+  const ipoDateInput = finnishDateInput('', createIpoTextUpdater(dataState, 'ipoDate'))
+
+  const root = section(
+    { class: 'card' },
+    h2(titleNode),
+    div(
+      pageStyles.gridTwo,
+      div(pageStyles.field, label(currentShareValueLabelNode), currentShareValueInput),
+      div(pageStyles.field, label(totalShareCountLabelNode), totalShareCountInput),
+      div(pageStyles.field, label(currentTotalValueLabelNode), b(currentTotalValueNode)),
+      div(pageStyles.field, label(subscribedSharesLabelNode), b(subscribedSharesNode))
+    ),
+    div(
+      pageStyles.gridTwo,
+      div(pageStyles.field, label(estimatedPreIpoValueLabelNode), estimatedPreIpoValueInput),
+      div(pageStyles.field, label(ipoSharePriceLabelNode), b(ipoSharePriceNode)),
+      div(pageStyles.field, label(increasePercentLabelNode), b(increasePercentNode)),
+      div(pageStyles.field, label(increaseMultiplierLabelNode), b(increaseMultiplierNode))
+    ),
+    div(
+      pageStyles.gridTwo,
+      div(pageStyles.field, label(totalIpoCostLabelNode), totalIpoCostInput),
+      div(
+        pageStyles.field,
+        label(secondarySellPercentLabelNode),
+        secondarySellPercentInput,
+        span({ class: 'muted' }, secondarySellHelpNode)
+      ),
+      div(pageStyles.field, label(ipoCostPerSecondaryShareLabelNode), b(ipoCostPerSecondaryShareNode)),
+      div(pageStyles.field, label(secondarySharesTotalLabelNode), b(secondarySharesTotalNode))
+    ),
+    div(
+      pageStyles.gridTwo,
+      div(pageStyles.field, label(ipoDateLabelNode), ipoDateInput, span({ class: 'muted' }, ipoDateHelpNode)),
+      div(),
+      div()
     )
   )
-  const totalLosses = calculation.sell.grossTotal
-    .minus(calculation.sell.netAfterTaxAndIpoCost)
-    .minus(calculation.sell.estimatedTax)
-  const grossTotal = calculation.sell.grossTotal
-  const grossPercent = (value: typeof grossTotal) =>
-    grossTotal.gt(0) ? value.div(grossTotal).mul(100).toFixed(2) : '0.00'
-  const zeroMoney = calculation.sell.grossTotal.mul(0)
-  const totalActualDeduction = calculation.sell.usedSubscriptions.reduce(
-    (acc, lot) => acc.add(lot.actualDeduction),
-    zeroMoney
-  )
-  const totalHmo20 = calculation.sell.usedSubscriptions.reduce((acc, lot) => acc.add(lot.gross.mul(0.2)), zeroMoney)
-  const totalHmo40 = calculation.sell.usedSubscriptions.reduce((acc, lot) => acc.add(lot.gross.mul(0.4)), zeroMoney)
-  const totalTaxableGain = calculation.sell.usedSubscriptions.reduce((acc, lot) => acc.add(lot.taxableGain), zeroMoney)
-  const totalTaxFreeGain = calculation.sell.usedSubscriptions.reduce(
-    (acc, lot) => acc.add(lot.taxFreeGainPart),
-    zeroMoney
-  )
-  const totalTaxedGain = calculation.sell.usedSubscriptions.reduce((acc, lot) => acc.add(lot.taxedGainPart), zeroMoney)
 
-  replaceChildren(
-    target,
-    calculation.errors.length > 0 &&
-      div(pageStyles.errorBox, h3('Syötteissä on korjattavaa'), ul(calculation.errors.map((error) => li(error)))),
-    calculation.warnings.filter((warning) => !isYearMathValueWarning(warning)).length > 0 &&
-      div(
-        pageStyles.warningBox,
-        h3('Huomiot'),
-        ul(calculation.warnings.filter((warning) => !isYearMathValueWarning(warning)).map((warning) => li(warning)))
-      ),
+  return {
+    root,
+    set({ texts, osakkeetCalculation }: OsakkeetPageReadModel) {
+      const { ipo } = osakkeetCalculation.formData
+      setTextValue(titleNode, texts.ipo.title)
+      setTextValue(currentShareValueLabelNode, texts.ipo.fields.currentShareValue)
+      setTextValue(totalShareCountLabelNode, texts.ipo.fields.totalShareCount)
+      setTextValue(currentTotalValueLabelNode, texts.ipo.fields.currentTotalValue)
+      setTextValue(subscribedSharesLabelNode, texts.summary.cards.subscribedShares)
+      setTextValue(estimatedPreIpoValueLabelNode, texts.ipo.fields.estimatedPreIpoValue)
+      setTextValue(ipoSharePriceLabelNode, texts.ipo.fields.ipoSharePrice)
+      setTextValue(increasePercentLabelNode, texts.ipo.fields.increasePercent)
+      setTextValue(increaseMultiplierLabelNode, texts.ipo.fields.increaseMultiplier)
+      setTextValue(totalIpoCostLabelNode, texts.ipo.fields.totalIpoCost)
+      setTextValue(secondarySellPercentLabelNode, texts.ipo.fields.secondarySellPercent)
+      setTextValue(ipoCostPerSecondaryShareLabelNode, texts.summary.cards.ipoCostPerSecondaryShare)
+      setTextValue(secondarySharesTotalLabelNode, texts.summary.cards.secondarySharesTotal)
+      setTextValue(ipoDateLabelNode, texts.ipo.fields.ipoDate)
+      setTextValue(secondarySellHelpNode, texts.ipo.help.secondary)
+      setTextValue(ipoDateHelpNode, texts.ipo.help.dateFormat)
+      setInputValue(currentShareValueInput, ipo.currentShareValue)
+      setInputValue(totalShareCountInput, ipo.totalShareCount)
+      setInputValue(estimatedPreIpoValueInput, ipo.estimatedPreIpoValue)
+      setInputValue(totalIpoCostInput, ipo.totalIpoCost)
+      setInputValue(secondarySellPercentInput, ipo.estimatedSecondaryShareSellPercentage)
+      setInputValue(ipoDateInput, ipo.ipoDate)
+      setTextValue(currentTotalValueNode, euro(osakkeetCalculation.ipo.currentTotalValue))
+      setTextValue(subscribedSharesNode, amount(osakkeetCalculation.ipo.totalSubscribedShares))
+      setTextValue(ipoSharePriceNode, euro(osakkeetCalculation.ipo.ipoPricePerShare))
+      setTextValue(increasePercentNode, percentage(osakkeetCalculation.ipo.increasePercentage))
+      setTextValue(increaseMultiplierNode, multiplier(osakkeetCalculation.ipo.increaseMultiplier))
+      setTextValue(ipoCostPerSecondaryShareNode, euro(osakkeetCalculation.ipo.ipoCostPerShare))
+      setTextValue(secondarySharesTotalNode, amount(osakkeetCalculation.ipo.estimatedSecondaryShareCount))
+    },
+  }
+}
+
+function createResultsSection(dataState: State<OsakkeetFormData>) {
+  const warningRoot = div()
+  const ipoSellContentRoot = div(pageStyles.denseStack)
+  const sellInputLabelNode = text('')
+  const sellInput = numberInput('', { step: '1', min: '0' }, (value) => {
+    dataState.update({ sell: { ...dataState.get().sell, amount: value } })
+  })
+  const ipoSellSectionTitleNode = text('')
+
+  const root = div(
+    pageStyles.stack,
     section(
       { class: 'card' },
-      h2(t.summary),
-      div(
-        pageStyles.summaryGrid,
-        infoCard(t.subscribedShares, amount(calculation.ipo.totalSubscribedShares)),
-        infoCard(t.subscribedCost, euro(calculation.ipo.totalSubscribedCost)),
-        infoCard(t.ipoPricePerShare, euro(calculation.ipo.ipoPricePerShare)),
-        infoCard(t.currentValuePerShare, euro(calculation.ipo.currentValuePerShare)),
-        infoCard(t.ipoCostPerSecondaryShare, euro(calculation.ipo.ipoCostPerShare)),
-        infoCard(t.secondarySharesTotal, amount(calculation.ipo.estimatedSecondaryShareCount))
+      h2(ipoSellSectionTitleNode),
+      div(pageStyles.gridTwo, div(pageStyles.field, label(sellInputLabelNode), sellInput)),
+      warningRoot,
+      ipoSellContentRoot
+    )
+  )
+
+  return {
+    root,
+    set({ osakkeetCalculation, texts }: OsakkeetPageReadModel) {
+      const totalShares = osakkeetCalculation.vesting.totalShares
+      const vestedShares = osakkeetCalculation.vesting.vestedShares
+      const unvestedShares = osakkeetCalculation.vesting.unvestedShares
+      const sharePercent = (value: typeof totalShares) =>
+        totalShares.gt(0)
+          ? `${amount(value)} (${percentage(value.div(totalShares).mul(100))})`
+          : `${amount(value)} (0.00 %)`
+      const soldShareOriginalCost = osakkeetCalculation.sell.soldShareOriginalCostTotal
+      const soldShareAcquisitionCost = osakkeetCalculation.sell.soldShareAcquisitionCostTotal
+      const keepAfterTaxes = osakkeetCalculation.sell.netAfterTaxAndIpoCost
+      const netResultAgainstSubscriptionCost = keepAfterTaxes.minus(soldShareAcquisitionCost)
+      const netResultPercent = soldShareAcquisitionCost.gt(0)
+        ? percentage(netResultAgainstSubscriptionCost.div(soldShareAcquisitionCost).mul(100))
+        : '0.00 %'
+      const zeroMoney = osakkeetCalculation.sell.grossTotal.mul(0)
+      const totalTaxableGain = osakkeetCalculation.sell.usedSubscriptions.reduce(
+        (acc, lot) => acc.add(lot.taxableGain),
+        zeroMoney
       )
-    ),
-    calculation.reimbursements.length > 0 &&
-      section(
-        { class: 'card' },
-        h2(t.allocationByLot),
+      const totalTaxFreeGain = osakkeetCalculation.sell.usedSubscriptions.reduce(
+        (acc, lot) => acc.add(lot.taxFreeGainPart),
+        zeroMoney
+      )
+      const totalTaxedGain = osakkeetCalculation.sell.usedSubscriptions.reduce(
+        (acc, lot) => acc.add(lot.taxedGainPart),
+        zeroMoney
+      )
+
+      setTextValue(ipoSellSectionTitleNode, texts.summary.ipoSell.title)
+      setTextValue(sellInputLabelNode, texts.summary.ipoSell.fields.sharesToSell)
+      setInputValue(sellInput, osakkeetCalculation.formData.sell.amount)
+
+      replaceChildren(
+        warningRoot,
+        osakkeetCalculation.errors.length > 0 &&
+          div(
+            pageStyles.errorBox,
+            h3(texts.messages.errorsTitle),
+            ul(osakkeetCalculation.errors.map((error) => li(error)))
+          ),
+        osakkeetCalculation.warnings.length > 0 &&
+          div(
+            pageStyles.warningBox,
+            h3(texts.messages.warningsTitle),
+            ul(osakkeetCalculation.warnings.map((warning) => li(warning)))
+          )
+      )
+      replaceChildren(
+        ipoSellContentRoot,
+        div(
+          pageStyles.summaryGrid,
+          infoCard(texts.summary.ipoSell.cards.sellableShares, sharePercent(vestedShares)),
+          infoCard(texts.summary.ipoSell.cards.unvestedShares, sharePercent(unvestedShares)),
+          infoCard(texts.summary.ipoSell.cards.sharesLeft, amount(osakkeetCalculation.sell.remainingUnsoldShares))
+        ),
+        h3(texts.summary.allocationByLot.title),
         table(
           thead(
             tr(
-              th(t.distribution),
-              th(t.subscriptions),
-              th(t.shares),
-              th(t.capitalRepayment),
-              th(t.dividend),
-              th(t.remainingPerShare)
+              th(texts.common.date),
+              th(texts.common.amount),
+              th(texts.summary.ipoSell.fields.ipoPriceTotal),
+              th(texts.summary.ipoSell.fields.actualCosts),
+              th(texts.summary.ipoSell.fields.hmo20),
+              th(texts.summary.ipoSell.fields.hmo40),
+              th(texts.summary.ipoSell.fields.capitalGain),
+              th(texts.summary.ipoSell.fields.taxFreePart),
+              th(texts.summary.ipoSell.fields.taxedPart)
             )
           ),
-          tbody(reimbursementRows)
-        )
-      ),
-    section(
-      { class: 'card' },
-      h2(t.ipoSellDetails),
-      div(
-        pageStyles.gridTwo,
-        textField(
-          t.sharesToSell,
-          inputs.number(
-            { step: '1', min: '0', value: dataState.get().sell.amount },
-            pageStyles.input,
-            events({
-              input({ node }) {
-                dataState.update({ sell: { ...dataState.get().sell, amount: node.value } })
-              },
-            })
-          )
-        )
-      ),
-      h3(t.allocationByLot),
-      table(
-        thead(
-          tr(
-            th(t.date),
-            th(t.amount),
-            th(t.ipoPriceTotal),
-            th(t.actualCosts),
-            th(t.hmo20),
-            th(t.hmo40),
-            th(t.capitalGain),
-            th(t.taxFreePart),
-            th(t.taxedPart)
-          )
-        ),
-        tbody([
-          calculation.sell.usedSubscriptions.map((lot) =>
+          tbody([
+            osakkeetCalculation.sell.usedSubscriptions.map((lot) =>
+              tr(
+                td(lot.subscriptionDate || '-'),
+                td(`${amount(lot.soldAmount)} / ${amount(lot.totalSubscriptionShares)}`),
+                td(euro(lot.gross)),
+                td(
+                  hoverValue(
+                    euro(lot.actualDeduction),
+                    texts.summary.ipoSell.tooltips.actualCosts(
+                      euro(lot.realCostBasis),
+                      euro(lot.allocatedIpoCost),
+                      euro(lot.actualDeduction)
+                    ),
+                    lot.selectedMethod === 'actual_costs'
+                  )
+                ),
+                td(
+                  hoverValue(
+                    euro(lot.gross.mul(0.2)),
+                    texts.summary.ipoSell.tooltips.hmo(euro(lot.gross), '20 %', euro(lot.gross.mul(0.2))),
+                    lot.selectedMethod === 'hmo' && lot.hankintamenoOlettaRate.eq(0.2)
+                  )
+                ),
+                td(
+                  hoverValue(
+                    euro(lot.gross.mul(0.4)),
+                    texts.summary.ipoSell.tooltips.hmo(euro(lot.gross), '40 %', euro(lot.gross.mul(0.4))),
+                    lot.selectedMethod === 'hmo' && lot.hankintamenoOlettaRate.eq(0.4)
+                  )
+                ),
+                td(lot.taxableGain.gte(0) ? euro(lot.taxableGain) : `${lot.taxableGain.toFixed(2)} €`),
+                td(euro(lot.taxFreeGainPart)),
+                td(euro(lot.taxedGainPart))
+              )
+            ),
             tr(
-              td(lot.subscriptionDate || '-'),
-              td(`${amount(lot.soldAmount)} / ${amount(lot.totalSubscriptionShares)}`),
-              td(euro(lot.gross)),
-              td(
-                lot.selectedMethod === 'Todellinen hankintameno + IPO-kulut'
-                  ? b(euro(lot.actualDeduction))
-                  : euro(lot.actualDeduction)
-              ),
-              td(lot.hankintamenoOlettaRate.eq(0.2) ? b(euro(lot.gross.mul(0.2))) : euro(lot.gross.mul(0.2))),
-              td(lot.hankintamenoOlettaRate.eq(0.4) ? b(euro(lot.gross.mul(0.4))) : euro(lot.gross.mul(0.4))),
-              td(lot.taxableGain.gte(0) ? euro(lot.taxableGain) : `${lot.taxableGain.toFixed(2)} €`),
-              td(euro(lot.taxFreeGainPart)),
-              td(euro(lot.taxedGainPart))
+              td(b(texts.summary.totalRow)),
+              td(),
+              td(euro(osakkeetCalculation.sell.grossTotal)),
+              td(b(euro(osakkeetCalculation.sell.selectedActualDeductionTotal))),
+              td(b(euro(osakkeetCalculation.sell.selectedHmo20DeductionTotal))),
+              td(b(euro(osakkeetCalculation.sell.selectedHmo40DeductionTotal))),
+              td(euro(totalTaxableGain)),
+              td(euro(totalTaxFreeGain)),
+              td(euro(totalTaxedGain))
+            ),
+          ])
+        ),
+        h3(texts.summary.ipoSell.explanations.title),
+        div(
+          pageStyles.summaryGrid,
+          infoCard(
+            texts.summary.ipoSell.explanations.ipoPriceTotal,
+            euro(osakkeetCalculation.sell.grossTotal),
+            texts.summary.ipoSell.explanations.ipoPriceTotalHelp(euro(osakkeetCalculation.sell.grossTotal))
+          ),
+          infoCard(
+            texts.summary.ipoSell.explanations.ipoCostsAllocated,
+            euro(osakkeetCalculation.sell.totalIpoCostAllocated),
+            texts.summary.ipoSell.explanations.ipoCostsAllocatedHelp(
+              euro(osakkeetCalculation.sell.totalIpoCostAllocated)
             )
           ),
-          tr(
-            td(b(t.totalRow)),
-            td(),
-            td(euro(calculation.sell.grossTotal)),
-            td(euro(totalActualDeduction)),
-            td(euro(totalHmo20)),
-            td(euro(totalHmo40)),
-            td(euro(totalTaxableGain)),
-            td(euro(totalTaxFreeGain)),
-            td(euro(totalTaxedGain))
-          ),
-        ])
-      ),
-      h3(t.ipoSummary),
-      div(
-        pageStyles.summaryGrid,
-        infoCard(t.grossSale, euro(calculation.sell.grossTotal)),
-        infoCard(
-          t.netCash,
-          `${euro(calculation.sell.netAfterTaxAndIpoCost)} (${grossPercent(calculation.sell.netAfterTaxAndIpoCost)} %)`
+          infoCard(
+            texts.summary.ipoSell.explanations.netCash,
+            euro(osakkeetCalculation.sell.cashAfterIpoCosts),
+            texts.summary.ipoSell.explanations.netCashHelp(
+              euro(osakkeetCalculation.sell.grossTotal),
+              euro(osakkeetCalculation.sell.totalIpoCostAllocated),
+              euro(osakkeetCalculation.sell.cashAfterIpoCosts)
+            )
+          )
         ),
-        infoCard(t.taxMan, `${euro(calculation.sell.estimatedTax)} (${grossPercent(calculation.sell.estimatedTax)} %)`),
-        infoCard(t.totalLosses, `${euro(totalLosses)} (${grossPercent(totalLosses)} %)`),
-        infoCard(t.taxableCapitalGain, euro(calculation.sell.taxableGainTotal)),
-        infoCard(t.sharesLeft, amount(calculation.sell.remainingUnsoldShares))
+        h3(texts.summary.ipoSell.capitalGainAnnualTax.title),
+        div(
+          pageStyles.summaryGrid,
+          infoCard(
+            texts.summary.ipoSell.capitalGainAnnualTax.driversTitle,
+            euro(osakkeetCalculation.sell.taxableGainTotal),
+            texts.summary.ipoSell.capitalGainAnnualTax.driversHelp(euro(osakkeetCalculation.sell.taxableGainTotal))
+          ),
+          infoCard(
+            texts.summary.ipoSell.explanations.selectedDeductions,
+            euro(osakkeetCalculation.sell.selectedDeductionTotal),
+            texts.summary.ipoSell.explanations.selectedDeductionsHelp(
+              euro(osakkeetCalculation.sell.selectedActualDeductionTotal),
+              euro(osakkeetCalculation.sell.selectedHmo20DeductionTotal),
+              euro(osakkeetCalculation.sell.selectedHmo40DeductionTotal),
+              euro(osakkeetCalculation.sell.selectedDeductionTotal)
+            )
+          ),
+          infoCard(
+            texts.summary.ipoSell.explanations.capitalGain,
+            euro(osakkeetCalculation.sell.taxableGainTotal),
+            texts.summary.ipoSell.explanations.capitalGainHelp(
+              euro(osakkeetCalculation.sell.cashAfterIpoCosts),
+              euro(osakkeetCalculation.sell.selectedDeductionTotal),
+              euro(osakkeetCalculation.sell.taxableGainTotal)
+            )
+          ),
+          infoCard(
+            texts.summary.ipoSell.explanations.taxOnCapitalGain,
+            euro(osakkeetCalculation.sell.estimatedTax),
+            texts.summary.ipoSell.explanations.taxOnCapitalGainHelp(
+              euro(osakkeetCalculation.sell.taxableGainTotal),
+              euro(osakkeetCalculation.sell.taxableGainAtLowRate),
+              euro(osakkeetCalculation.sell.taxableGainAtHighRate),
+              euro(osakkeetCalculation.sell.estimatedTax)
+            )
+          )
+        ),
+        h3(texts.summary.ipoSell.cashReserve.title),
+        div(
+          pageStyles.summaryGrid,
+          infoCard(
+            texts.summary.ipoSell.cashReserve.keepAfterTaxes,
+            euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost),
+            texts.summary.ipoSell.cashReserve.keepAfterTaxesHelp(
+              euro(osakkeetCalculation.sell.cashAfterIpoCosts),
+              euro(osakkeetCalculation.sell.estimatedTax),
+              euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost)
+            )
+          ),
+          infoCard(
+            texts.summary.ipoSell.cashReserve.reserveForTaxes,
+            euro(osakkeetCalculation.sell.estimatedTax),
+            texts.summary.ipoSell.cashReserve.reserveForTaxesHelp(euro(osakkeetCalculation.sell.estimatedTax))
+          ),
+          infoCard(
+            texts.summary.ipoSell.cashReserve.taxPaymentStatus,
+            texts.summary.ipoSell.cashReserve.taxPaymentManual,
+            texts.summary.ipoSell.cashReserve.taxPaymentStatusHelp
+          )
+        ),
+        h3(texts.summary.ipoSell.saleResultComparison.title),
+        div(
+          pageStyles.summaryGrid,
+          infoCard(
+            texts.summary.ipoSell.saleResultComparison.cardTitle,
+            texts.summary.ipoSell.saleResultComparison.value(
+              euro(soldShareOriginalCost),
+              euro(soldShareAcquisitionCost),
+              euro(netResultAgainstSubscriptionCost),
+              netResultPercent
+            ),
+            texts.summary.ipoSell.saleResultComparison.help(
+              euro(soldShareOriginalCost),
+              euro(soldShareAcquisitionCost),
+              euro(keepAfterTaxes),
+              euro(netResultAgainstSubscriptionCost),
+              netResultPercent
+            )
+          )
+        ),
+        h3(texts.summary.ipoSell.ipoCostEffects.title),
+        div(
+          pageStyles.summaryGrid,
+          infoCard(
+            texts.summary.ipoSell.explanations.deductibleIpoCosts,
+            euro(osakkeetCalculation.sell.taxSavedFromDeductibleIpoCosts),
+            texts.summary.ipoSell.explanations.deductibleIpoCostsHelp(
+              euro(osakkeetCalculation.sell.ipoCostDeductedViaActual),
+              euro(osakkeetCalculation.sell.taxSavedFromDeductibleIpoCosts)
+            )
+          ),
+          infoCard(
+            texts.summary.ipoSell.explanations.hmoIpoCosts,
+            euro(osakkeetCalculation.sell.ipoCostPaidWithoutActualDeduction),
+            texts.summary.ipoSell.explanations.hmoIpoCostsHelp(
+              euro(osakkeetCalculation.sell.ipoCostPaidWithoutActualDeduction)
+            )
+          )
+        )
       )
-    )
-  )
+    },
+  }
 }
 
-function createToolbar(
-  dataState: ReturnType<typeof createState<OsakkeetFormData>>,
-  rerenderEditors: () => void,
-  statusNode: Text,
-  language: Language
-) {
-  const t = texts(language)
+function createIntroSection(languageSelectionState: State<Language>) {
+  const titleNode = text('')
+  const languageSwitchLabelNode = text('')
+  const descriptionNode = text('')
+  const unlistedDescriptionNode = text('')
+  const assumptionsRoot = div()
+  const fiButton = button(
+    'FI',
+    pageStyles.smallButton,
+    events({
+      click() {
+        languageSelectionState.set('fi')
+      },
+    })
+  ) as HTMLButtonElement
+  const enButton = button(
+    'EN',
+    pageStyles.smallButton,
+    events({
+      click() {
+        languageSelectionState.set('en')
+      },
+    })
+  ) as HTMLButtonElement
+  const root = section(
+    { class: 'card' },
+    div(
+      { class: 'heading' },
+      h2(titleNode),
+      div(pageStyles.rowButtons, span({ class: 'muted' }, languageSwitchLabelNode), fiButton, enButton)
+    ),
+    p({ class: 'muted' }, descriptionNode),
+    p({ class: 'muted' }, unlistedDescriptionNode),
+    assumptionsRoot
+  )
+  return {
+    root,
+    set({ languageSelection, texts }: OsakkeetPageReadModel) {
+      setTextValue(titleNode, texts.intro.title)
+      setTextValue(languageSwitchLabelNode, texts.languageSwitch.label)
+      setTextValue(descriptionNode, texts.intro.description)
+      setTextValue(unlistedDescriptionNode, texts.intro.unlistedDescription)
+      setButtonVariant(fiButton, languageSelection === 'fi')
+      setButtonVariant(enButton, languageSelection === 'en')
+      replaceChildren(assumptionsRoot, assumptionsContent(texts))
+    },
+  }
+}
+
+function createToolbarSection(dataState: State<OsakkeetFormData>) {
+  const statusNode = text('')
+  const titleNode = text('')
+  const saveToLocalStorageLabelNode = text('')
+  const saveFileLabelNode = text('')
+  const loadFileLabelNode = text('')
+  const loadSavedLabelNode = text('')
+  const restoreExampleLabelNode = text('')
+  const clearExampleLabelNode = text('')
+  let currentTexts = getOsakkeetLocalization(tryLoadLanguage())
   const fileInput = input(
     { type: 'file', accept: 'application/json,.json', hidden: true },
     events({
@@ -1296,202 +1494,188 @@ function createToolbar(
           try {
             const parsed = JSON.parse(String(reader.result || '{}')) as Partial<OsakkeetFormData>
             dataState.set(normalizeLoadedData(parsed))
-            rerenderEditors()
-            statusNode.textContent = t.loaded
+            statusNode.textContent = currentTexts.storage.status.loaded
           } catch {
-            statusNode.textContent = language === 'en' ? 'Invalid file' : 'Virheellinen tiedosto'
+            statusNode.textContent = currentTexts.storage.errors.invalidFile
           }
           inputNode.value = ''
         }
         reader.onerror = () => {
-          statusNode.textContent = language === 'en' ? 'File read failed' : 'Tiedoston luku epäonnistui'
+          statusNode.textContent = currentTexts.storage.errors.fileReadFailed
           inputNode.value = ''
         }
         reader.readAsText(file)
       },
     })
   )
-  return div(
+  const buttonConfigs = [
+    {
+      labelNode: saveToLocalStorageLabelNode,
+      variant: 'primary' as const,
+      action: () => {
+        localStorage.setItem(storageKeys.formData, JSON.stringify(sanitizeOsakkeetFormData(dataState.get())))
+        statusNode.textContent = currentTexts.storage.status.saved
+      },
+    },
+    {
+      labelNode: saveFileLabelNode,
+      variant: 'secondary' as const,
+      action: () => {
+        const blob = new Blob([JSON.stringify(sanitizeOsakkeetFormData(dataState.get()), null, 2)], {
+          type: 'application/json',
+        })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = 'osakkeet-input-state.json'
+        link.click()
+        URL.revokeObjectURL(url)
+        statusNode.textContent = currentTexts.storage.status.fileSaved
+      },
+    },
+    {
+      labelNode: loadFileLabelNode,
+      variant: 'secondary' as const,
+      action: () => {
+        fileInput.click()
+      },
+    },
+    {
+      labelNode: loadSavedLabelNode,
+      variant: 'secondary' as const,
+      action: () => {
+        dataState.set(tryLoadSavedData())
+        statusNode.textContent = currentTexts.storage.status.loaded
+      },
+    },
+    {
+      labelNode: restoreExampleLabelNode,
+      variant: 'secondary' as const,
+      action: () => {
+        dataState.set(createOsakkeetFormData(true))
+        statusNode.textContent = currentTexts.storage.status.exampleRestored
+      },
+    },
+    {
+      labelNode: clearExampleLabelNode,
+      variant: 'secondary' as const,
+      action: () => {
+        dataState.set(createOsakkeetFormData(false))
+        statusNode.textContent = currentTexts.storage.status.exampleCleared
+      },
+    },
+  ]
+  const [
+    saveToLocalStorageButton,
+    saveFileButton,
+    loadFileButton,
+    loadSavedButton,
+    restoreExampleButton,
+    clearExampleButton,
+  ] = buttonConfigs.map(({ labelNode, variant, action }) => createActionButton(labelNode, variant, action))
+  const root = div(
     { class: 'card no-print' },
-    div({ class: 'heading' }, h2(t.storage), span({ class: 'muted' }, statusNode)),
+    div({ class: 'heading' }, h2(titleNode), span({ class: 'muted' }, statusNode)),
     fileInput,
     div(
       pageStyles.rowButtons,
-      button(
-        t.save,
-        { class: 'blueButton' },
-        events({
-          click() {
-            localStorage.setItem(formStorageKey(), JSON.stringify(dataState.get()))
-            statusNode.textContent = t.saved
-          },
-        })
-      ),
-      button(
-        language === 'en' ? 'Save file' : 'Tallenna tiedosto',
-        pageStyles.smallButton,
-        events({
-          click() {
-            const blob = new Blob([JSON.stringify(dataState.get(), null, 2)], { type: 'application/json' })
-            const url = URL.createObjectURL(blob)
-            const link = document.createElement('a')
-            link.href = url
-            link.download = 'osakkeet-input-state.json'
-            link.click()
-            URL.revokeObjectURL(url)
-            statusNode.textContent = language === 'en' ? 'File saved' : 'Tiedosto tallennettu'
-          },
-        })
-      ),
-      button(
-        language === 'en' ? 'Load file' : 'Lataa tiedosto',
-        pageStyles.smallButton,
-        events({
-          click() {
-            fileInput.click()
-          },
-        })
-      ),
-      button(
-        t.load,
-        pageStyles.smallButton,
-        events({
-          click() {
-            dataState.set(tryLoadSavedData())
-            rerenderEditors()
-            statusNode.textContent = t.loaded
-          },
-        })
-      ),
-      button(
-        t.restoreExample,
-        pageStyles.smallButton,
-        events({
-          click() {
-            dataState.set(createDefaultData())
-            rerenderEditors()
-            statusNode.textContent = t.exampleRestored
-          },
-        })
-      ),
-      button(
-        t.clearExample,
-        pageStyles.smallButton,
-        events({
-          click() {
-            dataState.set(createEmptyData())
-            rerenderEditors()
-            statusNode.textContent = t.exampleCleared
-          },
-        })
-      )
+      saveToLocalStorageButton,
+      saveFileButton,
+      loadFileButton,
+      loadSavedButton,
+      restoreExampleButton,
+      clearExampleButton
     )
   )
+
+  return {
+    root,
+    set({ texts }: OsakkeetPageReadModel) {
+      currentTexts = texts
+      setTextValue(titleNode, texts.storage.title)
+      setTextValue(saveToLocalStorageLabelNode, texts.storage.actions.saveToLocalStorage)
+      setTextValue(saveFileLabelNode, texts.storage.actions.saveFile)
+      setTextValue(loadFileLabelNode, texts.storage.actions.loadFile)
+      setTextValue(loadSavedLabelNode, texts.storage.actions.loadSaved)
+      setTextValue(restoreExampleLabelNode, texts.storage.actions.restoreExample)
+      setTextValue(clearExampleLabelNode, texts.storage.actions.clearExample)
+    },
+  }
+}
+
+function createTaxSummarySection(dataState: State<OsakkeetFormData>) {
+  const titleNode = text('')
+  const mathematicalShareValuesEditor = createMathematicalShareValuesEditor(dataState)
+  const resultsRoot = div(pageStyles.denseStack)
+  const root = section({ class: 'card' }, h2(titleNode), mathematicalShareValuesEditor.root, resultsRoot)
+
+  return {
+    root,
+    set({ texts, osakkeetCalculation, ...rest }: OsakkeetPageReadModel) {
+      setTextValue(titleNode, texts.taxReturns.title)
+      mathematicalShareValuesEditor.set({ texts, osakkeetCalculation, ...rest })
+      replaceChildren(resultsRoot, taxSummarySection(osakkeetCalculation, texts))
+    },
+  }
+}
+
+type OsakkeetPageReadModel = {
+  formData: OsakkeetFormData
+  languageSelection: Language
+  texts: OsakkeetLocalization
+  osakkeetCalculation: OsakkeetCalculation
 }
 
 export function osakkeetIpoCalculatorPage() {
   const dataState = createState({ value: tryLoadSavedData() })
-  const languageState = createState<Language>({ value: tryLoadLanguage() })
-  const calculationState = dataState.map((data) => calculateOsakkeet(data))
+  const languageSelectionState = createState<Language>({ value: tryLoadLanguage() })
+  const pageReadState = mergeStates(
+    { formData: dataState, languageSelection: languageSelectionState },
+    ({ formData, languageSelection }) => {
+      const texts = getOsakkeetLocalization(languageSelection)
+      return {
+        formData,
+        languageSelection,
+        osakkeetCalculation: calculateOsakkeet(formData, texts),
+        texts,
+      }
+    }
+  )
 
-  const introSection = section({ class: 'card' })
-  const toolbarRoot = div()
-  const subscriptionsSection = section({ class: 'card' })
-  const reimbursementsSection = section({ class: 'card' })
-  const ipoSection = section({ class: 'card' })
-  const taxSummarySectionRoot = section({ class: 'card' })
-  const taxSummaryResultsRoot = div(pageStyles.denseStack)
-  const resultsSection = div(pageStyles.stack)
-  const statusNode = text('')
+  const introSection = createIntroSection(languageSelectionState)
+  const toolbarSection = createToolbarSection(dataState)
+  const subscriptionsSection = createSubscriptionsSection(dataState)
+  const cashDistributionsSection = createCashDistributionsSection(dataState)
+  const taxSummarySectionController = createTaxSummarySection(dataState)
+  const ipoSection = createIpoSection(dataState)
+  const resultsSection = createResultsSection(dataState)
   const root = div(pageStyles.stack)
-
-  const refreshEditors = () => {
-    const calculation = calculateOsakkeet(dataState.get())
-    const language = languageState.get()
-    renderSubscriptionsEditor(subscriptionsSection, dataState, calculation, language)
-    renderReimbursementsEditor(reimbursementsSection, dataState, calculation, refreshEditors, language)
+  const applyPageReadModel = (pageReadModel: OsakkeetPageReadModel) => {
+    introSection.set(pageReadModel)
+    toolbarSection.set(pageReadModel)
+    subscriptionsSection.set(pageReadModel)
+    cashDistributionsSection.set(pageReadModel)
+    taxSummarySectionController.set(pageReadModel)
+    ipoSection.set(pageReadModel)
+    resultsSection.set(pageReadModel)
   }
 
-  const rerenderEditors = () => {
-    const calculation = calculationState.get()
-    const language = languageState.get()
-    renderSubscriptionsEditor(subscriptionsSection, dataState, calculation, language)
-    renderReimbursementsEditor(reimbursementsSection, dataState, calculation, refreshEditors, language)
-    renderIpoEditor(ipoSection, dataState, calculation, language)
-    replaceChildren(
-      taxSummarySectionRoot,
-      h2(texts(language).taxReturns),
-      (() => {
-        const editorRoot = div()
-        renderMathematicalShareValuesEditor(editorRoot, dataState, language)
-        return editorRoot
-      })(),
-      taxSummaryResultsRoot
-    )
-  }
-
-  const renderTopSections = () => {
-    const t = texts(languageState.get())
-    replaceChildren(
-      introSection,
-      div(
-        { class: 'heading' },
-        h2(t.ipoCalculatorTitle),
-        div(
-          pageStyles.rowButtons,
-          span({ class: 'muted' }, t.languageTitle),
-          button(
-            'FI',
-            languageState.get() === 'fi' && { class: 'blueButton' },
-            languageState.get() !== 'fi' && pageStyles.smallButton,
-            events({
-              click() {
-                languageState.set('fi')
-              },
-            })
-          ),
-          button(
-            'EN',
-            languageState.get() === 'en' && { class: 'blueButton' },
-            languageState.get() !== 'en' && pageStyles.smallButton,
-            events({
-              click() {
-                languageState.set('en')
-              },
-            })
-          )
-        )
-      ),
-      p({ class: 'muted' }, t.intro),
-      p({ class: 'muted' }, t.unlistedIntro),
-      assumptionsContent(languageState.get())
-    )
-    replaceChildren(toolbarRoot, createToolbar(dataState, rerenderEditors, statusNode, languageState.get()))
-  }
-
-  calculationState.onValueChange((calculation) => {
-    renderResultSummary(resultsSection, calculation, dataState, languageState.get())
-    replaceChildren(taxSummaryResultsRoot, taxSummarySection(calculation, languageState.get()))
+  languageSelectionState.onValueChange((languageSelection) => {
+    localStorage.setItem(storageKeys.language, languageSelection)
   })
-  languageState.onValueChange(() => {
-    localStorage.setItem(languageStorageKey(), languageState.get())
-    renderTopSections()
-    rerenderEditors()
-    renderResultSummary(resultsSection, calculationState.get(), dataState, languageState.get())
-    replaceChildren(taxSummaryResultsRoot, taxSummarySection(calculationState.get(), languageState.get()))
-  })
+  pageReadState.onValueChange(applyPageReadModel)
 
-  renderTopSections()
-  rerenderEditors()
+  const initialPageReadModel = pageReadState.get()
+  applyPageReadModel(initialPageReadModel)
   replaceChildren(
     root,
-    introSection,
-    toolbarRoot,
-    subscriptionsSection,
-    reimbursementsSection,
-    taxSummarySectionRoot,
-    ipoSection,
-    resultsSection
+    introSection.root,
+    toolbarSection.root,
+    subscriptionsSection.root,
+    cashDistributionsSection.root,
+    taxSummarySectionController.root,
+    ipoSection.root,
+    resultsSection.root
   )
   return root
 }
