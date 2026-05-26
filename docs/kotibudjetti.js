@@ -1,5 +1,693 @@
 'use strict'
 ;(() => {
+  // ../ki-frame/src/util/objectIdCounter.ts
+  var runningId = 0
+  function getId() {
+    return runningId++
+  }
+  function createId(id) {
+    return `${id}-${getId()}`
+  }
+
+  // ../ki-frame/src/channel.ts
+  var Channel = class {
+    constructor(name) {
+      this.subs = /* @__PURE__ */ new Set()
+      this.idTxt = (txt) => `${this.id}: ${txt}`
+      this.id = createId(name)
+    }
+    subscribe(fn) {
+      this.subs.add(fn)
+      return () => {
+        this.unsubscribe(fn)
+      }
+    }
+    subscribeFn() {
+      return (fn) => this.subscribe(fn)
+    }
+    // subscribe once: handler auto-unsubscribe after first invocation
+    once(fn) {
+      const unsub = () => this.unsubscribe(wrapper)
+      const wrapper = (...args) => {
+        unsub()
+        fn(...args)
+      }
+      this.subs.add(wrapper)
+      return unsub
+    }
+    unsubscribe(fn) {
+      this.subs.delete(fn)
+    }
+    // synchronous publish — invokes handlers and doesn't wait for Promises
+    publish(...args) {
+      for (const fn of Array.from(this.subs)) {
+        try {
+          fn(...args)
+        } catch (err) {
+          console.error(this.idTxt(`Error in channel.publish() for '${this.id}':`), err)
+        }
+      }
+    }
+    // asynchronous publish — waits for all subscribers; rejects if any rejects
+    async publishAsync(...args) {
+      const promises = Array.from(this.subs).map(async (fn) => fn(...args))
+      const settled = await Promise.allSettled(promises)
+      const rejections = settled.filter((s2) => s2.status === 'rejected')
+      if (rejections.length) {
+        const err = new Error(`${rejections.length} subscriber(s) failed`)
+        err.details = rejections.map((r) => r.reason)
+        throw err
+      }
+    }
+    destroy() {
+      this.subs.clear()
+    }
+  }
+
+  // ../ki-frame/src/form.ts
+  var FormsInput = class {
+    constructor(node, key, map2, validate) {
+      this.node = node
+      this.key = key
+      this.map = map2
+      this.validate = validate
+    }
+  }
+  function collectFormsInputs(root) {
+    const out = []
+    function visit2(node, pathParts) {
+      if (node == null) return
+      if (node instanceof FormsInput) {
+        const path = pathParts.map((p2) => String(p2)).join('.')
+        out.push([path, node])
+        return
+      }
+      if (Array.isArray(node)) {
+        for (let i2 = 0; i2 < node.length; i2++) {
+          visit2(node[i2], [...pathParts, i2])
+        }
+        return
+      }
+      if (typeof node === 'object') {
+        for (const key of Object.keys(node)) {
+          visit2(node[key], [...pathParts, key])
+        }
+        return
+      }
+    }
+    visit2(root, [])
+    return out
+  }
+  function readRaw(node) {
+    var _a2
+    const anyNode = node
+    if ('value' in anyNode && typeof anyNode.value === 'string') return anyNode.value
+    return String((_a2 = node.textContent) != null ? _a2 : '')
+  }
+
+  // ../ki-frame/src/promiseDestroy.ts
+  var PromiseDestroy = class _PromiseDestroy {
+    constructor(promise, destroy = () => {}) {
+      this.promise = promise
+      this.destroy = destroy
+    }
+    /**
+     * Promise.then implementation. Can be used to map the response to another value
+     *
+     * - Delegates to the internal `response` promise.
+     * - Returns a NEW FetchReturn whose `response` is the mapped promise.
+     * - If no handlers are provided, returns `this` (typed via cast).
+     */
+    then(onfulfilled, onrejected) {
+      if (!onfulfilled && !onrejected) {
+        return this.promise
+      }
+      return this.promise.then(onfulfilled, onrejected)
+    }
+    catch(onrejected) {
+      if (!onrejected) {
+        return this
+      }
+      return this.promise.catch(onrejected)
+    }
+    finally(onfinally) {
+      return this.promise.finally(onfinally)
+    }
+    get [Symbol.toStringTag]() {
+      return _PromiseDestroy.name
+    }
+    /**
+     * Optional: explicit toString which mirrors Object.prototype.toString
+     */
+    toString() {
+      return Object.prototype.toString.call(this)
+    }
+  }
+  var _a
+  var TimeoutDestroyable = class {
+    constructor(fn, timeout) {
+      this.fn = fn
+      this.timeout = timeout
+      this.at = Date.now() + ((_a = this.timeout) != null ? _a : 0)
+      this.id = setTimeout(this.fn, this.timeout)
+    }
+    destroy() {
+      clearTimeout(this.id)
+    }
+  }
+  var FetchDestroyable = class extends PromiseDestroy {
+    constructor(url, timeoutMs, promise, destroy) {
+      super(promise, destroy)
+      this.url = url
+      this.timeoutMs = timeoutMs
+      this.promise = promise
+      this.destroy = destroy
+    }
+  }
+
+  // ../ki-frame/src/util/getByPath.ts
+  function getByPath(obj, path) {
+    if (obj == null) return void 0
+    let segments
+    if (Array.isArray(path)) {
+      segments = path.map((p2) => (typeof p2 === 'string' && /^\d+$/.test(p2) ? Number(p2) : p2))
+    } else if (typeof path === 'string') {
+      if (path === '') return obj
+      segments = path.split('.').map((seg) => (/^\d+$/.test(seg) ? Number(seg) : seg))
+    } else {
+      return void 0
+    }
+    let cur = obj
+    for (const seg of segments) {
+      if (cur == null) return void 0
+      cur = cur[seg]
+    }
+    return cur
+  }
+
+  // ../ki-frame/src/util/setByPath.ts
+  function setByPath(obj, path, value) {
+    if (typeof path === 'string') {
+      path = path.split('.').map((seg) => {
+        return /^[0-9]+$/.test(seg) ? Number(seg) : seg
+      })
+    }
+    if (path.length === 0) return
+    let cur = obj
+    for (let i2 = 0; i2 < path.length - 1; i2++) {
+      const key = path[i2]
+      if (cur[key] == null) {
+        const nextKey = path[i2 + 1]
+        cur[key] = typeof nextKey === 'number' ? [] : {}
+      }
+      cur = cur[key]
+    }
+    const lastKey = path[path.length - 1]
+    cur[lastKey] = value
+  }
+  function copyAndSet(obj, path, value) {
+    const segments = Array.isArray(path)
+      ? path.map((p2) => (typeof p2 === 'string' && /^\d+$/.test(p2) ? Number(p2) : p2))
+      : path === ''
+        ? []
+        : path.split('.').map((seg) => (/^\d+$/.test(seg) ? Number(seg) : seg))
+    if (segments.length === 0) return value
+    const parents = []
+    let cur = obj
+    parents.push(cur)
+    for (const seg of segments) {
+      cur = cur !== null && typeof cur === 'object' ? cur[seg] : void 0
+      parents.push(cur)
+    }
+    let newChild = value
+    for (let i2 = segments.length - 1; i2 >= 0; i2--) {
+      const key = segments[i2]
+      const origParent = parents[i2]
+      let newParent
+      if (Array.isArray(origParent)) {
+        newParent = origParent.slice()
+      } else if (origParent !== null && typeof origParent === 'object') {
+        newParent = { ...origParent }
+      } else {
+        newParent = typeof key === 'number' ? [] : {}
+      }
+      if (Array.isArray(newParent) && typeof key === 'number') {
+        if (key >= newParent.length) {
+          newParent.length = key + 1
+        }
+      }
+      newParent[key] = newChild
+      newChild = newParent
+    }
+    return newChild
+  }
+
+  // ../ki-frame/src/util/strongOrWeakSet.ts
+  var StrongOrWeakSet = class {
+    constructor(mode) {
+      this.coerce = mode
+    }
+    *all() {
+      if (this.items) {
+        for (const i2 of this.items) {
+          if (i2 instanceof WeakRef) {
+            const deref = i2.deref()
+            if (deref === void 0) {
+              this.items.delete(i2)
+            } else {
+              yield deref
+            }
+          } else {
+            yield i2
+          }
+        }
+      }
+    }
+    add(item, itemMode = this.coerce) {
+      const weakRef = new WeakRef(item)
+      const unsub = () => {
+        const deref = weakRef.deref()
+        if (deref) {
+          this.delete(deref)
+        }
+      }
+      for (const i2 of this.all()) {
+        if (i2 === item) {
+          return unsub
+        }
+      }
+      const newItem = itemMode === 'weak' ? weakRef : item
+      if (!this.items) {
+        this.items = /* @__PURE__ */ new Set()
+      }
+      this.items.add(newItem)
+      return unsub
+    }
+    delete(item) {
+      if (this.items) {
+        for (const i2 of this.items) {
+          if (i2 instanceof WeakRef) {
+            const deref = i2.deref()
+            if (deref === void 0 || deref === item) {
+              this.items.delete(i2)
+            }
+          } else {
+            if (i2 === item) {
+              this.items.delete(i2)
+            }
+          }
+        }
+        if (this.items.size === 0) {
+          this.destroy()
+        }
+      }
+    }
+    destroy() {
+      if (this.items) {
+        this.items.clear()
+        this.items = void 0
+      }
+    }
+  }
+  var DestroyableSet = class extends StrongOrWeakSet {
+    destroy() {
+      for (const destroyable of this.all()) {
+        try {
+          destroyable.destroy()
+        } catch (err) {
+          console.error(`Error in destroying item`, err)
+        }
+      }
+      super.destroy()
+    }
+  }
+
+  // ../ki-frame/src/util/typeUtils.ts
+  function isDefined(item) {
+    return item !== void 0 && item !== null
+  }
+
+  // ../ki-frame/src/util/standardSchemaUtil.ts
+  function schemaValidate(schema, obj, processValue, onValidateFailure) {
+    const checkResult = (result) => {
+      if (result.issues) {
+        onValidateFailure == null ? void 0 : onValidateFailure(result)
+      } else {
+        processValue(result.value)
+      }
+    }
+    const maybePromise = schema['~standard'].validate(obj)
+    if (maybePromise instanceof Promise) {
+      maybePromise.then(checkResult)
+    } else {
+      checkResult(maybePromise)
+    }
+  }
+
+  // ../ki-frame/src/state.ts
+  function shallowEqual(a2, b2) {
+    return a2 === b2
+  }
+  var Context = class {
+    constructor(controllers = new DestroyableSet('weak')) {
+      this.controllers = controllers
+    }
+    createController(options) {
+      const controller = new Controller(options)
+      this.controllers.add(controller)
+      return controller
+    }
+    createState(params) {
+      const state = new State(params)
+      this.controllers.add(state)
+      return state
+    }
+    createForm(t, initValuesOrLinkedState, options) {
+      const form2 = new FormState(t, initValuesOrLinkedState, options)
+      form2.parent = this
+      this.controllers.add(form2)
+      return form2
+    }
+    destroy() {
+      var _a2
+      ;(_a2 = this.parent) == null ? void 0 : _a2.controllers.delete(this)
+      this.controllers.destroy()
+    }
+  }
+  var Controller = class extends Context {
+    constructor({ name = 'controller', weakRef = false, parent } = {}) {
+      super()
+      this._destroyed = false
+      this.registeredSources = new DestroyableSet()
+      this.onDestroyListeners = new DestroyableSet()
+      this.linkedStates = /* @__PURE__ */ new Set()
+      this.eventSources = []
+      this.id = getId()
+      this.parent = parent
+      this.options = { name, weakRef }
+    }
+    getOutputChannel() {
+      if (!isDefined(this.outputChannel)) {
+        this.outputChannel = new Channel(`${this.stateId}-onChange`)
+      }
+      return this.outputChannel
+    }
+    get stateId() {
+      return `${this.options.name}-${this.id}`
+    }
+    get destroyed() {
+      return this._destroyed
+    }
+    idTxt(txt) {
+      return `${this.stateId}: ${txt}`
+    }
+    describe() {
+      return {
+        name: this.stateId,
+      }
+    }
+    updateUi() {
+      if (this.outputChannel) {
+        this.outputChannel.publish({ type: 'updateUi' })
+      }
+    }
+    subscribe(cb) {
+      if (this.destroyed) throw new Error(this.idTxt('Cannot subscribe to destroyed state'))
+      return this.getOutputChannel().subscribe(cb)
+    }
+    addLinkedState(controller, options) {
+      const value = { controller, ...(options || {}) }
+      this.linkedStates.add(value)
+      return () => this.linkedStates.delete(value)
+    }
+    onDestroy(target) {
+      if (typeof target === 'function') {
+        if (this.destroyed) {
+          target()
+          return () => {}
+        }
+        const info = {
+          type: 'function',
+          destroy: target,
+        }
+        return this.onDestroyListeners.add(info)
+      } else {
+        if (this.destroyed) {
+          target.destroy()
+          return () => {}
+        }
+        return this.onDestroyListeners.add(target)
+      }
+    }
+    /** Notify onDestroy() subscribers and call .destroy() for all attached states.
+     * For an attached state also removes the state from parent.
+     * Safe to call multiple times.
+     **/
+    destroy() {
+      var _a2, _b
+      super.destroy()
+      if (this.destroyed) return
+      this._destroyed = true
+      for (const linkedState of Array.from(this.linkedStates)) {
+        if (
+          !isDefined((_a2 = linkedState == null ? void 0 : linkedState.events) == null ? void 0 : _a2.destroy) ||
+          linkedState.events.destroy
+        ) {
+          linkedState.controller.destroy()
+        }
+      }
+      this.linkedStates.clear()
+      this.registeredSources.destroy()
+      this.onDestroyListeners.destroy()
+      for (const es of this.eventSources) {
+        if (es.weakRefUnsub) {
+          const unsub = es.weakRefUnsub.deref()
+          if (unsub) unsub()
+          es.weakRefUnsub = void 0
+        }
+        if (es.unsub) {
+          es.unsub()
+        }
+        es.source = void 0
+      }
+      ;(_b = this.outputChannel) == null ? void 0 : _b.destroy()
+      this.eventSources.length = 0
+    }
+    addDomEvent(name, node, type, listener, options) {
+      node.addEventListener(type, listener, options)
+      const unsub = () => node.removeEventListener(type, listener, options)
+      if (this.options.weakRef) {
+        this.eventSources.push({
+          name: `${name}: <${node.nodeName}>.${type} -> ${this.stateId}`,
+          type: 'dom',
+          source: new WeakRef(node),
+          weakRefUnsub: new WeakRef(unsub),
+        })
+      } else {
+        this.eventSources.push({
+          name: `${name}: <${node.nodeName}>.${type} -> ${this.stateId}`,
+          type: 'dom',
+          source: new WeakRef(node),
+          unsub,
+        })
+      }
+      return unsub
+    }
+    timeout(fn, at = 0) {
+      const unregisterDestroyableAndCallItsDestroy = this.registeredSources.add(
+        new TimeoutDestroyable(() => {
+          unregisterDestroyableAndCallItsDestroy()
+          fn()
+        }, at)
+      )
+      return unregisterDestroyableAndCallItsDestroy
+    }
+    fetch(url, fetchOptions) {
+      const { timeoutMs, map: map2, assertOk = true, ...fetchInit } = fetchOptions != null ? fetchOptions : {}
+      const createAbortController = (destroy) => {
+        const abortController2 = new AbortController()
+        const destroyAbortController2 = () => {
+          timeoutUnsub()
+          abortController2.abort()
+          destroy()
+        }
+        const timeoutUnsub = this.timeout(destroyAbortController2, timeoutMs)
+        return [abortController2, destroyAbortController2]
+      }
+      const [abortController, destroyAbortController] = isDefined(timeoutMs)
+        ? createAbortController(() => unregisterDestroyableAndCallItsDestroy())
+        : []
+      const response = fetch(url, {
+        ...fetchInit,
+        signal: abortController == null ? void 0 : abortController.signal,
+      })
+      const maybeOkResponse = assertOk
+        ? response.then((response2) => {
+            if ((typeof assertOk === 'function' && assertOk(response2) === false) || !response2.ok) {
+              throw { errorResponse: response2 }
+            }
+            return response2
+          })
+        : response
+      const unregisterDestroyableAndCallItsDestroy = this.registeredSources.add(
+        new FetchDestroyable(url, timeoutMs, maybeOkResponse, () => {
+          unregisterDestroyableAndCallItsDestroy()
+          destroyAbortController == null ? void 0 : destroyAbortController()
+        })
+      )
+      maybeOkResponse.finally(unregisterDestroyableAndCallItsDestroy)
+      if (map2) {
+        const mappedPromise = (async () => {
+          return map2(maybeOkResponse)
+        })()
+        return new PromiseDestroy(mappedPromise, unregisterDestroyableAndCallItsDestroy)
+      }
+      return new PromiseDestroy(maybeOkResponse, unregisterDestroyableAndCallItsDestroy)
+    }
+  }
+  var _State = class _State extends Controller {
+    constructor({ name = 'state', weakRef = false, value, parent, schema, onValidateFailure } = {}) {
+      super({ name, weakRef, parent })
+      this.value = value
+      this.schema = schema
+      this.onValidateFailure = onValidateFailure
+    }
+    get() {
+      if (this.destroyed) throw new Error(this.idTxt('State destroyed. Cannot get value'))
+      return this.value
+    }
+    getOnChange() {
+      if (!isDefined(this.onChange)) {
+        this.onChange = new Channel(`${this.stateId}-onChange`)
+      }
+      return this.onChange
+    }
+    set(valueOrInputOrFn, onValidateFailure) {
+      if (this.destroyed) throw new Error(this.idTxt('State destroyed. Cannot set() value'))
+      const old = this.value
+      const value = typeof valueOrInputOrFn === 'function' ? valueOrInputOrFn(this.value) : valueOrInputOrFn
+      if (value === _State.Never) return
+      if (!shallowEqual(old, value)) {
+        const setAndPublish = () => {
+          this.value = value
+          this.getOnChange().publish(this.value, old ? old : value)
+        }
+        if (this.schema) {
+          schemaValidate(this.schema, value, setAndPublish, (failure) => {
+            var _a2
+            ;(_a2 = this.onValidateFailure) == null ? void 0 : _a2.call(this, failure)
+            onValidateFailure == null ? void 0 : onValidateFailure(failure)
+          })
+        } else {
+          setAndPublish()
+        }
+      }
+    }
+    update(partialValueOrInputOrFn, onValidateFailure) {
+      if (this.destroyed) throw new Error(this.idTxt('State destroyed. Cannot update() value'))
+      if (this.value === void 0) throw new Error(this.idTxt('State is undefined. Can not update() value'))
+      if (typeof this.value !== 'object') throw new Error(this.idTxt('State is not an object. Can not update() value'))
+      const updateObject =
+        typeof partialValueOrInputOrFn === 'function' ? partialValueOrInputOrFn(this.value) : partialValueOrInputOrFn
+      if (updateObject === _State.Never) return
+      this.set({ ...this.value, ...updateObject }, onValidateFailure)
+    }
+    onValueChange(cb, params) {
+      if (this.destroyed) throw new Error(this.idTxt('Cannot subscribe to destroyed state'))
+      const unsub = this.getOnChange().subscribe(cb)
+      if (isDefined(this.value) && !(params == null ? void 0 : params.noInit)) {
+        cb(this.value, this.value)
+      }
+      return unsub
+    }
+    destroy() {
+      var _a2
+      super.destroy()
+      ;(_a2 = this.onChange) == null ? void 0 : _a2.destroy()
+    }
+    map(map2, params = {}) {
+      const state = new _State({ ...params })
+      this.onValueChange((obj) => {
+        state.set((cur) => map2(obj, cur))
+      })
+      return state
+    }
+    reducer(reducer) {
+      return (action) => this.set((value) => reducer(action, value))
+    }
+  }
+  _State.Never = /* @__PURE__ */ Symbol('State.Never')
+  var State = _State
+  var FormState = class extends State {
+    constructor(t, initValuesOrLinkedState, options) {
+      const { validate } = options || {}
+      const inputs2 = collectFormsInputs(t)
+      if (initValuesOrLinkedState instanceof State) {
+        const initState = initValuesOrLinkedState.get()
+        const init = {}
+        inputs2.forEach(([path]) => setByPath(init, path, getByPath(initState, path)))
+        super(init)
+        this.configureInputs(this, inputs2)
+        this.onValueChange((newState) => {
+          if (validate && !validate(newState)) {
+            return
+          }
+          initValuesOrLinkedState.update(newState)
+        })
+      } else {
+        super(initValuesOrLinkedState)
+        if (validate) {
+          const validInputValuesState = this.createState({ value: initValuesOrLinkedState })
+          validInputValuesState.options.name = 'valid input values'
+          validInputValuesState.onValueChange((newState) => {
+            if (!validate(newState)) {
+              return
+            }
+            this.set(newState)
+          })
+          this.configureInputs(validInputValuesState, inputs2)
+        } else {
+          this.configureInputs(this, inputs2)
+        }
+      }
+    }
+    configureInputs(inputState, inputs2) {
+      for (const [path, input2] of inputs2) {
+        const state = inputState.get()
+        const value = getByPath(state, path)
+        if (input2.node instanceof HTMLInputElement) {
+          input2.node.value = value
+        }
+        inputState.addDomEvent(path, input2.node, input2.key, (ev) => {
+          const value2 = input2.map ? input2.map(readRaw(input2.node)) : readRaw(input2.node)
+          if (input2.validate && !input2.validate(value2, input2.node, ev)) {
+            return
+          }
+          const newState = copyAndSet(inputState.get(), path, value2)
+          inputState.set(newState)
+        })
+      }
+    }
+    onsubmit(root, listener, options) {
+      return this.addDomEvent(
+        'submit',
+        root,
+        'submit',
+        (ev) => {
+          ev.preventDefault()
+          listener(ev)
+        },
+        options
+      )
+    }
+  }
+
+  // ../ki-frame/src/index.ts
+  var defaultContext = new Context()
+  var createController = defaultContext.createController.bind(defaultContext)
+  var createState = defaultContext.createState.bind(defaultContext)
+  var createForm = defaultContext.createForm.bind(defaultContext)
+
   // ../ki-frame/src/domBuilderEvents.ts
   var EventHandlerObject = class {
     constructor(events2) {
@@ -18,11 +706,6 @@
         fn == null ? void 0 : fn({ node, event })
       })
     })
-  }
-
-  // ../ki-frame/src/util/typeUtils.ts
-  function isDefined(item) {
-    return item !== void 0 && item !== null
   }
 
   // ../ki-frame/src/domBuilderStyles.ts
@@ -2876,664 +3559,6 @@
   PI = new Decimal(PI)
   var decimal_default = Decimal
 
-  // ../ki-frame/src/util/objectIdCounter.ts
-  var runningId = 0
-  function getId() {
-    return runningId++
-  }
-  function createId(id) {
-    return `${id}-${getId()}`
-  }
-
-  // ../ki-frame/src/channel.ts
-  var Channel = class {
-    constructor(name) {
-      this.subs = /* @__PURE__ */ new Set()
-      this.idTxt = (txt) => `${this.id}: ${txt}`
-      this.id = createId(name)
-    }
-    subscribe(fn) {
-      this.subs.add(fn)
-      return () => {
-        this.unsubscribe(fn)
-      }
-    }
-    subscribeFn() {
-      return (fn) => this.subscribe(fn)
-    }
-    // subscribe once: handler auto-unsubscribe after first invocation
-    once(fn) {
-      const unsub = () => this.unsubscribe(wrapper)
-      const wrapper = (...args) => {
-        unsub()
-        fn(...args)
-      }
-      this.subs.add(wrapper)
-      return unsub
-    }
-    unsubscribe(fn) {
-      this.subs.delete(fn)
-    }
-    // synchronous publish — invokes handlers and doesn't wait for Promises
-    publish(...args) {
-      for (const fn of Array.from(this.subs)) {
-        try {
-          fn(...args)
-        } catch (err) {
-          console.error(this.idTxt(`Error in channel.publish() for '${this.id}':`), err)
-        }
-      }
-    }
-    // asynchronous publish — waits for all subscribers; rejects if any rejects
-    async publishAsync(...args) {
-      const promises = Array.from(this.subs).map(async (fn) => fn(...args))
-      const settled = await Promise.allSettled(promises)
-      const rejections = settled.filter((s2) => s2.status === 'rejected')
-      if (rejections.length) {
-        const err = new Error(`${rejections.length} subscriber(s) failed`)
-        err.details = rejections.map((r) => r.reason)
-        throw err
-      }
-    }
-    destroy() {
-      this.subs.clear()
-    }
-  }
-
-  // ../ki-frame/src/form.ts
-  var FormsInput = class {
-    constructor(node, key, map2, validate) {
-      this.node = node
-      this.key = key
-      this.map = map2
-      this.validate = validate
-    }
-  }
-  function collectFormsInputs(root) {
-    const out = []
-    function visit2(node, pathParts) {
-      if (node == null) return
-      if (node instanceof FormsInput) {
-        const path = pathParts.map((p2) => String(p2)).join('.')
-        out.push([path, node])
-        return
-      }
-      if (Array.isArray(node)) {
-        for (let i2 = 0; i2 < node.length; i2++) {
-          visit2(node[i2], [...pathParts, i2])
-        }
-        return
-      }
-      if (typeof node === 'object') {
-        for (const key of Object.keys(node)) {
-          visit2(node[key], [...pathParts, key])
-        }
-        return
-      }
-    }
-    visit2(root, [])
-    return out
-  }
-  function readRaw(node) {
-    var _a2
-    const anyNode = node
-    if ('value' in anyNode && typeof anyNode.value === 'string') return anyNode.value
-    return String((_a2 = node.textContent) != null ? _a2 : '')
-  }
-
-  // ../ki-frame/src/promiseDestroy.ts
-  var PromiseDestroy = class _PromiseDestroy {
-    constructor(promise, destroy = () => {}) {
-      this.promise = promise
-      this.destroy = destroy
-    }
-    /**
-     * Promise.then implementation. Can be used to map the response to another value
-     *
-     * - Delegates to the internal `response` promise.
-     * - Returns a NEW FetchReturn whose `response` is the mapped promise.
-     * - If no handlers are provided, returns `this` (typed via cast).
-     */
-    then(onfulfilled, onrejected) {
-      if (!onfulfilled && !onrejected) {
-        return this.promise
-      }
-      return this.promise.then(onfulfilled, onrejected)
-    }
-    catch(onrejected) {
-      if (!onrejected) {
-        return this
-      }
-      return this.promise.catch(onrejected)
-    }
-    finally(onfinally) {
-      return this.promise.finally(onfinally)
-    }
-    get [Symbol.toStringTag]() {
-      return _PromiseDestroy.name
-    }
-    /**
-     * Optional: explicit toString which mirrors Object.prototype.toString
-     */
-    toString() {
-      return Object.prototype.toString.call(this)
-    }
-  }
-  var _a
-  var TimeoutDestroyable = class {
-    constructor(fn, timeout) {
-      this.fn = fn
-      this.timeout = timeout
-      this.at = Date.now() + ((_a = this.timeout) != null ? _a : 0)
-      this.id = setTimeout(this.fn, this.timeout)
-    }
-    destroy() {
-      clearTimeout(this.id)
-    }
-  }
-  var FetchDestroyable = class extends PromiseDestroy {
-    constructor(url, timeoutMs, promise, destroy) {
-      super(promise, destroy)
-      this.url = url
-      this.timeoutMs = timeoutMs
-      this.promise = promise
-      this.destroy = destroy
-    }
-  }
-
-  // ../ki-frame/src/util/getByPath.ts
-  function getByPath(obj, path) {
-    if (obj == null) return void 0
-    let segments
-    if (Array.isArray(path)) {
-      segments = path.map((p2) => (typeof p2 === 'string' && /^\d+$/.test(p2) ? Number(p2) : p2))
-    } else if (typeof path === 'string') {
-      if (path === '') return obj
-      segments = path.split('.').map((seg) => (/^\d+$/.test(seg) ? Number(seg) : seg))
-    } else {
-      return void 0
-    }
-    let cur = obj
-    for (const seg of segments) {
-      if (cur == null) return void 0
-      cur = cur[seg]
-    }
-    return cur
-  }
-
-  // ../ki-frame/src/util/setByPath.ts
-  function setByPath(obj, path, value) {
-    if (typeof path === 'string') {
-      path = path.split('.').map((seg) => {
-        return /^[0-9]+$/.test(seg) ? Number(seg) : seg
-      })
-    }
-    if (path.length === 0) return
-    let cur = obj
-    for (let i2 = 0; i2 < path.length - 1; i2++) {
-      const key = path[i2]
-      if (cur[key] == null) {
-        const nextKey = path[i2 + 1]
-        cur[key] = typeof nextKey === 'number' ? [] : {}
-      }
-      cur = cur[key]
-    }
-    const lastKey = path[path.length - 1]
-    cur[lastKey] = value
-  }
-  function copyAndSet(obj, path, value) {
-    const segments = Array.isArray(path)
-      ? path.map((p2) => (typeof p2 === 'string' && /^\d+$/.test(p2) ? Number(p2) : p2))
-      : path === ''
-        ? []
-        : path.split('.').map((seg) => (/^\d+$/.test(seg) ? Number(seg) : seg))
-    if (segments.length === 0) return value
-    const parents = []
-    let cur = obj
-    parents.push(cur)
-    for (const seg of segments) {
-      cur = cur !== null && typeof cur === 'object' ? cur[seg] : void 0
-      parents.push(cur)
-    }
-    let newChild = value
-    for (let i2 = segments.length - 1; i2 >= 0; i2--) {
-      const key = segments[i2]
-      const origParent = parents[i2]
-      let newParent
-      if (Array.isArray(origParent)) {
-        newParent = origParent.slice()
-      } else if (origParent !== null && typeof origParent === 'object') {
-        newParent = { ...origParent }
-      } else {
-        newParent = typeof key === 'number' ? [] : {}
-      }
-      if (Array.isArray(newParent) && typeof key === 'number') {
-        if (key >= newParent.length) {
-          newParent.length = key + 1
-        }
-      }
-      newParent[key] = newChild
-      newChild = newParent
-    }
-    return newChild
-  }
-
-  // ../ki-frame/src/util/strongOrWeakSet.ts
-  var StrongOrWeakSet = class {
-    constructor(mode) {
-      this.coerce = mode
-    }
-    *all() {
-      if (this.items) {
-        for (const i2 of this.items) {
-          if (i2 instanceof WeakRef) {
-            const deref = i2.deref()
-            if (deref === void 0) {
-              this.items.delete(i2)
-            } else {
-              yield deref
-            }
-          } else {
-            yield i2
-          }
-        }
-      }
-    }
-    add(item, itemMode = this.coerce) {
-      const weakRef = new WeakRef(item)
-      const unsub = () => {
-        const deref = weakRef.deref()
-        if (deref) {
-          this.delete(deref)
-        }
-      }
-      for (const i2 of this.all()) {
-        if (i2 === item) {
-          return unsub
-        }
-      }
-      const newItem = itemMode === 'weak' ? weakRef : item
-      if (!this.items) {
-        this.items = /* @__PURE__ */ new Set()
-      }
-      this.items.add(newItem)
-      return unsub
-    }
-    delete(item) {
-      if (this.items) {
-        for (const i2 of this.items) {
-          if (i2 instanceof WeakRef) {
-            const deref = i2.deref()
-            if (deref === void 0 || deref === item) {
-              this.items.delete(i2)
-            }
-          } else {
-            if (i2 === item) {
-              this.items.delete(i2)
-            }
-          }
-        }
-        if (this.items.size === 0) {
-          this.destroy()
-        }
-      }
-    }
-    destroy() {
-      if (this.items) {
-        this.items.clear()
-        this.items = void 0
-      }
-    }
-  }
-  var DestroyableSet = class extends StrongOrWeakSet {
-    destroy() {
-      for (const destroyable of this.all()) {
-        try {
-          destroyable.destroy()
-        } catch (err) {
-          console.error(`Error in destroying item`, err)
-        }
-      }
-      super.destroy()
-    }
-  }
-
-  // ../ki-frame/src/state.ts
-  function shallowEqual(a2, b2) {
-    return a2 === b2
-  }
-  var Context = class {
-    constructor(controllers = new DestroyableSet('weak')) {
-      this.controllers = controllers
-    }
-    createController() {
-      const controller = new Controller()
-      controller.parent = this
-      this.controllers.add(controller)
-      return controller
-    }
-    createState(params) {
-      const state = new State(params)
-      state.parent = this
-      this.controllers.add(state)
-      return state
-    }
-    createForm(t, initValuesOrLinkedState, options) {
-      const form2 = new FormState(t, initValuesOrLinkedState, options)
-      form2.parent = this
-      this.controllers.add(form2)
-      return form2
-    }
-    destroy() {
-      var _a2
-      ;(_a2 = this.parent) == null ? void 0 : _a2.controllers.delete(this)
-      this.controllers.destroy()
-    }
-  }
-  var Controller = class extends Context {
-    constructor() {
-      super()
-      this.options = { name: 'controller', weakRef: false }
-      this._destroyed = false
-      this.registeredSources = new DestroyableSet()
-      this.onDestroyListeners = new DestroyableSet()
-      this.linkedStates = /* @__PURE__ */ new Set()
-      this.eventSources = []
-      this.id = getId()
-    }
-    getOutputChannel() {
-      if (!isDefined(this.outputChannel)) {
-        this.outputChannel = new Channel(`${this.stateId}-onChange`)
-      }
-      return this.outputChannel
-    }
-    get stateId() {
-      return `${this.options.name}-${this.id}`
-    }
-    get destroyed() {
-      return this._destroyed
-    }
-    idTxt(txt) {
-      return `${this.stateId}: ${txt}`
-    }
-    describe() {
-      return {
-        name: this.stateId,
-      }
-    }
-    updateUi() {
-      if (this.outputChannel) {
-        this.outputChannel.publish({ type: 'updateUi' })
-      }
-    }
-    subscribe(cb) {
-      if (this.destroyed) throw new Error(this.idTxt('Cannot subscribe to destroyed state'))
-      return this.getOutputChannel().subscribe(cb)
-    }
-    addLinkedState(controller, options) {
-      const value = { controller, ...(options || {}) }
-      this.linkedStates.add(value)
-      return () => this.linkedStates.delete(value)
-    }
-    onDestroy(target) {
-      if (typeof target === 'function') {
-        if (this.destroyed) {
-          target()
-          return () => {}
-        }
-        const info = {
-          type: 'function',
-          destroy: target,
-        }
-        return this.onDestroyListeners.add(info)
-      } else {
-        if (this.destroyed) {
-          target.destroy()
-          return () => {}
-        }
-        return this.onDestroyListeners.add(target)
-      }
-    }
-    /** Notify onDestroy() subscribers and call .destroy() for all attached states.
-     * For an attached state also removes the state from parent.
-     * Safe to call multiple times.
-     **/
-    destroy() {
-      var _a2, _b
-      super.destroy()
-      if (this.destroyed) return
-      this._destroyed = true
-      for (const linkedState of Array.from(this.linkedStates)) {
-        if (
-          !isDefined((_a2 = linkedState == null ? void 0 : linkedState.events) == null ? void 0 : _a2.destroy) ||
-          linkedState.events.destroy
-        ) {
-          linkedState.controller.destroy()
-        }
-      }
-      this.linkedStates.clear()
-      this.registeredSources.destroy()
-      this.onDestroyListeners.destroy()
-      for (const es of this.eventSources) {
-        if (es.weakRefUnsub) {
-          const unsub = es.weakRefUnsub.deref()
-          if (unsub) unsub()
-          es.weakRefUnsub = void 0
-        }
-        if (es.unsub) {
-          es.unsub()
-        }
-        es.source = void 0
-      }
-      ;(_b = this.outputChannel) == null ? void 0 : _b.destroy()
-      this.eventSources.length = 0
-    }
-    addDomEvent(name, node, type, listener, options) {
-      node.addEventListener(type, listener, options)
-      const unsub = () => node.removeEventListener(type, listener, options)
-      if (this.options.weakRef) {
-        this.eventSources.push({
-          name: `${name}: <${node.nodeName}>.${type} -> ${this.stateId}`,
-          type: 'dom',
-          source: new WeakRef(node),
-          weakRefUnsub: new WeakRef(unsub),
-        })
-      } else {
-        this.eventSources.push({
-          name: `${name}: <${node.nodeName}>.${type} -> ${this.stateId}`,
-          type: 'dom',
-          source: new WeakRef(node),
-          unsub,
-        })
-      }
-      return unsub
-    }
-    timeout(fn, at = 0) {
-      const unregisterDestroyableAndCallItsDestroy = this.registeredSources.add(
-        new TimeoutDestroyable(() => {
-          unregisterDestroyableAndCallItsDestroy()
-          fn()
-        }, at)
-      )
-      return unregisterDestroyableAndCallItsDestroy
-    }
-    fetch(url, fetchOptions) {
-      const { timeoutMs, map: map2, assertOk = true, ...fetchInit } = fetchOptions != null ? fetchOptions : {}
-      const createAbortController = (destroy) => {
-        const abortController2 = new AbortController()
-        const destroyAbortController2 = () => {
-          timeoutUnsub()
-          abortController2.abort()
-          destroy()
-        }
-        const timeoutUnsub = this.timeout(destroyAbortController2, timeoutMs)
-        return [abortController2, destroyAbortController2]
-      }
-      const [abortController, destroyAbortController] = isDefined(timeoutMs)
-        ? createAbortController(() => unregisterDestroyableAndCallItsDestroy())
-        : []
-      const response = fetch(url, {
-        ...fetchInit,
-        signal: abortController == null ? void 0 : abortController.signal,
-      })
-      const maybeOkResponse = assertOk
-        ? response.then((response2) => {
-            if ((typeof assertOk === 'function' && assertOk(response2) === false) || !response2.ok) {
-              const cause = { errorResponse: response2 }
-              throw cause
-            }
-            return response2
-          })
-        : response
-      const unregisterDestroyableAndCallItsDestroy = this.registeredSources.add(
-        new FetchDestroyable(url, timeoutMs, maybeOkResponse, () => {
-          unregisterDestroyableAndCallItsDestroy()
-          destroyAbortController == null ? void 0 : destroyAbortController()
-        })
-      )
-      maybeOkResponse.finally(unregisterDestroyableAndCallItsDestroy)
-      if (map2) {
-        const mappedPromise = (async () => {
-          return map2(maybeOkResponse)
-        })()
-        return new PromiseDestroy(mappedPromise, unregisterDestroyableAndCallItsDestroy)
-      }
-      return new PromiseDestroy(maybeOkResponse, unregisterDestroyableAndCallItsDestroy)
-    }
-  }
-  var _State = class _State extends Controller {
-    constructor(params) {
-      var _a2
-      super()
-      this.options.name = (_a2 = params == null ? void 0 : params.name) != null ? _a2 : 'state'
-      this.value = params == null ? void 0 : params.value
-      this.parent = params == null ? void 0 : params.parent
-      this.mapFn = params == null ? void 0 : params.reducer
-    }
-    get() {
-      if (this.destroyed) throw new Error(this.idTxt('State destroyed. Cannot get value'))
-      return this.value
-    }
-    getOnChange() {
-      if (!isDefined(this.onChange)) {
-        this.onChange = new Channel(`${this.stateId}-onChange`)
-      }
-      return this.onChange
-    }
-    set(newObj) {
-      if (this.destroyed) throw new Error(this.idTxt('State destroyed. Cannot set() value'))
-      const old = this.value
-      const finalObj = typeof newObj === 'function' ? newObj(this.value) : newObj
-      if (finalObj === _State.Never) return
-      const value = this.mapFn ? this.mapFn(finalObj, this.value) : finalObj
-      if (value !== _State.Never && !shallowEqual(old, finalObj)) {
-        this.value = value
-        this.getOnChange().publish(this.value, old ? old : finalObj)
-      }
-    }
-    update(update) {
-      if (this.destroyed) throw new Error(this.idTxt('State destroyed. Cannot update() value'))
-      if (this.value === void 0) throw new Error(this.idTxt('State is undefined. Can not update() value'))
-      if (typeof this.value !== 'object') throw new Error(this.idTxt('State is not an object. Can not update() value'))
-      if (this.mapFn !== void 0)
-        throw new Error(this.idTxt("State({reducer:fn()}) function is defined. Don't call state.update()"))
-      const finalUpdate = typeof update === 'function' ? update(this.value) : update
-      if (finalUpdate === _State.Never) return
-      this.set({ ...this.value, ...finalUpdate })
-    }
-    onValueChange(cb, params) {
-      if (this.destroyed) throw new Error(this.idTxt('Cannot subscribe to destroyed state'))
-      const unsub = this.getOnChange().subscribe(cb)
-      if (isDefined(this.value) && !(params == null ? void 0 : params.noInit)) {
-        cb(this.value, this.value)
-      }
-      return unsub
-    }
-    destroy() {
-      var _a2
-      super.destroy()
-      ;(_a2 = this.onChange) == null ? void 0 : _a2.destroy()
-    }
-    map(map2, params = {}) {
-      const state = new _State({ ...params, reducer: map2 })
-      this.onValueChange((obj) => {
-        state.set(obj)
-      })
-      return state
-    }
-  }
-  _State.Never = /* @__PURE__ */ Symbol('WritableState.Never')
-  var State = _State
-  var FormState = class extends State {
-    constructor(t, initValuesOrLinkedState, options) {
-      const { validate } = options || {}
-      const inputs2 = collectFormsInputs(t)
-      if (initValuesOrLinkedState instanceof State) {
-        const initState = initValuesOrLinkedState.get()
-        const init = {}
-        inputs2.forEach(([path]) => setByPath(init, path, getByPath(initState, path)))
-        super(init)
-        this.configureInputs(this, inputs2)
-        this.onValueChange((newState) => {
-          if (validate && !validate(newState)) {
-            return
-          }
-          initValuesOrLinkedState.update(newState)
-        })
-      } else {
-        super(initValuesOrLinkedState)
-        if (validate) {
-          const validInputValuesState = this.createState({ value: initValuesOrLinkedState })
-          validInputValuesState.options.name = 'valid input values'
-          validInputValuesState.onValueChange((newState) => {
-            if (!validate(newState)) {
-              return
-            }
-            this.set(newState)
-          })
-          this.configureInputs(validInputValuesState, inputs2)
-        } else {
-          this.configureInputs(this, inputs2)
-        }
-      }
-    }
-    configureInputs(inputState, inputs2) {
-      for (const [path, input2] of inputs2) {
-        const state = inputState.get()
-        const value = getByPath(state, path)
-        if (input2.node instanceof HTMLInputElement) {
-          input2.node.value = value
-        }
-        inputState.addDomEvent(path, input2.node, input2.key, (ev) => {
-          const value2 = input2.map ? input2.map(readRaw(input2.node)) : readRaw(input2.node)
-          if (input2.validate && !input2.validate(value2, input2.node, ev)) {
-            return
-          }
-          const newState = copyAndSet(inputState.get(), path, value2)
-          inputState.set(newState)
-        })
-      }
-    }
-    onsubmit(root, listener, options) {
-      return this.addDomEvent(
-        'submit',
-        root,
-        'submit',
-        (ev) => {
-          ev.preventDefault()
-          listener(ev)
-        },
-        options
-      )
-    }
-  }
-
-  // ../ki-frame/src/index.ts
-  var defaultContext = new Context()
-  var createController = defaultContext.createController.bind(defaultContext)
-  var createState = defaultContext.createState.bind(defaultContext)
-  var createForm = defaultContext.createForm.bind(defaultContext)
-
   // ../ki-frame/src/stringFormatter.ts
   var defaultFormatters = {
     s: (v, spec) => {
@@ -3697,8 +3722,8 @@
     return Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)
   }
   function calculateViivastyskorkoMultiplier(startDate, endDate, company, periods = HARD_CODED_PERIODS) {
-    let multiplier = decimal_default(1)
-    if (endDate <= startDate) return { multiplier, company, segments: [] }
+    let multiplier2 = decimal_default(1)
+    if (endDate <= startDate) return { multiplier: multiplier2, company, segments: [] }
     const segments = []
     for (const p2 of periods) {
       const periodStart = toDateISO(p2.from)
@@ -3710,10 +3735,10 @@
       const annual = decimal_default(company ? p2.companyAnnualRate : p2.personAnnualRate)
       const daily = decimal_default(annual).div(365)
       const segmentInterest = daily.mul(days).plus(1)
-      multiplier = multiplier.mul(segmentInterest)
+      multiplier2 = multiplier2.mul(segmentInterest)
       segments.push({ start: segStart, end: segEnd, annual, days, multiplier: segmentInterest })
     }
-    return { multiplier, company, segments }
+    return { multiplier: multiplier2, company, segments }
   }
 
   // src/kaukolampo/kaukolampoBilling.ts
@@ -4653,9 +4678,1829 @@
     )
   }
 
+  // src/osakkeet/osakkeetCalculator.ts
+  var zero = new decimal_default(0)
+  var capitalIncomeThreshold = new decimal_default(3e4)
+  var lowCapitalTaxRate = new decimal_default(0.3)
+  var highCapitalTaxRate = new decimal_default(0.34)
+  function decimalOrZero(value, field, errors) {
+    const normalized = value.trim()
+    if (normalized === '') return zero
+    try {
+      const parsed = new decimal_default(normalized)
+      if (parsed.isNegative()) {
+        errors.push(`${field} ei voi olla negatiivinen.`)
+      }
+      return parsed
+    } catch {
+      errors.push(`${field} ei ole kelvollinen numero.`)
+      return zero
+    }
+  }
+  function dateOrUndefined(value, field, errors) {
+    const trimmed = value.trim()
+    if (!trimmed) return void 0
+    const date = parseSupportedDate(trimmed)
+    if (!date) {
+      errors.push(`${field} ei ole kelvollinen pvm.`)
+      return void 0
+    }
+    if (Number.isNaN(date.getTime())) {
+      errors.push(`${field} ei ole kelvollinen pvm.`)
+      return void 0
+    }
+    return date
+  }
+  function parseSupportedDate(trimmed) {
+    const finnishDateMatch = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(trimmed)
+    const isoDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed)
+    if (finnishDateMatch) {
+      const [, day, month, year] = finnishDateMatch
+      return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+    }
+    if (isoDateMatch) {
+      return /* @__PURE__ */ new Date(`${trimmed}T00:00:00Z`)
+    }
+    return void 0
+  }
+  function addYears(date, years) {
+    const next = new Date(date.getTime())
+    next.setUTCFullYear(next.getUTCFullYear() + years)
+    return next
+  }
+  function isWithinYearsInclusive(start, end, years = 10) {
+    if (!start || !end) return false
+    return end.getTime() <= addYears(start, years).getTime()
+  }
+  function isAtLeastYears(start, end, years = 10) {
+    if (!start || !end) return false
+    return end.getTime() >= addYears(start, years).getTime()
+  }
+  function createLot(input2, errors) {
+    const amount2 = decimalOrZero(input2.amount, `Merkint\xE4 ${input2.date || input2.id} m\xE4\xE4r\xE4`, errors)
+    const totalPrice = decimalOrZero(
+      input2.totalPrice || input2.pricePerShare || '',
+      `Merkint\xE4 ${input2.date || input2.id} kokonaishinta`,
+      errors
+    )
+    return {
+      id: input2.id,
+      date: input2.date,
+      dateValue: dateOrUndefined(input2.date, `Merkint\xE4 ${input2.id} p\xE4iv\xE4`, errors),
+      amount: amount2,
+      totalPrice,
+      remainingCostTotal: totalPrice,
+      capitalRepaymentTotal: zero,
+      reimbursementGrossTotal: zero,
+    }
+  }
+  function compareDateStrings(a2, b2) {
+    const dateA = parseSupportedDate(a2.trim())
+    const dateB = parseSupportedDate(b2.trim())
+    if (dateA && dateB) {
+      return dateA.getTime() - dateB.getTime()
+    }
+    if (dateA) return -1
+    if (dateB) return 1
+    return a2.localeCompare(b2)
+  }
+  function sumDecimals(values) {
+    return values.reduce((acc, value) => acc.add(value), zero)
+  }
+  function estimateCapitalTax(taxableGain) {
+    if (taxableGain.lte(0)) return zero
+    const lowPart = decimal_default.min(taxableGain, capitalIncomeThreshold)
+    const highPart = decimal_default.max(taxableGain.minus(capitalIncomeThreshold), zero)
+    return lowPart.mul(lowCapitalTaxRate).add(highPart.mul(highCapitalTaxRate))
+  }
+  function calculateOsakkeet(form2) {
+    const errors = []
+    const warnings = []
+    const ipoDate = dateOrUndefined(form2.ipo.ipoDate, 'IPO-p\xE4iv\xE4', errors)
+    const lots = [...form2.subscriptions]
+      .sort((a2, b2) => compareDateStrings(a2.date, b2.date))
+      .map((subscription) => createLot(subscription, errors))
+    const totalSubscribedShares = sumDecimals(lots.map((lot) => lot.amount))
+    const totalSubscribedCost = sumDecimals(lots.map((lot) => lot.totalPrice))
+    const mathematicalShareValuesByYear = /* @__PURE__ */ new Map()
+    for (const row of form2.mathematicalShareValues) {
+      const year = decimalOrZero(row.year, `Matemaattinen arvo vuosi ${row.id}`, errors)
+      const valuePerShare = decimalOrZero(row.valuePerShare, `Matemaattinen arvo/osake ${row.id}`, errors)
+      if (year.gt(0)) {
+        mathematicalShareValuesByYear.set(year.toNumber(), valuePerShare)
+      }
+    }
+    const totalShareCountInput = decimalOrZero(form2.ipo.totalShareCount, 'Osakkeiden kokonaism\xE4\xE4r\xE4', errors)
+    const totalShareCount = totalShareCountInput.gt(0) ? totalShareCountInput : totalSubscribedShares
+    const totalIpoCost = decimalOrZero(form2.ipo.totalIpoCost, 'IPO-kulut yhteens\xE4', errors)
+    const currentShareValue = decimalOrZero(form2.ipo.currentShareValue, 'Nykyinen osakkeen arvo', errors)
+    const currentTotalValue = currentShareValue.mul(totalShareCount)
+    const estimatedPreIpoValue = decimalOrZero(form2.ipo.estimatedPreIpoValue, 'Arvioitu pre-IPO-arvo', errors)
+    const estimatedSecondaryShareSellPercentage = decimalOrZero(
+      form2.ipo.estimatedSecondaryShareSellPercentage,
+      'Arvioitu secondary-myyntiprosentti',
+      errors
+    )
+    const sellAmount = decimalOrZero(form2.sell.amount, 'Myyt\xE4vien osakkeiden m\xE4\xE4r\xE4', errors)
+    if (totalShareCountInput.gt(0) && totalShareCountInput.lt(totalSubscribedShares)) {
+      warnings.push(
+        'Osakkeiden kokonaism\xE4\xE4r\xE4 on pienempi kuin sy\xF6tettyjen merkint\xF6jen yhteism\xE4\xE4r\xE4.'
+      )
+    }
+    const estimatedSecondaryShareCount = totalShareCount.mul(estimatedSecondaryShareSellPercentage).div(100)
+    const ipoPricePerShare = totalShareCount.gt(0) ? estimatedPreIpoValue.div(totalShareCount) : zero
+    const currentValuePerShare = totalShareCount.gt(0) ? currentTotalValue.div(totalShareCount) : zero
+    const increaseMultiplier = ipoPricePerShare.gt(0) ? currentValuePerShare.div(ipoPricePerShare) : zero
+    const increasePercentage = estimatedPreIpoValue.gt(0) ? currentTotalValue.div(estimatedPreIpoValue).mul(100) : zero
+    const ipoCostPerShare = estimatedSecondaryShareCount.gt(0)
+      ? totalIpoCost.div(estimatedSecondaryShareCount)
+      : totalShareCount.gt(0)
+        ? totalIpoCost.div(totalShareCount)
+        : zero
+    if (estimatedSecondaryShareCount.eq(0) && totalIpoCost.gt(0)) {
+      warnings.push('Secondary-myyntiprosentti on 0, joten IPO-kulu/osake on jaettu koko osakem\xE4\xE4r\xE4lle.')
+    }
+    const capitalDividendUsedByYear = /* @__PURE__ */ new Map()
+    const grossDividendUsedByYear = /* @__PURE__ */ new Map()
+    const reimbursements = [...form2.reimbursements]
+      .sort((a2, b2) => compareDateStrings(a2.date, b2.date))
+      .map((entry) => {
+        const reimbursementDate = dateOrUndefined(entry.date, `Palautus ${entry.id} p\xE4iv\xE4`, errors)
+        const amountPerShare = decimalOrZero(entry.amountPerShare, `Palautus ${entry.id} \u20AC/osake`, errors)
+        const sharesHeld = sumDecimals(
+          lots
+            .filter(
+              (lot) => !lot.dateValue || !reimbursementDate || lot.dateValue.getTime() <= reimbursementDate.getTime()
+            )
+            .map((lot) => lot.amount)
+        )
+        const expectedTotal = amountPerShare.mul(sharesHeld)
+        const grossTotal2 = expectedTotal
+        const effectivePerShare = sharesHeld.gt(0) ? grossTotal2.div(sharesHeld) : zero
+        const isDividend = entry.type === 'dividend'
+        if (sharesHeld.eq(0) && grossTotal2.gt(0)) {
+          warnings.push(`Palautukselle ${entry.date} ei l\xF6ytynyt omistettuja osakkeita.`)
+        }
+        const allocations = lots
+          .filter(
+            (lot) => !lot.dateValue || !reimbursementDate || lot.dateValue.getTime() <= reimbursementDate.getTime()
+          )
+          .map((lot) => {
+            const gross = effectivePerShare.mul(lot.amount)
+            const eligibleCapitalRepayment =
+              !isDividend &&
+              isWithinYearsInclusive(lot.dateValue, reimbursementDate, 10) &&
+              lot.remainingCostTotal.gt(0)
+            const remainingCostPerShare = lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero
+            const capitalRepaymentPerShare = eligibleCapitalRepayment
+              ? decimal_default.min(effectivePerShare, remainingCostPerShare)
+              : zero
+            const capitalRepayment = capitalRepaymentPerShare.mul(lot.amount)
+            const dividend = decimal_default.max(gross.minus(capitalRepayment), zero)
+            lot.remainingCostTotal = decimal_default.max(lot.remainingCostTotal.minus(capitalRepayment), zero)
+            lot.capitalRepaymentTotal = lot.capitalRepaymentTotal.add(capitalRepayment)
+            lot.reimbursementGrossTotal = lot.reimbursementGrossTotal.add(gross)
+            return {
+              subscriptionId: lot.id,
+              subscriptionDate: lot.date,
+              shares: lot.amount,
+              gross,
+              capitalRepayment,
+              dividend,
+              remainingCostPerShareAfter: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
+              eligibleCapitalRepayment,
+            }
+          })
+        const capitalRepaymentTotal = sumDecimals(allocations.map((allocation) => allocation.capitalRepayment))
+        const dividendTotal = sumDecimals(allocations.map((allocation) => allocation.dividend))
+        const year = reimbursementDate == null ? void 0 : reimbursementDate.getUTCFullYear()
+        const mathematicalShareValuePerShare = year ? mathematicalShareValuesByYear.get(year) || zero : zero
+        const shareholderMathematicalValue = mathematicalShareValuePerShare.mul(sharesHeld)
+        const eightPercentYieldLimit = shareholderMathematicalValue.mul(0.08)
+        if (dividendTotal.gt(0) && shareholderMathematicalValue.eq(0)) {
+          warnings.push(
+            `Varojenjaon ${entry.date} osinkoverotuksen jakoa ei voitu laskea ilman vuoden matemaattista arvoa / osake.`
+          )
+        }
+        const capitalDividendGross = shareholderMathematicalValue.gt(0)
+          ? decimal_default.min(dividendTotal, eightPercentYieldLimit)
+          : zero
+        const earnedDividendGross = shareholderMathematicalValue.gt(0)
+          ? decimal_default.max(dividendTotal.minus(capitalDividendGross), zero)
+          : zero
+        const usedCapitalDividend = year ? capitalDividendUsedByYear.get(year) || zero : zero
+        const lowerCapitalDividendRoom = decimal_default.max(new decimal_default(15e4).minus(usedCapitalDividend), zero)
+        const lowCapitalPart = decimal_default.min(capitalDividendGross, lowerCapitalDividendRoom)
+        const highCapitalPart = decimal_default.max(capitalDividendGross.minus(lowCapitalPart), zero)
+        const taxableCapitalIncome = lowCapitalPart.mul(0.25).add(highCapitalPart.mul(0.85))
+        const taxFreeCapitalIncomePortion = lowCapitalPart.mul(0.75).add(highCapitalPart.mul(0.15))
+        const taxableEarnedDividend = earnedDividendGross.mul(0.75)
+        const taxFreeEarnedDividend = earnedDividendGross.mul(0.25)
+        const usedGrossDividend = year ? grossDividendUsedByYear.get(year) || zero : zero
+        const lowerGrossDividendRoom = decimal_default.max(new decimal_default(15e4).minus(usedGrossDividend), zero)
+        const lowWithholdingPart = decimal_default.min(dividendTotal, lowerGrossDividendRoom)
+        const highWithholdingPart = decimal_default.max(dividendTotal.minus(lowWithholdingPart), zero)
+        const withholdingToTaxOffice = lowWithholdingPart.mul(0.075).add(highWithholdingPart.mul(0.28))
+        const paidInCash = grossTotal2.minus(withholdingToTaxOffice)
+        if (year) {
+          capitalDividendUsedByYear.set(year, usedCapitalDividend.add(capitalDividendGross))
+          grossDividendUsedByYear.set(year, usedGrossDividend.add(dividendTotal))
+        }
+        return {
+          id: entry.id,
+          date: entry.date,
+          type: entry.type,
+          amountPerShare,
+          sharesHeld,
+          mathematicalShareValuePerShare,
+          shareholderMathematicalValue,
+          eightPercentYieldLimit,
+          expectedTotal,
+          grossTotal: grossTotal2,
+          paidInCash,
+          capitalRepaymentTotal,
+          dividendTotal,
+          withholdingToTaxOffice,
+          taxableCapitalIncome,
+          taxFreeCapitalIncomePortion,
+          taxableEarnedDividend,
+          taxFreeEarnedDividend,
+          treatedAsListedDividend:
+            isDividend && !!(ipoDate && reimbursementDate && reimbursementDate.getTime() >= ipoDate.getTime()),
+          allocations,
+        }
+      })
+    if (sellAmount.gt(totalSubscribedShares)) {
+      errors.push('Myyt\xE4vien osakkeiden m\xE4\xE4r\xE4 ylitt\xE4\xE4 merkittyjen osakkeiden m\xE4\xE4r\xE4n.')
+    }
+    if (estimatedSecondaryShareCount.gt(0) && sellAmount.gt(estimatedSecondaryShareCount)) {
+      warnings.push(
+        'Myyntim\xE4\xE4r\xE4 ylitt\xE4\xE4 arvioidun secondary-myyntim\xE4\xE4r\xE4n koko yhti\xF6n tasolla.'
+      )
+    }
+    let remainingSellAmount = sellAmount
+    const usedSubscriptions = []
+    for (const lot of lots) {
+      if (remainingSellAmount.lte(0)) break
+      const soldAmount = decimal_default.min(lot.amount, remainingSellAmount)
+      if (soldAmount.lte(0)) continue
+      const gross = soldAmount.mul(ipoPricePerShare)
+      const realCostBasis = lot.amount.gt(0) ? lot.remainingCostTotal.mul(soldAmount).div(lot.amount) : zero
+      const allocatedIpoCost = soldAmount.mul(ipoCostPerShare)
+      const actualDeduction = realCostBasis.add(allocatedIpoCost)
+      const hankintamenoOlettaRate = isAtLeastYears(lot.dateValue, ipoDate, 10)
+        ? new decimal_default(0.4)
+        : new decimal_default(0.2)
+      const hankintamenoOlettaDeduction = gross.mul(hankintamenoOlettaRate)
+      const useActualCosts = actualDeduction.gte(hankintamenoOlettaDeduction)
+      const selectedDeduction = useActualCosts ? actualDeduction : hankintamenoOlettaDeduction
+      const selectedMethod = useActualCosts
+        ? 'Todellinen hankintameno + IPO-kulut'
+        : `Hankintameno-olettama ${hankintamenoOlettaRate.mul(100).toFixed(0)} %`
+      const taxableGain = gross.minus(selectedDeduction)
+      usedSubscriptions.push({
+        subscriptionId: lot.id,
+        subscriptionDate: lot.date,
+        totalSubscriptionShares: lot.amount,
+        soldAmount,
+        gross,
+        realCostBasis,
+        allocatedIpoCost,
+        actualDeduction,
+        hankintamenoOlettaRate,
+        hankintamenoOlettaDeduction,
+        selectedMethod,
+        selectedDeduction,
+        taxableGain,
+        taxFreeGainPart: zero,
+        taxedGainPart: decimal_default.max(taxableGain, zero),
+      })
+      remainingSellAmount = remainingSellAmount.minus(soldAmount)
+    }
+    const taxableGainTotal = sumDecimals(usedSubscriptions.map((lot) => lot.taxableGain))
+    const estimatedTax = estimateCapitalTax(taxableGainTotal)
+    const grossTotal = sumDecimals(usedSubscriptions.map((lot) => lot.gross))
+    const totalIpoCostAllocated = sumDecimals(usedSubscriptions.map((lot) => lot.allocatedIpoCost))
+    const netAfterTaxAndIpoCost = grossTotal.minus(totalIpoCostAllocated).minus(estimatedTax)
+    return {
+      warnings,
+      errors,
+      subscriptions: lots.map((lot) => ({
+        id: lot.id,
+        date: lot.date,
+        amount: lot.amount,
+        totalPrice: lot.totalPrice,
+        reimbursementGrossTotal: lot.reimbursementGrossTotal,
+        capitalRepaymentPerShare: lot.amount.gt(0) ? lot.capitalRepaymentTotal.div(lot.amount) : zero,
+        remainingCostPerShare: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
+        remainingCostTotal: lot.remainingCostTotal,
+      })),
+      reimbursements,
+      ipo: {
+        ipoDate,
+        totalShareCount,
+        totalSubscribedShares,
+        totalSubscribedCost,
+        totalIpoCost,
+        currentShareValue,
+        currentTotalValue,
+        estimatedPreIpoValue,
+        estimatedSecondaryShareSellPercentage,
+        estimatedSecondaryShareCount,
+        ipoPricePerShare,
+        currentValuePerShare,
+        increasePercentage,
+        increaseMultiplier,
+        ipoCostPerShare,
+      },
+      sell: {
+        amount: sellAmount,
+        usedSubscriptions,
+        grossTotal,
+        totalIpoCostAllocated,
+        taxableGainTotal,
+        estimatedTax,
+        netAfterTaxAndIpoCost,
+        remainingUnsoldShares: decimal_default.max(totalSubscribedShares.minus(sellAmount), zero),
+      },
+    }
+  }
+
+  // src/osakkeet/osakkeetUi.ts
+  var pageStyles = {
+    stack: styles({ display: 'flex', flexDirection: 'column', gap: '18px' }),
+    denseStack: styles({ display: 'flex', flexDirection: 'column', gap: '10px' }),
+    gridTwo: styles({ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }),
+    field: styles({ display: 'flex', flexDirection: 'column', gap: '6px' }),
+    rowButtons: styles({ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }),
+    summaryGrid: styles({ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }),
+    summaryItem: styles({
+      backgroundColor: 'rgba(15, 23, 42, 0.03)',
+      borderRadius: '8px',
+      padding: '12px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '4px',
+    }),
+    inlineCode: styles({
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+      backgroundColor: 'rgba(15, 23, 42, 0.04)',
+      padding: '2px 6px',
+      borderRadius: '6px',
+    }),
+    smallButton: styles({
+      border: '1px solid rgba(15, 23, 42, 0.12)',
+      backgroundColor: '#fff',
+      color: '#0f172a',
+      borderRadius: '8px',
+      padding: '8px 10px',
+      cursor: 'pointer',
+    }),
+    input: styles({
+      border: '1px solid rgba(15, 23, 42, 0.12)',
+      borderRadius: '8px',
+      padding: '8px 10px',
+      fontSize: '14px',
+      width: '100%',
+      backgroundColor: '#fff',
+    }),
+    warningBox: styles({
+      border: '1px solid rgba(245, 158, 11, 0.3)',
+      backgroundColor: 'rgba(245, 158, 11, 0.08)',
+      borderRadius: '8px',
+      padding: '12px',
+    }),
+    errorBox: styles({
+      border: '1px solid rgba(239, 68, 68, 0.3)',
+      backgroundColor: 'rgba(239, 68, 68, 0.08)',
+      borderRadius: '8px',
+      padding: '12px',
+    }),
+  }
+  function euro(value) {
+    return `${value.toFixed(2)} \u20AC`
+  }
+  function amount(value) {
+    return value.toFixed(2)
+  }
+  function percentage(value) {
+    return `${value.toFixed(2)} %`
+  }
+  function multiplier(value) {
+    return `${value.toFixed(2)}x`
+  }
+  function isYearMathValueWarning(warning) {
+    return warning.includes('osinkoverotuksen jakoa ei voitu laskea ilman vuoden matemaattista arvoa / osake')
+  }
+  function createId2(prefix) {
+    return `${prefix}-${Math.random().toString(36).slice(2, 10)}`
+  }
+  function languageStorageKey() {
+    return 'osakkeet-language'
+  }
+  function tryLoadLanguage() {
+    return localStorage.getItem(languageStorageKey()) === 'en' ? 'en' : 'fi'
+  }
+  function texts(language) {
+    return language === 'en'
+      ? {
+          languageTitle: 'Language',
+          ipoCalculatorTitle: 'IPO calculator for shares',
+          intro:
+            'Calculates how capital repayments are allocated, how acquisition cost remains, and what the IPO sale produces before and after tax.',
+          unlistedIntro:
+            'This calculator is intended for an unlisted company before listing. From the IPO date onward, distributions are treated as dividends in this view.',
+          assumptions: 'Calculation assumptions',
+          subscriptions: 'Share subscriptions',
+          rows: 'rows',
+          subscriptionsHelp: 'Enter all subscription lots in acquisition order. FIFO is used for sales.',
+          date: 'Date',
+          amount: 'Amount',
+          totalPrice: 'Total price',
+          originalShareValue: 'Original share value',
+          capitalRepaymentPerShare: 'Capital repayment / share',
+          remainingCostPerShare: 'Remaining acquisition cost / share',
+          remove: 'Remove',
+          addSubscription: 'Add subscription',
+          payouts: 'Dividends and capital repayments',
+          payoutsHelp:
+            'Total amount and cash paid are calculated automatically from the per-share amount, holdings, and withholding.',
+          type: 'Type',
+          amountPerShare: 'EUR / share',
+          total: 'Total',
+          withholding: 'To tax office in advance',
+          cashPaid: 'Paid in cash',
+          capitalRepayment: 'Capital repayment',
+          dividend: 'Dividend',
+          addPayout: 'Add distribution',
+          ipoDetails: 'IPO details',
+          ipoDate: 'IPO date',
+          totalShareCount: 'Total share count',
+          totalIpoCost: 'Total IPO costs',
+          currentShareValue: 'Current share value',
+          currentTotalValue: 'Current total value',
+          estimatedPreIpoValue: 'Estimated pre-IPO value',
+          ipoSharePrice: 'IPO share price',
+          increasePercent: 'Increase %',
+          increaseMultiplier: 'Multiplier',
+          secondarySellPercent: 'Estimated secondary sell %',
+          secondaryHelp: 'Used to allocate IPO cost per sold share.',
+          mathematicalValues: 'Mathematical value / share for known years',
+          year: 'Year',
+          valuePerShare: 'Value / share',
+          addYear: 'Add year',
+          summary: 'Summary',
+          subscribedShares: 'Subscribed shares',
+          subscribedCost: 'Subscription acquisition cost',
+          ipoPricePerShare: 'IPO price / share',
+          currentValuePerShare: 'Current value / share',
+          ipoCostPerSecondaryShare: 'IPO cost / secondary share',
+          secondarySharesTotal: 'Secondary shares total',
+          allocationByLot: 'Allocation by subscription lot',
+          distribution: 'Distribution',
+          shares: 'Shares',
+          remainingPerShare: 'Remaining / share',
+          ipoSellDetails: 'IPO sell details',
+          sharesToSell: 'Number of shares to sell',
+          ipoPriceTotal: 'Total IPO price',
+          actualCosts: 'Actual costs',
+          hmo20: 'HMO 20%',
+          hmo40: 'HMO 40%',
+          capitalGain: 'Capital gain',
+          taxFreePart: 'Tax-free part',
+          taxedPart: 'Taxed part',
+          totalRow: 'Total',
+          ipoSummary: 'IPO summary',
+          grossSale: 'Gross sale',
+          netCash: 'In cash',
+          taxMan: 'To tax man',
+          totalLosses: 'Total losses',
+          taxableCapitalGain: 'Taxable capital gain',
+          sharesLeft: 'Shares remaining',
+          taxReturns: 'Tax return summary',
+          yearWarningMissingMathValue:
+            'Dividend tax split could not be calculated without the year-specific mathematical value / share.',
+          taxableCapitalIncome: 'Taxable capital income',
+          taxFreeCapitalIncome: 'Tax-free capital income',
+          taxableEarnedDividend: 'Taxable earned-income dividend',
+          taxFreeEarnedDividend: 'Tax-free earned-income dividend',
+          ipoSaleAllocation: 'IPO sale allocation',
+          save: 'Save to browser',
+          load: 'Load saved',
+          restoreExample: 'Restore example',
+          clearExample: 'Clear example',
+          storage: 'Storage',
+          saved: 'Saved',
+          loaded: 'Loaded',
+          exampleRestored: 'Example restored',
+          exampleCleared: 'Example data cleared',
+          sourceDividends: 'Tax Admin: Dividends from an unlisted company',
+          source9a: 'Tax Admin: Form 9A instructions',
+          sourceSales: 'Tax Admin: Sale of shares',
+          typeCapitalReturn: 'Capital repayment',
+          typeDividend: 'Dividend',
+        }
+      : {
+          languageTitle: 'Kieli',
+          ipoCalculatorTitle: 'IPO-laskuri osakkeille',
+          intro:
+            'Laskee p\xE4\xE4omanpalautusten kohdistuksen, hankintamenon j\xE4ljell\xE4 olevan m\xE4\xE4r\xE4n sek\xE4 IPO-myynnin verollisen ja nettom\xE4\xE4r\xE4isen lopputuloksen.',
+          unlistedIntro:
+            'T\xE4m\xE4 laskuri on tarkoitettu ennen listautumista olevalle listaamattomalle yhti\xF6lle. IPO-p\xE4iv\xE4st\xE4 eteenp\xE4in varojenjako k\xE4sitell\xE4\xE4n t\xE4ss\xE4 n\xE4kym\xE4ss\xE4 osinkona.',
+          assumptions: 'Laskennan oletukset',
+          subscriptions: 'Osakemerkinn\xE4t',
+          rows: 'rivi\xE4',
+          subscriptionsHelp:
+            'Sy\xF6t\xE4 kaikki merkint\xE4er\xE4t omassa hankintaj\xE4rjestyksess\xE4. Myynniss\xE4 k\xE4ytet\xE4\xE4n FIFO-periaatetta.',
+          date: 'P\xE4iv\xE4',
+          amount: 'M\xE4\xE4r\xE4',
+          totalPrice: 'Kokonaishinta',
+          originalShareValue: 'Alkuper\xE4inen osakkeen arvo',
+          capitalRepaymentPerShare: 'P\xE4\xE4omanpalautus / osake',
+          remainingCostPerShare: 'J\xE4ljell\xE4 oleva hankintameno / osake',
+          remove: 'Poista',
+          addSubscription: 'Lis\xE4\xE4 merkint\xE4',
+          payouts: 'Osingot ja p\xE4\xE4omanpalautukset',
+          payoutsHelp:
+            'Yhteens\xE4 ja maksettu k\xE4teisen\xE4 lasketaan automaattisesti osakekohtaisen m\xE4\xE4r\xE4n, omistuksen ja ennakonpid\xE4tyksen perusteella.',
+          type: 'Tyyppi',
+          amountPerShare: '\u20AC/osake',
+          total: 'Yhteens\xE4',
+          withholding: 'Ennakko verottajalle',
+          cashPaid: 'Maksettu k\xE4teisen\xE4',
+          capitalRepayment: 'P\xE4\xE4omanpalautus',
+          dividend: 'Osinko',
+          addPayout: 'Lis\xE4\xE4 varojenjako',
+          ipoDetails: 'IPO-tiedot',
+          ipoDate: 'IPO-p\xE4iv\xE4',
+          totalShareCount: 'Osakkeiden kokonaism\xE4\xE4r\xE4',
+          totalIpoCost: 'IPO-kulut yhteens\xE4',
+          currentShareValue: 'Nykyinen osakkeen arvo',
+          currentTotalValue: 'Nykyinen kokonaisarvo',
+          estimatedPreIpoValue: 'Arvioitu pre-IPO-arvo',
+          ipoSharePrice: 'IPO-hinta / osake',
+          increasePercent: 'Nousu %',
+          increaseMultiplier: 'Kerroin',
+          secondarySellPercent: 'Arvioitu secondary-myynti %',
+          secondaryHelp: 'K\xE4ytet\xE4\xE4n IPO-kulun allokointiin per myyty osake.',
+          mathematicalValues: 'Matemaattinen arvo / osake tunnetuille vuosille',
+          year: 'Vuosi',
+          valuePerShare: 'Arvo / osake',
+          addYear: 'Lis\xE4\xE4 vuosi',
+          summary: 'Yhteenveto',
+          subscribedShares: 'Merkittyj\xE4 osakkeita',
+          subscribedCost: 'Merkint\xF6jen hankintameno',
+          ipoPricePerShare: 'IPO-hinta / osake',
+          currentValuePerShare: 'Nykyarvo / osake',
+          ipoCostPerSecondaryShare: 'IPO-kulu / secondary-osake',
+          secondarySharesTotal: 'Secondary-osakkeita yhteens\xE4',
+          allocationByLot: 'Kohdistus merkint\xE4erille',
+          distribution: 'Varojenjako',
+          shares: 'Osakkeita',
+          remainingPerShare: 'J\xE4ljell\xE4 / osake',
+          ipoSellDetails: 'IPO-myynnin tiedot',
+          sharesToSell: 'Myyt\xE4vien osakkeiden m\xE4\xE4r\xE4',
+          ipoPriceTotal: 'IPO-hinta yhteens\xE4',
+          actualCosts: 'Todelliset kulut',
+          hmo20: 'HMO 20 %',
+          hmo40: 'HMO 40 %',
+          capitalGain: 'Luovutusvoitto',
+          taxFreePart: 'Veroton osa',
+          taxedPart: 'Verotettava osa',
+          totalRow: 'Yhteens\xE4',
+          ipoSummary: 'IPOn yhteenveto',
+          grossSale: 'Myynti brutto',
+          netCash: 'K\xE4teen',
+          taxMan: 'Verottajalle',
+          totalLosses: 'Tappiot yhteens\xE4',
+          taxableCapitalGain: 'Verotettava luovutusvoitto',
+          sharesLeft: 'Osakkeita j\xE4ljelle',
+          taxReturns: 'Yhteenveto veroilmoituksista',
+          yearWarningMissingMathValue:
+            'Osinkoverotuksen jakoa ei voitu laskea ilman vuoden matemaattista arvoa / osake.',
+          taxableCapitalIncome: 'Veronalaista p\xE4\xE4omatuloa',
+          taxFreeCapitalIncome: 'Verotonta p\xE4\xE4omatuloa',
+          taxableEarnedDividend: 'Veronalaista ansiotulo-osinkoa',
+          taxFreeEarnedDividend: 'Verotonta ansiotulo-osinkoa',
+          ipoSaleAllocation: 'IPO-myynnin jako',
+          save: 'Tallenna selaimeen',
+          load: 'Lataa tallennettu',
+          restoreExample: 'Palauta esimerkki',
+          clearExample: 'Poista esimerkki',
+          storage: 'Tallennus',
+          saved: 'Tallennettu',
+          loaded: 'Ladattu',
+          exampleRestored: 'Esimerkki palautettu',
+          exampleCleared: 'Esimerkkidata poistettu',
+          sourceDividends: 'Verohallinto: Osingot listaamattomasta yhti\xF6st\xE4',
+          source9a: 'Verohallinto: 9A t\xE4ytt\xF6ohje',
+          sourceSales: 'Verohallinto: Osakkeiden myynti',
+          typeCapitalReturn: 'P\xE4\xE4omanpalautus',
+          typeDividend: 'Osinko',
+        }
+  }
+  function initialSubscriptions() {
+    return [
+      { id: createId2('sub'), date: '15.05.2017', amount: '100000', totalPrice: '8000', originalShareValue: '0.08' },
+      { id: createId2('sub'), date: '01.10.2021', amount: '25000', totalPrice: '11250', originalShareValue: '0.45' },
+    ]
+  }
+  function initialReimbursements() {
+    return [
+      { id: createId2('reimb'), type: 'capital_return', date: '30.06.2024', amountPerShare: '0.12' },
+      { id: createId2('reimb'), type: 'dividend', date: '30.06.2025', amountPerShare: '0.20' },
+    ]
+  }
+  function initialMathematicalShareValues() {
+    return [
+      { id: createId2('math'), year: '2024', valuePerShare: '1.28' },
+      { id: createId2('math'), year: '2025', valuePerShare: '1.35' },
+      { id: createId2('math'), year: '2026', valuePerShare: '1.40' },
+    ]
+  }
+  function initialIpoDetails() {
+    return {
+      ipoDate: '15.09.2026',
+      totalShareCount: '2500000',
+      totalIpoCost: '1800000',
+      currentShareValue: '66',
+      estimatedPreIpoValue: '125000000',
+      estimatedSecondaryShareSellPercentage: '12',
+    }
+  }
+  function initialSellDetails() {
+    return {
+      amount: '50000',
+    }
+  }
+  function createDefaultData() {
+    return {
+      subscriptions: initialSubscriptions(),
+      reimbursements: initialReimbursements(),
+      mathematicalShareValues: initialMathematicalShareValues(),
+      ipo: initialIpoDetails(),
+      sell: initialSellDetails(),
+    }
+  }
+  function createEmptyData() {
+    return {
+      subscriptions: [{ id: createId2('sub'), date: '', amount: '', totalPrice: '', originalShareValue: '' }],
+      reimbursements: [{ id: createId2('reimb'), type: 'capital_return', date: '', amountPerShare: '' }],
+      mathematicalShareValues: [{ id: createId2('math'), year: '', valuePerShare: '' }],
+      ipo: {
+        ipoDate: '',
+        totalShareCount: '',
+        totalIpoCost: '',
+        currentShareValue: '',
+        estimatedPreIpoValue: '',
+        estimatedSecondaryShareSellPercentage: '',
+      },
+      sell: {
+        amount: '',
+      },
+    }
+  }
+  function formStorageKey() {
+    return 'osakkeet-ipo-laskuri'
+  }
+  function normalizeLoadedData(parsed) {
+    const ipo = parsed.ipo || {}
+    return {
+      subscriptions: (parsed.subscriptions || []).map((subscription) => ({
+        ...subscription,
+        totalPrice: subscription.totalPrice || subscription.pricePerShare || '',
+        originalShareValue: subscription.originalShareValue || subscription.pricePerShare || '',
+      })),
+      reimbursements: (parsed.reimbursements || []).map((reimbursement) => ({
+        ...reimbursement,
+        type: reimbursement.type || 'capital_return',
+      })),
+      mathematicalShareValues: (parsed.mathematicalShareValues || []).map((row) => ({
+        ...row,
+      })),
+      ipo: {
+        ipoDate: ipo.ipoDate || '',
+        totalShareCount: ipo.totalShareCount || '',
+        totalIpoCost: ipo.totalIpoCost || '',
+        currentShareValue: ipo.currentShareValue || '',
+        estimatedPreIpoValue: ipo.estimatedPreIpoValue || '',
+        estimatedSecondaryShareSellPercentage: ipo.estimatedSecondaryShareSellPercentage || '',
+      },
+      sell: {
+        ...createEmptyData().sell,
+        ...parsed.sell,
+      },
+    }
+  }
+  function tryLoadSavedData() {
+    const saved = localStorage.getItem(formStorageKey())
+    if (!saved) return createDefaultData()
+    try {
+      const parsed = JSON.parse(saved)
+      return normalizeLoadedData(parsed)
+    } catch {
+      return createDefaultData()
+    }
+  }
+  function updateArrayItem(items, id, patch) {
+    return items.map((item) => (item.id === id ? { ...item, ...patch } : item))
+  }
+  function removeArrayItem(items, id) {
+    return items.filter((item) => item.id !== id)
+  }
+  function textField(labelText, inputNode, help) {
+    return div(pageStyles.field, label(labelText), inputNode, help && span({ class: 'muted' }, help))
+  }
+  function finnishDateInput(value, onInput, onChange) {
+    return inputs.text(
+      {
+        value,
+        placeholder: 'pp.kk.vvvv',
+        inputMode: 'numeric',
+      },
+      pageStyles.input,
+      events({
+        input({ node }) {
+          onInput(node.value)
+        },
+        change({ node }) {
+          onChange == null ? void 0 : onChange(node.value)
+        },
+      })
+    )
+  }
+  function infoCard(title2, value, help) {
+    return div(
+      pageStyles.summaryItem,
+      span({ class: 'muted' }, title2),
+      b(value),
+      help && span({ class: 'muted' }, help)
+    )
+  }
+  function linkToSource(textValue, href) {
+    return a(textValue, { href, target: '_blank', rel: 'noreferrer' })
+  }
+  function assumptionsContent(language) {
+    const t = texts(language)
+    return div(
+      pageStyles.denseStack,
+      h3(t.assumptions),
+      ul(
+        li(
+          language === 'en'
+            ? 'Sales are allocated to subscription lots using FIFO.'
+            : 'Myynti kohdistetaan merkint\xE4eriin FIFO-j\xE4rjestyksess\xE4.'
+        ),
+        li(
+          language === 'en'
+            ? 'Before the IPO date, distributions from invested unrestricted equity are treated as capital repayment only to the extent the same shareholder gets back their own investment made within the last 10 years.'
+            : 'Ennen IPO-p\xE4iv\xE4\xE4 tehdyt SVOP-varojenjaot k\xE4sitell\xE4\xE4n p\xE4\xE4omanpalautuksena vain silt\xE4 osin kuin sama osakas saa takaisin omaa enint\xE4\xE4n 10 vuotta vanhaa sijoitustaan.'
+        ),
+        li(
+          language === 'en'
+            ? 'On and after the IPO date, distributions are treated as dividends in this calculator.'
+            : 'IPO-p\xE4iv\xE4n\xE4 tai sen j\xE4lkeen tehdyt varojenjaot k\xE4sitell\xE4\xE4n t\xE4ss\xE4 laskurissa kokonaan osinkona.'
+        ),
+        li(
+          language === 'en'
+            ? 'Tax categories for dividends from an unlisted company are calculated using the entered mathematical value per share for each year.'
+            : 'Listaamattoman yhti\xF6n osingon verolajit lasketaan sy\xF6tetyn osakkeiden matemaattisen arvon perusteella.'
+        ),
+        li(
+          language === 'en'
+            ? 'The deemed acquisition cost is compared separately for each subscription lot used in the sale.'
+            : 'Hankintameno-olettama vertaillaan jokaiselle k\xE4ytetylle merkint\xE4er\xE4lle erikseen.'
+        ),
+        li(
+          language === 'en'
+            ? 'Capital income tax is estimated only for this sale using the 2026 30% / 34% rates.'
+            : 'P\xE4\xE4omatulovero arvioidaan vain t\xE4m\xE4n myynnin perusteella vuoden 2026 30 % / 34 % verokannoilla.'
+        )
+      ),
+      p(
+        { class: 'muted' },
+        language === 'en' ? 'Sources: ' : 'L\xE4hteet: ',
+        linkToSource(
+          t.sourceDividends,
+          'https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osingot/osingot-listaamattomasta-yhtiosta/'
+        ),
+        ', ',
+        linkToSource(
+          t.source9a,
+          'https://www.vero.fi/tietoa-verohallinnosta/yhteystiedot-ja-asiointi/lomakkeet/tayttoohjeet/9a-arvopapereiden-luovutusvoitot-ja--tappiot-t%C3%A4ytt%C3%B6ohje/'
+        ),
+        ', ',
+        linkToSource(t.sourceSales, 'https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osakkeiden_myynt/')
+      )
+    )
+  }
+  function renderMathematicalShareValuesEditor(target, dataState, language) {
+    const t = texts(language)
+    replaceChildren(
+      target,
+      h3(t.mathematicalValues),
+      table(
+        thead(tr(th(t.year), th(t.valuePerShare), th({ class: 'no-print' }, ''))),
+        tbody(
+          dataState.get().mathematicalShareValues.map((row) =>
+            tr(
+              td(
+                inputs.number(
+                  { step: '1', min: '0', value: row.year },
+                  pageStyles.input,
+                  events({
+                    input({ node }) {
+                      dataState.update({
+                        mathematicalShareValues: updateArrayItem(dataState.get().mathematicalShareValues, row.id, {
+                          year: node.value,
+                        }),
+                      })
+                    },
+                  })
+                )
+              ),
+              td(
+                inputs.number(
+                  { step: '0.0001', min: '0', value: row.valuePerShare },
+                  pageStyles.input,
+                  events({
+                    input({ node }) {
+                      dataState.update({
+                        mathematicalShareValues: updateArrayItem(dataState.get().mathematicalShareValues, row.id, {
+                          valuePerShare: node.value,
+                        }),
+                      })
+                    },
+                  })
+                )
+              ),
+              td(
+                { class: 'no-print' },
+                button(
+                  t.remove,
+                  pageStyles.smallButton,
+                  events({
+                    click() {
+                      dataState.update({
+                        mathematicalShareValues: removeArrayItem(dataState.get().mathematicalShareValues, row.id),
+                      })
+                      renderMathematicalShareValuesEditor(target, dataState, language)
+                    },
+                  })
+                )
+              )
+            )
+          )
+        )
+      ),
+      div(
+        pageStyles.rowButtons,
+        button(
+          t.addYear,
+          { class: 'blueButton' },
+          events({
+            click() {
+              dataState.update({
+                mathematicalShareValues: [
+                  ...dataState.get().mathematicalShareValues,
+                  { id: createId2('math'), year: '', valuePerShare: '' },
+                ],
+              })
+              renderMathematicalShareValuesEditor(target, dataState, language)
+            },
+          })
+        )
+      )
+    )
+  }
+  function taxSummarySection(calculation, language) {
+    var _a2
+    const t = texts(language)
+    const zeroMoney = calculation.ipo.totalIpoCost.mul(0)
+    const yearSet = /* @__PURE__ */ new Set()
+    calculation.reimbursements.forEach((reimbursement) => {
+      var _a3
+      const date = (_a3 = reimbursement.date.match(/(\d{4})$/)) == null ? void 0 : _a3[1]
+      if (date) yearSet.add(Number(date))
+    })
+    const ipoYear = (_a2 = calculation.ipo.ipoDate) == null ? void 0 : _a2.getUTCFullYear()
+    if (ipoYear && calculation.sell.grossTotal.gt(0)) {
+      yearSet.add(ipoYear)
+    }
+    const years = [...yearSet].sort((a2, b2) => a2 - b2)
+    if (years.length === 0) return false
+    return div(
+      years.map((year) => {
+        const yearEntries = calculation.reimbursements.filter((reimbursement) =>
+          reimbursement.date.endsWith(String(year))
+        )
+        const yearMathWarnings = yearEntries.filter(
+          (row) => row.dividendTotal.gt(0) && row.shareholderMathematicalValue.eq(0)
+        )
+        const totalCapitalRepayment = yearEntries.reduce((acc, row) => acc.add(row.capitalRepaymentTotal), zeroMoney)
+        const totalTaxableCapitalIncome = yearEntries.reduce((acc, row) => acc.add(row.taxableCapitalIncome), zeroMoney)
+        const totalTaxFreeCapitalIncome = yearEntries.reduce(
+          (acc, row) => acc.add(row.taxFreeCapitalIncomePortion),
+          zeroMoney
+        )
+        const totalTaxableEarnedDividend = yearEntries.reduce(
+          (acc, row) => acc.add(row.taxableEarnedDividend),
+          zeroMoney
+        )
+        const totalTaxFreeEarnedDividend = yearEntries.reduce(
+          (acc, row) => acc.add(row.taxFreeEarnedDividend),
+          zeroMoney
+        )
+        const totalWithholding = yearEntries.reduce((acc, row) => acc.add(row.withholdingToTaxOffice), zeroMoney)
+        const totalCash = yearEntries.reduce((acc, row) => acc.add(row.paidInCash), zeroMoney)
+        return div(
+          pageStyles.denseStack,
+          h3(String(year)),
+          yearMathWarnings.length > 0 &&
+            div(
+              pageStyles.warningBox,
+              ul(yearMathWarnings.map((row) => li(`${row.date}: ${t.yearWarningMissingMathValue}`)))
+            ),
+          yearEntries.length > 0 &&
+            table(
+              thead(
+                tr(
+                  th(t.date),
+                  th(t.type),
+                  th(t.capitalRepayment),
+                  th(t.taxableCapitalIncome),
+                  th(t.taxFreeCapitalIncome),
+                  th(t.taxableEarnedDividend),
+                  th(t.taxFreeEarnedDividend),
+                  th(t.withholding),
+                  th(t.cashPaid)
+                )
+              ),
+              tbody(
+                yearEntries.map((row) =>
+                  tr(
+                    td(row.date),
+                    td(row.type === 'dividend' ? t.typeDividend : t.typeCapitalReturn),
+                    td(euro(row.capitalRepaymentTotal)),
+                    td(euro(row.taxableCapitalIncome)),
+                    td(euro(row.taxFreeCapitalIncomePortion)),
+                    td(euro(row.taxableEarnedDividend)),
+                    td(euro(row.taxFreeEarnedDividend)),
+                    td(euro(row.withholdingToTaxOffice)),
+                    td(euro(row.paidInCash))
+                  )
+                ),
+                tr(
+                  td(b(t.totalRow)),
+                  td(),
+                  td(euro(totalCapitalRepayment)),
+                  td(euro(totalTaxableCapitalIncome)),
+                  td(euro(totalTaxFreeCapitalIncome)),
+                  td(euro(totalTaxableEarnedDividend)),
+                  td(euro(totalTaxFreeEarnedDividend)),
+                  td(euro(totalWithholding)),
+                  td(euro(totalCash))
+                )
+              )
+            ),
+          ipoYear === year &&
+            calculation.sell.grossTotal.gt(0) &&
+            div(
+              pageStyles.denseStack,
+              h3(t.ipoSaleAllocation),
+              div(
+                pageStyles.summaryGrid,
+                infoCard(t.grossSale, euro(calculation.sell.grossTotal)),
+                infoCard(t.totalIpoCost, euro(calculation.sell.totalIpoCostAllocated)),
+                infoCard(t.taxableCapitalGain, euro(calculation.sell.taxableGainTotal)),
+                infoCard(t.taxMan, euro(calculation.sell.estimatedTax)),
+                infoCard(t.netCash, euro(calculation.sell.netAfterTaxAndIpoCost)),
+                infoCard(
+                  t.totalLosses,
+                  euro(
+                    calculation.sell.grossTotal
+                      .minus(calculation.sell.netAfterTaxAndIpoCost)
+                      .minus(calculation.sell.estimatedTax)
+                  )
+                )
+              )
+            )
+        )
+      })
+    )
+  }
+  function renderSubscriptionsEditor(target, dataState, calculation, language) {
+    const t = texts(language)
+    const current = dataState.get()
+    const summariesById = Object.fromEntries(
+      calculation.subscriptions.map((subscription) => [subscription.id, subscription])
+    )
+    replaceChildren(
+      target,
+      div(
+        { class: 'heading' },
+        h2(t.subscriptions),
+        span({ class: 'muted' }, `${current.subscriptions.length} ${t.rows}`)
+      ),
+      p({ class: 'muted' }, t.subscriptionsHelp),
+      table(
+        thead(
+          tr(
+            th(t.date),
+            th(t.amount),
+            th(t.totalPrice),
+            th(t.originalShareValue),
+            th(t.capitalRepaymentPerShare),
+            th(t.remainingCostPerShare),
+            th({ class: 'no-print' }, '')
+          )
+        ),
+        tbody(
+          current.subscriptions.map((subscription) =>
+            tr(
+              td(
+                finnishDateInput(
+                  subscription.date,
+                  (value) => {
+                    dataState.update({
+                      subscriptions: updateArrayItem(dataState.get().subscriptions, subscription.id, {
+                        date: value,
+                      }),
+                    })
+                  },
+                  () => renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
+                )
+              ),
+              td(
+                inputs.number(
+                  {
+                    step: '1',
+                    min: '0',
+                    value: subscription.amount,
+                  },
+                  pageStyles.input,
+                  events({
+                    input({ node }) {
+                      dataState.update({
+                        subscriptions: updateArrayItem(dataState.get().subscriptions, subscription.id, {
+                          amount: node.value,
+                        }),
+                      })
+                    },
+                    change() {
+                      renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
+                    },
+                  })
+                )
+              ),
+              td(
+                inputs.number(
+                  {
+                    step: '0.01',
+                    min: '0',
+                    value: subscription.totalPrice,
+                  },
+                  pageStyles.input,
+                  events({
+                    input({ node }) {
+                      dataState.update({
+                        subscriptions: updateArrayItem(dataState.get().subscriptions, subscription.id, {
+                          totalPrice: node.value,
+                        }),
+                      })
+                    },
+                    change() {
+                      renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
+                    },
+                  })
+                )
+              ),
+              td(
+                inputs.number(
+                  {
+                    step: '0.0001',
+                    min: '0',
+                    value: subscription.originalShareValue,
+                  },
+                  pageStyles.input,
+                  events({
+                    input({ node }) {
+                      dataState.update({
+                        subscriptions: updateArrayItem(dataState.get().subscriptions, subscription.id, {
+                          originalShareValue: node.value,
+                        }),
+                      })
+                    },
+                  })
+                )
+              ),
+              td(summariesById[subscription.id] ? euro(summariesById[subscription.id].capitalRepaymentPerShare) : '-'),
+              td(summariesById[subscription.id] ? euro(summariesById[subscription.id].remainingCostPerShare) : '-'),
+              td(
+                { class: 'no-print' },
+                button(
+                  t.remove,
+                  pageStyles.smallButton,
+                  events({
+                    click() {
+                      dataState.update({
+                        subscriptions: removeArrayItem(dataState.get().subscriptions, subscription.id),
+                      })
+                      renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
+                    },
+                  })
+                )
+              )
+            )
+          )
+        )
+      ),
+      div(
+        pageStyles.rowButtons,
+        button(
+          t.addSubscription,
+          { class: 'blueButton' },
+          events({
+            click() {
+              dataState.update({
+                subscriptions: [
+                  ...dataState.get().subscriptions,
+                  { id: createId2('sub'), date: '', amount: '', totalPrice: '', originalShareValue: '' },
+                ],
+              })
+              renderSubscriptionsEditor(target, dataState, calculateOsakkeet(dataState.get()), language)
+            },
+          })
+        )
+      )
+    )
+  }
+  function renderReimbursementsEditor(target, dataState, calculation, refreshRelatedValues, language) {
+    const t = texts(language)
+    const current = dataState.get()
+    const summariesById = Object.fromEntries(
+      calculation.reimbursements.map((reimbursement) => [reimbursement.id, reimbursement])
+    )
+    replaceChildren(
+      target,
+      div({ class: 'heading' }, h2(t.payouts), span({ class: 'muted' }, `${current.reimbursements.length} ${t.rows}`)),
+      p({ class: 'muted' }, t.payoutsHelp),
+      table(
+        thead(
+          tr(
+            th(t.date),
+            th(t.type),
+            th(t.amountPerShare),
+            th(t.total),
+            th(t.withholding),
+            th(t.cashPaid),
+            th(t.capitalRepayment),
+            th(t.dividend),
+            th({ class: 'no-print' }, '')
+          )
+        ),
+        tbody(
+          current.reimbursements.map((reimbursement) =>
+            tr(
+              td(
+                finnishDateInput(
+                  reimbursement.date,
+                  (value) => {
+                    dataState.update({
+                      reimbursements: updateArrayItem(dataState.get().reimbursements, reimbursement.id, {
+                        date: value,
+                      }),
+                    })
+                  },
+                  () => refreshRelatedValues()
+                )
+              ),
+              td(
+                select(
+                  pageStyles.input,
+                  { value: reimbursement.type },
+                  events({
+                    change({ node }) {
+                      dataState.update({
+                        reimbursements: updateArrayItem(dataState.get().reimbursements, reimbursement.id, {
+                          type: node.value,
+                        }),
+                      })
+                      refreshRelatedValues()
+                    },
+                  }),
+                  option(t.typeCapitalReturn, { value: 'capital_return' }),
+                  option(t.typeDividend, { value: 'dividend' })
+                )
+              ),
+              td(
+                inputs.number(
+                  { step: '0.0001', min: '0', value: reimbursement.amountPerShare },
+                  pageStyles.input,
+                  events({
+                    input({ node }) {
+                      dataState.update({
+                        reimbursements: updateArrayItem(dataState.get().reimbursements, reimbursement.id, {
+                          amountPerShare: node.value,
+                        }),
+                      })
+                    },
+                    change() {
+                      refreshRelatedValues()
+                    },
+                  })
+                )
+              ),
+              td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].grossTotal) : '-'),
+              td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].withholdingToTaxOffice) : '-'),
+              td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].paidInCash) : '-'),
+              td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].capitalRepaymentTotal) : '-'),
+              td(summariesById[reimbursement.id] ? euro(summariesById[reimbursement.id].dividendTotal) : '-'),
+              td(
+                { class: 'no-print' },
+                button(
+                  t.remove,
+                  pageStyles.smallButton,
+                  events({
+                    click() {
+                      dataState.update({
+                        reimbursements: removeArrayItem(dataState.get().reimbursements, reimbursement.id),
+                      })
+                      refreshRelatedValues()
+                    },
+                  })
+                )
+              )
+            )
+          )
+        )
+      ),
+      div(
+        pageStyles.rowButtons,
+        button(
+          t.addPayout,
+          { class: 'blueButton' },
+          events({
+            click() {
+              dataState.update({
+                reimbursements: [
+                  ...dataState.get().reimbursements,
+                  { id: createId2('reimb'), type: 'capital_return', date: '', amountPerShare: '' },
+                ],
+              })
+              refreshRelatedValues()
+            },
+          })
+        )
+      )
+    )
+  }
+  function renderIpoEditor(target, dataState, calculation, language) {
+    const t = texts(language)
+    const { ipo } = dataState.get()
+    const currentTotalValueNode = b(euro(calculation.ipo.currentTotalValue))
+    const ipoSharePriceNode = b(euro(calculation.ipo.ipoPricePerShare))
+    const increasePercentNode = b(percentage(calculation.ipo.increasePercentage))
+    const increaseMultiplierNode = b(multiplier(calculation.ipo.increaseMultiplier))
+    const updateDerivedIpoValues = () => {
+      const nextIpo = calculateOsakkeet(dataState.get()).ipo
+      currentTotalValueNode.textContent = euro(nextIpo.currentTotalValue)
+      ipoSharePriceNode.textContent = euro(nextIpo.ipoPricePerShare)
+      increasePercentNode.textContent = percentage(nextIpo.increasePercentage)
+      increaseMultiplierNode.textContent = multiplier(nextIpo.increaseMultiplier)
+    }
+    replaceChildren(
+      target,
+      h2(t.ipoDetails),
+      div(
+        pageStyles.gridTwo,
+        textField(
+          t.currentShareValue,
+          inputs.number(
+            { step: '0.01', min: '0', value: ipo.currentShareValue },
+            pageStyles.input,
+            events({
+              input({ node }) {
+                dataState.update({ ipo: { ...dataState.get().ipo, currentShareValue: node.value } })
+                updateDerivedIpoValues()
+              },
+            })
+          )
+        ),
+        textField(
+          t.totalShareCount,
+          inputs.number(
+            { step: '1', min: '0', value: ipo.totalShareCount },
+            pageStyles.input,
+            events({
+              input({ node }) {
+                dataState.update({ ipo: { ...dataState.get().ipo, totalShareCount: node.value } })
+                updateDerivedIpoValues()
+              },
+            })
+          )
+        ),
+        div(pageStyles.field, label(t.currentTotalValue), currentTotalValueNode),
+        div()
+      ),
+      div(
+        pageStyles.gridTwo,
+        textField(
+          t.estimatedPreIpoValue,
+          inputs.number(
+            { step: '0.01', min: '0', value: ipo.estimatedPreIpoValue },
+            pageStyles.input,
+            events({
+              input({ node }) {
+                dataState.update({ ipo: { ...dataState.get().ipo, estimatedPreIpoValue: node.value } })
+                updateDerivedIpoValues()
+              },
+            })
+          )
+        ),
+        div(pageStyles.field, label(t.ipoSharePrice), ipoSharePriceNode),
+        textField(
+          t.totalIpoCost,
+          inputs.number(
+            { step: '0.01', min: '0', value: ipo.totalIpoCost },
+            pageStyles.input,
+            events({
+              input({ node }) {
+                dataState.update({ ipo: { ...dataState.get().ipo, totalIpoCost: node.value } })
+              },
+            })
+          )
+        ),
+        textField(
+          t.secondarySellPercent,
+          inputs.number(
+            { step: '0.01', min: '0', value: ipo.estimatedSecondaryShareSellPercentage },
+            pageStyles.input,
+            events({
+              input({ node }) {
+                dataState.update({
+                  ipo: { ...dataState.get().ipo, estimatedSecondaryShareSellPercentage: node.value },
+                })
+              },
+            })
+          ),
+          t.secondaryHelp
+        ),
+        textField(
+          t.ipoDate,
+          finnishDateInput(ipo.ipoDate, (value) => {
+            dataState.update({ ipo: { ...dataState.get().ipo, ipoDate: value } })
+          }),
+          language === 'en'
+            ? 'Format dd.mm.yyyy. The same date is used when checking eligibility for the 10-year deemed acquisition cost.'
+            : 'Muoto pp.kk.vvvv. Samaa p\xE4iv\xE4\xE4 k\xE4ytet\xE4\xE4n 10 vuoden hankintameno-olettaman tarkistukseen.'
+        )
+      ),
+      div(
+        pageStyles.gridTwo,
+        div(pageStyles.field, label(t.increasePercent), increasePercentNode),
+        div(pageStyles.field, label(t.increaseMultiplier), increaseMultiplierNode)
+      )
+    )
+  }
+  function renderResultSummary(target, calculation, dataState, language) {
+    const t = texts(language)
+    const reimbursementRows = calculation.reimbursements.flatMap((entry) =>
+      entry.allocations.map((allocation) =>
+        tr(
+          td(entry.date),
+          td(allocation.subscriptionDate),
+          td(amount(allocation.shares)),
+          td(euro(allocation.capitalRepayment)),
+          td(euro(allocation.dividend)),
+          td(euro(allocation.remainingCostPerShareAfter))
+        )
+      )
+    )
+    const totalLosses = calculation.sell.grossTotal
+      .minus(calculation.sell.netAfterTaxAndIpoCost)
+      .minus(calculation.sell.estimatedTax)
+    const grossTotal = calculation.sell.grossTotal
+    const grossPercent = (value) => (grossTotal.gt(0) ? value.div(grossTotal).mul(100).toFixed(2) : '0.00')
+    const zeroMoney = calculation.sell.grossTotal.mul(0)
+    const totalActualDeduction = calculation.sell.usedSubscriptions.reduce(
+      (acc, lot) => acc.add(lot.actualDeduction),
+      zeroMoney
+    )
+    const totalHmo20 = calculation.sell.usedSubscriptions.reduce((acc, lot) => acc.add(lot.gross.mul(0.2)), zeroMoney)
+    const totalHmo40 = calculation.sell.usedSubscriptions.reduce((acc, lot) => acc.add(lot.gross.mul(0.4)), zeroMoney)
+    const totalTaxableGain = calculation.sell.usedSubscriptions.reduce(
+      (acc, lot) => acc.add(lot.taxableGain),
+      zeroMoney
+    )
+    const totalTaxFreeGain = calculation.sell.usedSubscriptions.reduce(
+      (acc, lot) => acc.add(lot.taxFreeGainPart),
+      zeroMoney
+    )
+    const totalTaxedGain = calculation.sell.usedSubscriptions.reduce(
+      (acc, lot) => acc.add(lot.taxedGainPart),
+      zeroMoney
+    )
+    replaceChildren(
+      target,
+      calculation.errors.length > 0 &&
+        div(
+          pageStyles.errorBox,
+          h3('Sy\xF6tteiss\xE4 on korjattavaa'),
+          ul(calculation.errors.map((error) => li(error)))
+        ),
+      calculation.warnings.filter((warning) => !isYearMathValueWarning(warning)).length > 0 &&
+        div(
+          pageStyles.warningBox,
+          h3('Huomiot'),
+          ul(calculation.warnings.filter((warning) => !isYearMathValueWarning(warning)).map((warning) => li(warning)))
+        ),
+      section(
+        { class: 'card' },
+        h2(t.summary),
+        div(
+          pageStyles.summaryGrid,
+          infoCard(t.subscribedShares, amount(calculation.ipo.totalSubscribedShares)),
+          infoCard(t.subscribedCost, euro(calculation.ipo.totalSubscribedCost)),
+          infoCard(t.ipoPricePerShare, euro(calculation.ipo.ipoPricePerShare)),
+          infoCard(t.currentValuePerShare, euro(calculation.ipo.currentValuePerShare)),
+          infoCard(t.ipoCostPerSecondaryShare, euro(calculation.ipo.ipoCostPerShare)),
+          infoCard(t.secondarySharesTotal, amount(calculation.ipo.estimatedSecondaryShareCount))
+        )
+      ),
+      calculation.reimbursements.length > 0 &&
+        section(
+          { class: 'card' },
+          h2(t.allocationByLot),
+          table(
+            thead(
+              tr(
+                th(t.distribution),
+                th(t.subscriptions),
+                th(t.shares),
+                th(t.capitalRepayment),
+                th(t.dividend),
+                th(t.remainingPerShare)
+              )
+            ),
+            tbody(reimbursementRows)
+          )
+        ),
+      section(
+        { class: 'card' },
+        h2(t.ipoSellDetails),
+        div(
+          pageStyles.gridTwo,
+          textField(
+            t.sharesToSell,
+            inputs.number(
+              { step: '1', min: '0', value: dataState.get().sell.amount },
+              pageStyles.input,
+              events({
+                input({ node }) {
+                  dataState.update({ sell: { ...dataState.get().sell, amount: node.value } })
+                },
+              })
+            )
+          )
+        ),
+        h3(t.allocationByLot),
+        table(
+          thead(
+            tr(
+              th(t.date),
+              th(t.amount),
+              th(t.ipoPriceTotal),
+              th(t.actualCosts),
+              th(t.hmo20),
+              th(t.hmo40),
+              th(t.capitalGain),
+              th(t.taxFreePart),
+              th(t.taxedPart)
+            )
+          ),
+          tbody([
+            calculation.sell.usedSubscriptions.map((lot) =>
+              tr(
+                td(lot.subscriptionDate || '-'),
+                td(`${amount(lot.soldAmount)} / ${amount(lot.totalSubscriptionShares)}`),
+                td(euro(lot.gross)),
+                td(
+                  lot.selectedMethod === 'Todellinen hankintameno + IPO-kulut'
+                    ? b(euro(lot.actualDeduction))
+                    : euro(lot.actualDeduction)
+                ),
+                td(lot.hankintamenoOlettaRate.eq(0.2) ? b(euro(lot.gross.mul(0.2))) : euro(lot.gross.mul(0.2))),
+                td(lot.hankintamenoOlettaRate.eq(0.4) ? b(euro(lot.gross.mul(0.4))) : euro(lot.gross.mul(0.4))),
+                td(lot.taxableGain.gte(0) ? euro(lot.taxableGain) : `${lot.taxableGain.toFixed(2)} \u20AC`),
+                td(euro(lot.taxFreeGainPart)),
+                td(euro(lot.taxedGainPart))
+              )
+            ),
+            tr(
+              td(b(t.totalRow)),
+              td(),
+              td(euro(calculation.sell.grossTotal)),
+              td(euro(totalActualDeduction)),
+              td(euro(totalHmo20)),
+              td(euro(totalHmo40)),
+              td(euro(totalTaxableGain)),
+              td(euro(totalTaxFreeGain)),
+              td(euro(totalTaxedGain))
+            ),
+          ])
+        ),
+        h3(t.ipoSummary),
+        div(
+          pageStyles.summaryGrid,
+          infoCard(t.grossSale, euro(calculation.sell.grossTotal)),
+          infoCard(
+            t.netCash,
+            `${euro(calculation.sell.netAfterTaxAndIpoCost)} (${grossPercent(calculation.sell.netAfterTaxAndIpoCost)} %)`
+          ),
+          infoCard(
+            t.taxMan,
+            `${euro(calculation.sell.estimatedTax)} (${grossPercent(calculation.sell.estimatedTax)} %)`
+          ),
+          infoCard(t.totalLosses, `${euro(totalLosses)} (${grossPercent(totalLosses)} %)`),
+          infoCard(t.taxableCapitalGain, euro(calculation.sell.taxableGainTotal)),
+          infoCard(t.sharesLeft, amount(calculation.sell.remainingUnsoldShares))
+        )
+      )
+    )
+  }
+  function createToolbar(dataState, rerenderEditors, statusNode, language) {
+    const t = texts(language)
+    const fileInput = input(
+      { type: 'file', accept: 'application/json,.json', hidden: true },
+      events({
+        change({ node }) {
+          var _a2
+          const inputNode = node
+          const file = (_a2 = inputNode.files) == null ? void 0 : _a2[0]
+          if (!file) return
+          const reader = new FileReader()
+          reader.onload = () => {
+            try {
+              const parsed = JSON.parse(String(reader.result || '{}'))
+              dataState.set(normalizeLoadedData(parsed))
+              rerenderEditors()
+              statusNode.textContent = t.loaded
+            } catch {
+              statusNode.textContent = language === 'en' ? 'Invalid file' : 'Virheellinen tiedosto'
+            }
+            inputNode.value = ''
+          }
+          reader.onerror = () => {
+            statusNode.textContent = language === 'en' ? 'File read failed' : 'Tiedoston luku ep\xE4onnistui'
+            inputNode.value = ''
+          }
+          reader.readAsText(file)
+        },
+      })
+    )
+    return div(
+      { class: 'card no-print' },
+      div({ class: 'heading' }, h2(t.storage), span({ class: 'muted' }, statusNode)),
+      fileInput,
+      div(
+        pageStyles.rowButtons,
+        button(
+          t.save,
+          { class: 'blueButton' },
+          events({
+            click() {
+              localStorage.setItem(formStorageKey(), JSON.stringify(dataState.get()))
+              statusNode.textContent = t.saved
+            },
+          })
+        ),
+        button(
+          language === 'en' ? 'Save file' : 'Tallenna tiedosto',
+          pageStyles.smallButton,
+          events({
+            click() {
+              const blob = new Blob([JSON.stringify(dataState.get(), null, 2)], { type: 'application/json' })
+              const url = URL.createObjectURL(blob)
+              const link2 = document.createElement('a')
+              link2.href = url
+              link2.download = 'osakkeet-input-state.json'
+              link2.click()
+              URL.revokeObjectURL(url)
+              statusNode.textContent = language === 'en' ? 'File saved' : 'Tiedosto tallennettu'
+            },
+          })
+        ),
+        button(
+          language === 'en' ? 'Load file' : 'Lataa tiedosto',
+          pageStyles.smallButton,
+          events({
+            click() {
+              fileInput.click()
+            },
+          })
+        ),
+        button(
+          t.load,
+          pageStyles.smallButton,
+          events({
+            click() {
+              dataState.set(tryLoadSavedData())
+              rerenderEditors()
+              statusNode.textContent = t.loaded
+            },
+          })
+        ),
+        button(
+          t.restoreExample,
+          pageStyles.smallButton,
+          events({
+            click() {
+              dataState.set(createDefaultData())
+              rerenderEditors()
+              statusNode.textContent = t.exampleRestored
+            },
+          })
+        ),
+        button(
+          t.clearExample,
+          pageStyles.smallButton,
+          events({
+            click() {
+              dataState.set(createEmptyData())
+              rerenderEditors()
+              statusNode.textContent = t.exampleCleared
+            },
+          })
+        )
+      )
+    )
+  }
+  function osakkeetIpoCalculatorPage() {
+    const dataState = createState({ value: tryLoadSavedData() })
+    const languageState = createState({ value: tryLoadLanguage() })
+    const calculationState = dataState.map((data2) => calculateOsakkeet(data2))
+    const introSection = section({ class: 'card' })
+    const toolbarRoot = div()
+    const subscriptionsSection = section({ class: 'card' })
+    const reimbursementsSection = section({ class: 'card' })
+    const ipoSection = section({ class: 'card' })
+    const taxSummarySectionRoot = section({ class: 'card' })
+    const taxSummaryResultsRoot = div(pageStyles.denseStack)
+    const resultsSection = div(pageStyles.stack)
+    const statusNode = text('')
+    const root = div(pageStyles.stack)
+    const refreshEditors = () => {
+      const calculation = calculateOsakkeet(dataState.get())
+      const language = languageState.get()
+      renderSubscriptionsEditor(subscriptionsSection, dataState, calculation, language)
+      renderReimbursementsEditor(reimbursementsSection, dataState, calculation, refreshEditors, language)
+    }
+    const rerenderEditors = () => {
+      const calculation = calculationState.get()
+      const language = languageState.get()
+      renderSubscriptionsEditor(subscriptionsSection, dataState, calculation, language)
+      renderReimbursementsEditor(reimbursementsSection, dataState, calculation, refreshEditors, language)
+      renderIpoEditor(ipoSection, dataState, calculation, language)
+      replaceChildren(
+        taxSummarySectionRoot,
+        h2(texts(language).taxReturns),
+        (() => {
+          const editorRoot = div()
+          renderMathematicalShareValuesEditor(editorRoot, dataState, language)
+          return editorRoot
+        })(),
+        taxSummaryResultsRoot
+      )
+    }
+    const renderTopSections = () => {
+      const t = texts(languageState.get())
+      replaceChildren(
+        introSection,
+        div(
+          { class: 'heading' },
+          h2(t.ipoCalculatorTitle),
+          div(
+            pageStyles.rowButtons,
+            span({ class: 'muted' }, t.languageTitle),
+            button(
+              'FI',
+              languageState.get() === 'fi' && { class: 'blueButton' },
+              languageState.get() !== 'fi' && pageStyles.smallButton,
+              events({
+                click() {
+                  languageState.set('fi')
+                },
+              })
+            ),
+            button(
+              'EN',
+              languageState.get() === 'en' && { class: 'blueButton' },
+              languageState.get() !== 'en' && pageStyles.smallButton,
+              events({
+                click() {
+                  languageState.set('en')
+                },
+              })
+            )
+          )
+        ),
+        p({ class: 'muted' }, t.intro),
+        p({ class: 'muted' }, t.unlistedIntro),
+        assumptionsContent(languageState.get())
+      )
+      replaceChildren(toolbarRoot, createToolbar(dataState, rerenderEditors, statusNode, languageState.get()))
+    }
+    calculationState.onValueChange((calculation) => {
+      renderResultSummary(resultsSection, calculation, dataState, languageState.get())
+      replaceChildren(taxSummaryResultsRoot, taxSummarySection(calculation, languageState.get()))
+    })
+    languageState.onValueChange(() => {
+      localStorage.setItem(languageStorageKey(), languageState.get())
+      renderTopSections()
+      rerenderEditors()
+      renderResultSummary(resultsSection, calculationState.get(), dataState, languageState.get())
+      replaceChildren(taxSummaryResultsRoot, taxSummarySection(calculationState.get(), languageState.get()))
+    })
+    renderTopSections()
+    rerenderEditors()
+    replaceChildren(
+      root,
+      introSection,
+      toolbarRoot,
+      subscriptionsSection,
+      reimbursementsSection,
+      taxSummarySectionRoot,
+      ipoSection,
+      resultsSection
+    )
+    return root
+  }
+
   // src/kotibudjetti.ts
   console.log('kotibudjetti v0.0.1')
-  setElementToId('app', kaukolampoExcessPricingCalculator())
+  function getRoute() {
+    return window.location.hash === '#kaukolampo' ? 'kaukolampo' : 'osakkeet'
+  }
+  function setRoute(route) {
+    window.location.hash = route === 'kaukolampo' ? '#kaukolampo' : '#osakkeet'
+  }
+  function navButton(label2, route, routeState) {
+    return button(
+      label2,
+      routeState.get() === route && {
+        class: 'active',
+      },
+      events({
+        click() {
+          setRoute(route)
+        },
+      })
+    )
+  }
+  function sidebarNavigation(routeState) {
+    return div(
+      div({ class: 'brand' }, h1('Kotibudjetti'), p('Laskurit')),
+      p({ class: 'muted' }, 'Beta'),
+      div(
+        { class: 'nav' },
+        navButton('Osakkeet', 'osakkeet', routeState),
+        navButton('Kaukol\xE4mp\xF6', 'kaukolampo', routeState)
+      )
+    )
+  }
+  function ensureBottomNav(routeState) {
+    const existingBottomNav = document.querySelector('.bottom-nav')
+    if (existingBottomNav instanceof HTMLElement) return existingBottomNav
+    const bottomNav = div({ class: 'bottom-nav no-print' })
+    document.body.appendChild(bottomNav)
+    replaceChildren(
+      bottomNav,
+      navButton('Osakkeet', 'osakkeet', routeState),
+      navButton('Kaukol\xE4mp\xF6', 'kaukolampo', routeState)
+    )
+    return bottomNav
+  }
+  function mountApp() {
+    const routeState = createState({ value: getRoute() })
+    const sidebar = document.querySelector('.sidebar')
+    const bottomNav = ensureBottomNav(routeState)
+    window.addEventListener('hashchange', () => {
+      routeState.set(getRoute())
+    })
+    routeState.onValueChange((route) => {
+      if (sidebar instanceof HTMLElement) {
+        replaceChildren(sidebar, sidebarNavigation(routeState))
+      }
+      replaceChildren(
+        bottomNav,
+        navButton('Osakkeet', 'osakkeet', routeState),
+        navButton('Kaukol\xE4mp\xF6', 'kaukolampo', routeState)
+      )
+      setElementToId('app', route === 'kaukolampo' ? kaukolampoExcessPricingCalculator() : osakkeetIpoCalculatorPage())
+    })
+  }
+  mountApp()
 })()
 /*! Bundled license information:
 
