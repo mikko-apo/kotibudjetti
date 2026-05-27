@@ -10,6 +10,19 @@ export const FI = {
       'Laskee pääomanpalautusten kohdistuksen, hankintamenon jäljellä olevan määrän sekä IPO-myynnin verollisen ja nettomääräisen lopputuloksen.',
     unlistedDescription:
       'Tämä laskuri on tarkoitettu ennen listautumista olevalle listaamattomalle yhtiölle. IPO-päivästä eteenpäin varojenjako käsitellään tässä näkymässä osinkona.',
+    warningsTitle: 'Varoitukset',
+    warnings: [
+      'Laskuri ei tue yritysten sulautumisia eikä jakautumisia.',
+      'Laskuria ei ole vielä testattu kattavasti ihmisten toimesta.',
+      'Todellisiin rahallisiin päätöksiin kannattaa käyttää ammattilaispalvelua. Tämä ei ole sellainen.',
+    ],
+    securityTitle: 'Tietoturva ja vastuunvapautus',
+    securityText:
+      'Tämä sovellus on avointa lähdekoodia ja vapaasti käytettävissä, mutta kehittäjä ei ota minkäänlaista siitä, että sovellus olisi turvallinen, virheetön tai ilmainen käyttää.',
+    securityAdditionalText: 'Tämä sovellus toimii vain selaimessa. Se ei lähetä tietojasi minnekään.',
+    securityNote: 'Huom: URL-osoitteissa välitetyt tiedot voivat näkyä muille.',
+    securityIssues:
+      'Jos havaitset virheitä tai keksit parannusehdotuksia, koosta yksinkertainen testitapaus ja lisää havainto osoitteeseen https://github.com/mikko-apo/kotibudjetti/issues',
   },
   common: {
     rows: 'riviä',
@@ -36,8 +49,12 @@ export const FI = {
     help: 'Syötä kaikki merkintäerät omassa hankintajärjestyksessä. Myynnissä käytetään FIFO-periaatetta, ja IPO-päivän jälkeen päättyvä ansaintajakso estää merkintäerän myynnin.',
     fields: {
       vestingEndsOn: 'Ansaintajakso päättyy',
-      totalPrice: 'Kokonaishinta',
-      originalShareValue: 'Alkuperäinen osakkeen arvo',
+      pricePerShare: 'Hinta / osake',
+      otherTotalAcquisitionCosts: 'Muut hankintamenot yhteensä',
+      otherTotalAcquisitionCostsHelp:
+        'Syötä tähän esimerkiksi varainsiirtovero, merkintään liittyvät palkkiot ja muut hankinnasta aiheutuneet kulut. Älä syötä tähän tulonhankkimisvelan korkoja, vaan ilmoita ne vuosiverotuksessa kohdassa pääomatuloista tehtävät vähennykset.',
+      totalPricePerShare: 'Kokonaishankintameno / osake',
+      totalReimbursements: 'Pääomanpalautukset yhteensä',
       capitalRepaymentPerShare: 'Pääomanpalautus / osake',
       remainingCostPerShare: 'Jäljellä oleva hankintameno / osake',
     },
@@ -54,6 +71,7 @@ export const FI = {
     title: 'Osingot ja pääomanpalautukset',
     help: 'Yhteensä ja maksettu käteisenä lasketaan automaattisesti osakekohtaisen määrän, omistuksen ja ennakonpidätyksen perusteella.',
     fields: {
+      shareCount: 'Osakkeita yhteensä',
       amountPerShare: '€/osake',
       withholding: 'Ennakko verottajalle',
       cashPaid: 'Maksettu käteisenä',
@@ -66,6 +84,10 @@ export const FI = {
     types: {
       capitalReturn: 'Pääomanpalautus',
       dividend: 'Osinko',
+    },
+    messages: {
+      shareCountMismatch: (expected: string, given: string) =>
+        `Osakemäärä ei täsmää merkintöihin tällä päivällä. Odotettu ${expected}, annettu ${given}.`,
     },
   },
   ipo: {
@@ -121,11 +143,8 @@ export const FI = {
         sharesToSell: 'Myytävien osakkeiden määrä',
         ipoPriceTotal: 'IPO-hinta yhteensä',
         actualCosts: 'Todelliset kulut',
-        hmo20: 'HMO 20 %',
-        hmo40: 'HMO 40 %',
+        hmo: 'Hankintameno-olettama',
         capitalGain: 'Luovutusvoitto',
-        taxFreePart: 'Veroton osa',
-        taxedPart: 'Verotettava osa',
       },
       summaryTitle: 'IPOn yhteenveto',
       cards: {
@@ -143,44 +162,56 @@ export const FI = {
         ipoPriceTotal: 'IPO-hinta yhteensä',
         ipoCostsAllocated: 'Kohdistetut IPO-kulut',
         netCash: 'Käteen ennen veroja',
-        capitalGain: 'Luovutusvoitto',
+        capitalGain: 'Luovutusvoitto IPOsta',
         selectedDeductions: 'Luovutusvoittoa pienentävät vähennykset',
         taxOnCapitalGain: 'Veroihin varattava: arvioitu pääomatulovero luovutusvoitosta',
-        deductibleIpoCosts: 'IPO-kulut todellisissa kuluissa',
-        hmoIpoCosts: 'IPO-kulut HMO-erissä',
+        deductibleIpoCosts: 'Todellisten kulujen IPO-kulujen vaikutus verotuksessa',
+        hmoIpoCosts: 'Hallintameno-olettamuksen kanssa IPO-kuluja ei huomioida',
         ipoPriceTotalHelp: (gross: string) =>
           `IPO-hinta yhteensä on kaikkien myytyjen osakkeiden bruttohinta ${gross}.`,
         ipoCostsAllocatedHelp: (ipoCosts: string) =>
-          `Kohdistetut IPO-kulut ${ipoCosts} vähennetään käteensä jäävästä summasta, vaikka ne eivät aina ole verotuksessa todellisia kuluja.`,
+          `Kohdistetut IPO-kulut ${ipoCosts} vähennetään osakkeiden myyntihinnasta. Ne voivat olla välittäjän kuluja yms. Niiden osakkeiden osalta joiden kohdalla käytetään todellisia kuluja, kohdistetut IPO-kulut lisätään osakekohtaisesti todellisiin kuluihin tässä laskurissa.`,
         netCashHelp: (gross: string, ipoCosts: string, net: string) =>
           `Käteen ennen vuotuista verotusta = IPO-hinta yhteensä ${gross} - kohdistetut IPO-kulut ${ipoCosts} = ${net}.`,
-        capitalGainHelp: (net: string, acquisitionCosts: string, capitalGain: string) =>
-          `Luovutusvoitto ${capitalGain} saadaan, kun IPO-hinta yhteensästä vähennetään verotuksessa käytetty hankintameno tai HMO ${acquisitionCosts}.`,
-        selectedDeductionsHelp: (actual: string, hmo20: string, hmo40: string, total: string) =>
-          `Valittu vähennys = todelliset kulut ${actual} + HMO 20 % ${hmo20} + HMO 40 % ${hmo40} = ${total}.`,
+        capitalGainHelp: (gross: string, acquisitionCosts: string) =>
+          `Luovutusvoitto lasketaan vähentämällä "IPO-hinta yhteensä" summasta "Luovutusvoittoa pienentävät vähennykset": ${gross} - ${acquisitionCosts}.`,
+        selectedDeductionsHelp: (actual: string, hmo: string) =>
+          `Todelliset kulut ${actual} + hankintameno-olettama ${hmo}.`,
         taxOnCapitalGainHelp: (capitalGain: string, lowPart: string, highPart: string, tax: string) =>
           `Luovutusvoitto ${capitalGain} on tässä laskurissa verotettavaa pääomatuloa. Vuoden 2026 arvioitu pääomatulovero on 30 % ensimmäisestä 30 000 eurosta (${lowPart}) ja 34 % sen ylittävästä osasta (${highPart}). Veroihin varattava arvioitu pääomatulovero on yhteensä ${tax}.`,
         deductibleIpoCostsHelp: (ipoCosts: string, taxSaved: string) =>
           `Todellisiin kuluihin sisältyy IPO-kuluja ${ipoCosts}, mikä pienentää arvioitua veroa ${taxSaved}.`,
-        hmoIpoCostsHelp: (ipoCosts: string) =>
-          `HMO-erissä IPO-kuluja maksetaan ${ipoCosts}, mutta niitä ei käytetä todellisina kuluina verovähennyksessä.`,
+        hmoIpoCostsHelp: () => 'HMO-erissä IPO-kuluja ei voi merkitä vähennyksiksi.',
       },
       capitalGainAnnualTax: {
         title: 'Luovutusvoiton laskeminen ja verottaminen vuositasolla',
         driversTitle: 'Voitot ja tappiot osakemyynneissä vuositasolla',
-        driversHelp: (capitalGain: string) =>
-          `Vuositasolla osakemyynneistä voi syntyä sekä luovutusvoittoja että luovutustappioita. Tässä laskelmassa syntyy luovutusvoittoa ${capitalGain}. Muut vuoden osakemyynnit voivat kuitenkin tuottaa luovutustappioita, jotka Verohallinnon ohjeen mukaan vähennetään saman vuoden luovutusvoitoista tai muista pääomatuloista verovuonna ja viitenä seuraavana vuonna.`,
+        driversValue: '',
+        driversHelp:
+          'Vuosittaisessa verotuksessa kaikki luovutusvoitot ja luovutustappiot lasketaan lopuksi yhteen ja kertyneen "Luovutusvoiton" määrä määrittää "Luovutusvoiton veron" määrän. Seuraavaksi lasketaan kuinka paljon "Luovutusvoiton veroa" muodostuu jos tämä on ainoa osakekauppa mitä teet.',
       },
       cashReserve: {
         title: 'Tilille jäävä raha ja veroihin varattava osuus',
+        otherAnnualCapitalGainsOrLosses: 'Muut luovutusvoitot tai tappiot',
+        otherAnnualCapitalGainsOrLossesHelp: 'Syötä kenttään muut mahdolliset luovutusvoitot ja tappiot',
+        annualAdjustmentTitle: 'Muiden luovutusvoittojen tai -tappioiden vaikutus vuositasolla',
+        annualAdjustedKeepAfterTaxes: 'Tilille voi jättää vuositasolla',
+        annualAdjustedReserveForTaxes: 'Veroihin varattava vuositasolla',
         keepAfterTaxes: 'Tilille voi jättää',
         reserveForTaxes: 'Veroihin varattava',
+        taxEffectFromOtherAnnualCapital: 'Muiden luovutusvoittojen tai -tappioiden vaikutus veroon',
         taxPaymentStatus: 'Peritäänkö vero automaattisesti?',
         taxPaymentManual: 'Ei yleensä automaattisesti',
         keepAfterTaxesHelp: (cash: string, tax: string, kept: string) =>
           `Tilille jäävä summa = käteen ${cash} - veroihin varattava osuus ${tax} = ${kept}.`,
         reserveForTaxesHelp: (tax: string) =>
           `Arvioitu vero ${tax} kannattaa varata erikseen, jotta vuotuinen verotus ei aiheuta yllättävää maksua.`,
+        taxEffectFromOtherAnnualCapitalHelp: (other: string, reduction: string, increase: string) =>
+          `Anna tähän vuoden muiden luovutusvoittojen tai luovutustappioiden yhteisvaikutus. Syötetty muutos ${other}. Negatiivinen arvo pienentää veroarviota ${reduction}. Positiivinen arvo kasvattaa veroarviota ${increase}. Tappiolla olevien osakkeiden myynti voi pienentää veroa, mutta välitöntä takaisinostoa ei kannata tehdä pelkästään verotussyystä ilman ammattilaisen arviota.`,
+        annualAdjustedKeepAfterTaxesHelp: (cash: string, tax: string, kept: string) =>
+          `Vuositasolla tilille jäävä summa = käteen ${cash} - vuositasolla veroihin varattava osuus ${tax} = ${kept}.`,
+        annualAdjustedReserveForTaxesHelp: (tax: string) =>
+          `Kun muut luovutusvoitot tai luovutustappiot huomioidaan, vuositasolla varattava vero on ${tax}.`,
         taxPaymentStatusHelp:
           'Verohallinnon ohjeen mukaan osakkeiden myyntivoiton verosta pitää yleensä huolehtia itse ennakkoverona tai lisäennakkona. Osingosta ennakonpidätys tehdään erikseen, mutta myyntivoitosta ei yleensä pidätetä veroa automaattisesti.',
       },
@@ -218,23 +249,60 @@ export const FI = {
   storage: {
     title: 'Tallennus',
     actions: {
-      saveToLocalStorage: 'Tallenna selaimeen',
-      loadSaved: 'Lataa tallennettu',
-      saveFile: 'Tallenna tiedosto',
+      saveToBrowserStorage: 'Tallenna selaimeen pysyvästi',
+      loadFromBrowserStorage: 'Lataa selaimesta',
+      removeFromBrowserStorage: 'Poista selaimesta',
+      copyShareUrl: 'Kopioi yrityksen tiedot URL:iin',
+      saveFile: 'Tallenna',
       loadFile: 'Lataa tiedosto',
-      restoreExample: 'Palauta esimerkki',
-      clearExample: 'Poista esimerkki',
+      showExample: 'Näytä esimerkki',
+      clearExample: 'Tyhjennä',
     },
+    table: {
+      rowTitle: 'Toiminto',
+      descriptionTitle: 'Kuvaus',
+      actionsTitle: 'Painikkeet',
+      autoSaveTitle: 'Automaattinen tallennus',
+      autoSaveDescription:
+        'Sovellus tallentaa syötteet automaattisesti selainikkunan omaan tallennustilaan, joten sivun päivitys säilyttää tiedot. Jos selainikkuna suljetaan, nämä tiedot katoavat.',
+      fileTitle: 'Tallenna tiedosto tietokoneelle',
+      fileDescription: 'Voit ladata syötetyt tiedot tietokoneellesi JSON tiedostona.',
+      browserTitle: 'Tallenna tiedot selaimeen',
+      browserDescription:
+        'Voit tallentaa tiedot selaimen muistiin. Tieto tulee automaattisesti käyttöön jos sivu ladataan uuteen selainikkunaan.',
+      clearTitle: 'Tyhjennä luvut',
+      clearDescription:
+        'Voit tyhjentää syötetyt lukemat, mutta se ei poista selaimeen talletettua tietoa tai ladattuja tiedostoja.',
+      exampleTitle: 'Näytä esimerkki-tilanne',
+      exampleDescription: 'Voit tutkia miltä sovellus näyttää esimerkkidatalla.',
+    },
+    copyShareUrlHelp: 'Tällä voi jakaa yhtiön tiedot ja varojenjaot toisille.',
+    copyShareUrlNote: 'Huom: URL-osoitteissa välitetyt tiedot voivat näkyä muille.',
     status: {
-      saved: 'Tallennettu',
+      saved: 'Tallennettu automaattisesti',
+      browserSaved: 'Tallennettu selaimeen pysyvästi',
+      browserLoaded: 'Ladattu selaimen pysyvästä tallennuksesta',
+      browserRemoved: 'Selaimen pysyvä tallennus poistettu',
+      shareUrlCopied: 'URL kopioitu',
       loaded: 'Ladattu',
-      exampleRestored: 'Esimerkki palautettu',
+      exampleShown: 'Esimerkki näytetty',
       exampleCleared: 'Esimerkkidata poistettu',
       fileSaved: 'Tiedosto tallennettu',
     },
     errors: {
       invalidFile: 'Virheellinen tiedosto',
       fileReadFailed: 'Tiedoston luku epäonnistui',
+      clipboardFailed: 'Kopiointi epäonnistui',
+    },
+    confirmations: {
+      clearExample: 'Tyhjennetäänkö kaikki nykyiset tiedot?',
+    },
+    saveIndicators: {
+      browserNeedsSave: 'Syötteitä on muutettu eikä niitä ole tallennettu selaimen pysyvään tallennukseen.',
+      browserSaved: 'Selaimen pysyvä tallennus on ajan tasalla.',
+      browserLoadUnavailable: 'Selaimen pysyvässä tallennuksessa ei ole tietoja ladattavaksi.',
+      fileNeedsSave: 'Syötteitä on muutettu eikä niitä ole tallennettu tiedostoon tässä ikkunassa.',
+      fileSaved: 'Tiedostotallennus on ajan tasalla tässä ikkunassa.',
     },
   },
   messages: {
@@ -243,6 +311,7 @@ export const FI = {
   },
   sources: {
     dividends: 'Verohallinto: Osingot listaamattomasta yhtiöstä',
+    listedDividends: 'Verohallinto: Osingot listatusta yhtiöstä',
     form9a: 'Verohallinto: 9A täyttöohje',
     sales: 'Verohallinto: Osakkeiden myynti',
   },
@@ -254,7 +323,8 @@ export const FI = {
     },
     fields: {
       subscriptionAmount: (label: string) => `Merkintä ${label} määrä`,
-      subscriptionTotalPrice: (label: string) => `Merkintä ${label} kokonaishinta`,
+      subscriptionPricePerShare: (label: string) => `Merkintä ${label} hinta/osake`,
+      subscriptionOtherTotalAcquisitionCosts: (label: string) => `Merkintä ${label} muut hankintamenot`,
       subscriptionDate: (id: string) => `Merkintä ${id} päivä`,
       subscriptionVestingEndsOn: (id: string) => `Merkintä ${id} ansaintajakso päättyy`,
       mathematicalShareValueYear: (id: string) => `Matemaattinen arvo vuosi ${id}`,
@@ -266,6 +336,7 @@ export const FI = {
       estimatedPreIpoValue: 'Arvioitu pre-IPO-arvo',
       estimatedSecondaryShareSellPercentage: 'Arvioitu secondary-myyntiprosentti',
       sellAmount: 'Myytävien osakkeiden määrä',
+      otherAnnualCapitalGainsOrLosses: 'Muut luovutusvoitot tai tappiot',
       cashDistributionDate: (id: string) => `Varojenjako ${id} päivä`,
       cashDistributionAmountPerShare: (id: string) => `Varojenjako ${id} €/osake`,
     },
@@ -295,6 +366,19 @@ export const EN: typeof FI = {
       'Calculates how capital repayments are allocated, how acquisition cost remains, and what the IPO sale produces before and after tax.',
     unlistedDescription:
       'This calculator is intended for an unlisted company before listing. From the IPO date onward, distributions are treated as dividends in this view.',
+    warningsTitle: 'Warnings',
+    warnings: [
+      'This calculator does not support mergers or demergers.',
+      'This calculator has not yet been thoroughly tested by humans.',
+      'For real monetary advice, use a professional service. This is not one.',
+    ],
+    securityTitle: 'Security and disclaimer',
+    securityText:
+      'This application is open source and free to use, but the developer takes no responsibility of any kind for whether the application is secure, error-free, or free to use.',
+    securityAdditionalText: 'This application works only in browser. It does not send your data anywhere.',
+    securityNote: 'Note: Any data passed in URLs might be visible to others.',
+    securityIssues:
+      'If you notice bugs or have improvement ideas, create a simple test case and add the finding at https://github.com/mikko-apo/kotibudjetti/issues',
   },
   common: {
     rows: 'rows',
@@ -321,8 +405,12 @@ export const EN: typeof FI = {
     help: 'Enter all subscription lots in acquisition order. FIFO is used for sales, and a vesting period ending after the IPO date blocks that lot from being sold.',
     fields: {
       vestingEndsOn: 'Vesting ends',
-      totalPrice: 'Total price',
-      originalShareValue: 'Original share value',
+      pricePerShare: 'Price / share',
+      otherTotalAcquisitionCosts: 'Other acquisition costs total',
+      otherTotalAcquisitionCostsHelp:
+        'Enter items such as transfer tax, subscription-related fees, and other acquisition costs. Do not include interest on income-producing debt here; report that in annual taxation under deductions from capital income.',
+      totalPricePerShare: 'Total acquisition cost / share',
+      totalReimbursements: 'Capital repayments total',
       capitalRepaymentPerShare: 'Capital repayment / share',
       remainingCostPerShare: 'Remaining acquisition cost / share',
     },
@@ -339,6 +427,7 @@ export const EN: typeof FI = {
     title: 'Dividends and capital repayments',
     help: 'Total amount and cash paid are calculated automatically from the per-share amount, holdings, and withholding.',
     fields: {
+      shareCount: 'Total shares',
       amountPerShare: 'EUR / share',
       withholding: 'To tax office in advance',
       cashPaid: 'Paid in cash',
@@ -351,6 +440,10 @@ export const EN: typeof FI = {
     types: {
       capitalReturn: 'Capital repayment',
       dividend: 'Dividend',
+    },
+    messages: {
+      shareCountMismatch: (expected: string, given: string) =>
+        `Share count does not match subscriptions on this date. Expected ${expected}, given ${given}.`,
     },
   },
   ipo: {
@@ -407,11 +500,8 @@ export const EN: typeof FI = {
         sharesToSell: 'Number of shares to sell',
         ipoPriceTotal: 'Total IPO price',
         actualCosts: 'Actual costs',
-        hmo20: 'HMO 20%',
-        hmo40: 'HMO 40%',
+        hmo: 'Deemed acquisition cost',
         capitalGain: 'Capital gain',
-        taxFreePart: 'Tax-free part',
-        taxedPart: 'Taxed part',
       },
       summaryTitle: 'IPO summary',
       cards: {
@@ -429,43 +519,55 @@ export const EN: typeof FI = {
         ipoPriceTotal: 'Total IPO price',
         ipoCostsAllocated: 'Allocated IPO costs',
         netCash: 'Cash before taxes',
-        capitalGain: 'Capital gain',
+        capitalGain: 'Capital gain from IPO',
         selectedDeductions: 'Deductions reducing capital gain',
         taxOnCapitalGain: 'Reserve for taxes: estimated capital income tax on capital gain',
         deductibleIpoCosts: 'IPO costs inside actual costs',
         hmoIpoCosts: 'IPO costs in HMO lots',
         ipoPriceTotalHelp: (gross: string) => `Total IPO price is the gross price of all sold shares: ${gross}.`,
         ipoCostsAllocatedHelp: (ipoCosts: string) =>
-          `Allocated IPO costs ${ipoCosts} reduce the cash you keep, even though they are not always used as actual-cost deductions in taxation.`,
+          `Allocated IPO costs ${ipoCosts} are deducted from the share sale price. They may include broker fees and similar costs. For the shares where this calculator uses actual costs, the allocated IPO costs are added to the per-share actual costs.`,
         netCashHelp: (gross: string, ipoCosts: string, net: string) =>
           `Cash before annual taxation = total IPO price ${gross} - allocated IPO costs ${ipoCosts} = ${net}.`,
-        capitalGainHelp: (net: string, acquisitionCosts: string, capitalGain: string) =>
-          `Capital gain ${capitalGain} is obtained by subtracting the tax deduction basis ${acquisitionCosts} from the total IPO price.`,
-        selectedDeductionsHelp: (actual: string, hmo20: string, hmo40: string, total: string) =>
-          `Selected deduction = actual costs ${actual} + HMO 20% ${hmo20} + HMO 40% ${hmo40} = ${total}.`,
+        capitalGainHelp: (gross: string, acquisitionCosts: string) =>
+          `Capital gain is calculated by subtracting "Deductions reducing capital gain" from "Total IPO price": ${gross} - ${acquisitionCosts}.`,
+        selectedDeductionsHelp: (actual: string, hmo: string) =>
+          `Actual costs ${actual} + deemed acquisition cost ${hmo}.`,
         taxOnCapitalGainHelp: (capitalGain: string, lowPart: string, highPart: string, tax: string) =>
           `In this calculator, capital gain ${capitalGain} is taxable capital income. Estimated 2026 capital income tax is 30% on the first 30,000 euros (${lowPart}) and 34% on the part above that (${highPart}). The estimated capital income tax to reserve is ${tax}.`,
         deductibleIpoCostsHelp: (ipoCosts: string, taxSaved: string) =>
           `Actual-cost lots include IPO costs ${ipoCosts}, reducing estimated tax by ${taxSaved}.`,
-        hmoIpoCostsHelp: (ipoCosts: string) =>
-          `In HMO lots, IPO costs ${ipoCosts} are still paid but not used as actual-cost deductions.`,
+        hmoIpoCostsHelp: () => 'In HMO lots, IPO costs cannot be marked as deductions.',
       },
       capitalGainAnnualTax: {
         title: 'Capital gain calculation and annual taxation',
         driversTitle: 'Wins and losses from share sales over the tax year',
-        driversHelp: (capitalGain: string) =>
-          `Over a tax year, share sales can create both capital gains and capital losses. In this calculation, the result is capital gain ${capitalGain}. Other share sales during the year may still create capital losses which, according to Finnish Tax Administration guidance, are deducted from capital gains of the same year or from other capital income in the tax year and the following five years.`,
+        driversValue: '',
+        driversHelp:
+          'In annual taxation, all capital gains and capital losses are added together at the end, and the resulting amount of "Capital gain" determines the amount of "Capital gain tax". Next, this calculator estimates how much "Capital gain tax" is created if this is the only share sale you make.',
       },
       cashReserve: {
         title: 'Cash you can keep and amount to reserve for taxes',
+        otherAnnualCapitalGainsOrLosses: 'Other capital gains or losses',
+        otherAnnualCapitalGainsOrLossesHelp: 'Enter any other possible capital gains and losses in this field',
+        annualAdjustmentTitle: 'Effect of other capital gains or losses over the tax year',
+        annualAdjustedKeepAfterTaxes: 'Can stay in your account over the tax year',
+        annualAdjustedReserveForTaxes: 'Reserve for taxes over the tax year',
         keepAfterTaxes: 'Can stay in your account',
         reserveForTaxes: 'Reserve for taxes',
+        taxEffectFromOtherAnnualCapital: 'Effect of other annual capital gains or losses on tax',
         taxPaymentStatus: 'Is tax withheld automatically?',
         taxPaymentManual: 'Usually not automatically',
         keepAfterTaxesHelp: (cash: string, tax: string, kept: string) =>
           `Amount left in your account = cash ${cash} - amount reserved for taxes ${tax} = ${kept}.`,
         reserveForTaxesHelp: (tax: string) =>
           `It is prudent to reserve the estimated tax ${tax} separately so annual taxation does not create an unexpected payment.`,
+        taxEffectFromOtherAnnualCapitalHelp: (other: string, reduction: string, increase: string) =>
+          `Enter the combined effect of your other annual capital gains or capital losses here. Entered change ${other}. A negative value reduces the tax estimate by ${reduction}. A positive value increases the tax estimate by ${increase}. Selling shares that are down can reduce tax, but an immediate buyback should not be done solely for tax reasons without professional advice.`,
+        annualAdjustedKeepAfterTaxesHelp: (cash: string, tax: string, kept: string) =>
+          `Over the tax year, the amount left in your account = cash ${cash} - tax amount to reserve over the tax year ${tax} = ${kept}.`,
+        annualAdjustedReserveForTaxesHelp: (tax: string) =>
+          `After other capital gains or losses are included, the tax amount to reserve over the tax year is ${tax}.`,
         taxPaymentStatusHelp:
           'According to the Finnish Tax Administration, you usually need to take care of tax on share-sale gains yourself as prepayment or additional prepayment. Dividend withholding is handled separately, but share-sale gain tax is usually not withheld automatically.',
       },
@@ -504,23 +606,60 @@ export const EN: typeof FI = {
   storage: {
     title: 'Storage',
     actions: {
-      saveToLocalStorage: 'Save to browser',
-      loadSaved: 'Load saved',
+      saveToBrowserStorage: 'Save to browser persistently',
+      loadFromBrowserStorage: 'Load from browser',
+      removeFromBrowserStorage: 'Remove from browser',
+      copyShareUrl: 'Copy company details to URL',
       saveFile: 'Save file',
       loadFile: 'Load file',
-      restoreExample: 'Restore example',
-      clearExample: 'Clear example',
+      showExample: 'Show example',
+      clearExample: 'Clear',
     },
+    table: {
+      rowTitle: 'Action',
+      descriptionTitle: 'Description',
+      actionsTitle: 'Buttons',
+      autoSaveTitle: 'Auto-save',
+      autoSaveDescription:
+        'The application saves inputs automatically to window-level storage, so refreshing the page keeps the data available. If the browser window is closed, this data is lost.',
+      fileTitle: 'Save file to computer',
+      fileDescription: 'You can download the entered data to your computer as a JSON file.',
+      browserTitle: 'Save file to browser',
+      browserDescription:
+        'You can save the data to browser storage. The data becomes automatically available if the page is loaded in a new browser window.',
+      clearTitle: 'Clear values',
+      clearDescription:
+        'You can clear the entered values, but this does not remove data saved to the browser or downloaded files.',
+      exampleTitle: 'Show example case',
+      exampleDescription: 'You can inspect how the application looks with example data.',
+    },
+    copyShareUrlHelp: 'Use this to share company information and distributions with others.',
+    copyShareUrlNote: 'Note: Any data passed in URLs might be visible to others.',
     status: {
-      saved: 'Saved',
+      saved: 'Saved automatically',
+      browserSaved: 'Saved to persistent browser storage',
+      browserLoaded: 'Loaded from persistent browser storage',
+      browserRemoved: 'Persistent browser storage removed',
+      shareUrlCopied: 'URL copied',
       loaded: 'Loaded',
-      exampleRestored: 'Example restored',
+      exampleShown: 'Example shown',
       exampleCleared: 'Example data cleared',
       fileSaved: 'File saved',
     },
     errors: {
       invalidFile: 'Invalid file',
       fileReadFailed: 'File read failed',
+      clipboardFailed: 'Copy failed',
+    },
+    confirmations: {
+      clearExample: 'Clear all current data?',
+    },
+    saveIndicators: {
+      browserNeedsSave: 'Inputs have changed and are not saved to persistent browser storage.',
+      browserSaved: 'Persistent browser storage is up to date.',
+      browserLoadUnavailable: 'There is no persistent browser data available to load.',
+      fileNeedsSave: 'Inputs have changed and are not saved to a file in this window.',
+      fileSaved: 'File save is up to date in this window.',
     },
   },
   messages: {
@@ -529,6 +668,7 @@ export const EN: typeof FI = {
   },
   sources: {
     dividends: 'Tax Admin: Dividends from an unlisted company',
+    listedDividends: 'Tax Admin: Dividends from a listed company',
     form9a: 'Tax Admin: Form 9A instructions',
     sales: 'Tax Admin: Sale of shares',
   },
@@ -540,7 +680,8 @@ export const EN: typeof FI = {
     },
     fields: {
       subscriptionAmount: (label: string) => `Subscription ${label} amount`,
-      subscriptionTotalPrice: (label: string) => `Subscription ${label} total price`,
+      subscriptionPricePerShare: (label: string) => `Subscription ${label} price/share`,
+      subscriptionOtherTotalAcquisitionCosts: (label: string) => `Subscription ${label} other acquisition costs`,
       subscriptionDate: (id: string) => `Subscription ${id} date`,
       subscriptionVestingEndsOn: (id: string) => `Subscription ${id} vesting ends`,
       mathematicalShareValueYear: (id: string) => `Mathematical value year ${id}`,
@@ -552,6 +693,7 @@ export const EN: typeof FI = {
       estimatedPreIpoValue: 'Estimated pre-IPO value',
       estimatedSecondaryShareSellPercentage: 'Estimated secondary sell percentage',
       sellAmount: 'Number of shares to sell',
+      otherAnnualCapitalGainsOrLosses: 'Other capital gains or losses',
       cashDistributionDate: (id: string) => `Distribution ${id} date`,
       cashDistributionAmountPerShare: (id: string) => `Distribution ${id} EUR/share`,
     },

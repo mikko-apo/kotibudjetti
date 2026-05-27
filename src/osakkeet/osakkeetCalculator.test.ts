@@ -9,8 +9,22 @@ import {
 function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetFormData {
   return {
     subscriptions: [
-      { id: 's1', date: '01.01.2013', vestingEndsOn: '', amount: '100', totalPrice: '100' },
-      { id: 's2', date: '01.01.2022', vestingEndsOn: '', amount: '50', totalPrice: '200' },
+      {
+        id: 's1',
+        date: '01.01.2013',
+        vestingEndsOn: '',
+        amount: '100',
+        pricePerShare: '1',
+        otherTotalAcquisitionCosts: '',
+      },
+      {
+        id: 's2',
+        date: '01.01.2022',
+        vestingEndsOn: '',
+        amount: '50',
+        pricePerShare: '4',
+        otherTotalAcquisitionCosts: '',
+      },
     ],
     cashDistributions: [],
     mathematicalShareValues: [
@@ -28,6 +42,7 @@ function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetForm
     },
     sell: {
       amount: '0',
+      otherAnnualCapitalGainsOrLosses: '',
     },
     ...overrides,
   }
@@ -47,7 +62,9 @@ function snapshotCalculation(form: OsakkeetFormData) {
       date: subscription.date,
       amount: decimalValue(subscription.amount),
       totalPrice: decimalValue(subscription.totalPrice),
+      totalPricePerShare: decimalValue(subscription.totalPricePerShare),
       cashDistributionGrossTotal: decimalValue(subscription.cashDistributionGrossTotal),
+      capitalRepaymentTotal: decimalValue(subscription.capitalRepaymentTotal),
       capitalRepaymentPerShare: decimalValue(subscription.capitalRepaymentPerShare),
       remainingCostPerShare: decimalValue(subscription.remainingCostPerShare),
       remainingCostTotal: decimalValue(subscription.remainingCostTotal),
@@ -107,6 +124,7 @@ function snapshotCalculation(form: OsakkeetFormData) {
     },
     sell: {
       amount: decimalValue(result.sell.amount),
+      otherAnnualCapitalGainsOrLosses: decimalValue(result.sell.otherAnnualCapitalGainsOrLosses),
       usedSubscriptions: result.sell.usedSubscriptions.map((subscription) => ({
         subscriptionId: subscription.subscriptionId,
         subscriptionDate: subscription.subscriptionDate,
@@ -142,7 +160,14 @@ function snapshotCalculation(form: OsakkeetFormData) {
       taxableGainAtLowRate: decimalValue(result.sell.taxableGainAtLowRate),
       taxableGainAtHighRate: decimalValue(result.sell.taxableGainAtHighRate),
       estimatedTax: decimalValue(result.sell.estimatedTax),
+      annualNetCapitalGain: decimalValue(result.sell.annualNetCapitalGain),
+      annualTaxableGainAtLowRate: decimalValue(result.sell.annualTaxableGainAtLowRate),
+      annualTaxableGainAtHighRate: decimalValue(result.sell.annualTaxableGainAtHighRate),
+      annualEstimatedTax: decimalValue(result.sell.annualEstimatedTax),
+      annualTaxChange: decimalValue(result.sell.annualTaxChange),
+      taxReductionFromOtherLosses: decimalValue(result.sell.taxReductionFromOtherLosses),
       netAfterTaxAndIpoCost: decimalValue(result.sell.netAfterTaxAndIpoCost),
+      netAfterAnnualTaxAndIpoCost: decimalValue(result.sell.netAfterAnnualTaxAndIpoCost),
       remainingUnsoldShares: decimalValue(result.sell.remainingUnsoldShares),
     },
   }
@@ -180,6 +205,26 @@ describe(calculateOsakkeet, () => {
     expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('150.00')
   })
 
+  it('treats post-IPO capital-return rows as listed dividends in yearly tax calculations', () => {
+    const result = calculateOsakkeet(
+      createBaseForm({
+        mathematicalShareValues: [],
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2026-06-15', amountPerShare: '1' }],
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.cashDistributions[0].type).toBe('dividend')
+    expect(result.cashDistributions[0].treatedAsListedDividend).toBe(true)
+    expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('0.00')
+    expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('150.00')
+    expect(result.cashDistributions[0].taxableCapitalIncome.toFixed(2)).toBe('127.50')
+    expect(result.cashDistributions[0].taxFreeCapitalIncomePortion.toFixed(2)).toBe('22.50')
+    expect(result.cashDistributions[0].taxableEarnedDividend.toFixed(2)).toBe('0.00')
+    expect(result.cashDistributions[0].taxFreeEarnedDividend.toFixed(2)).toBe('0.00')
+    expect(result.cashDistributions[0].withholdingToTaxOffice.toFixed(2)).toBe('38.25')
+  })
+
   it('uses fifo lots and picks the more beneficial deduction method per lot', () => {
     const result = calculateOsakkeet(
       createBaseForm({
@@ -201,12 +246,57 @@ describe(calculateOsakkeet, () => {
     expect(result.sell.netAfterTaxAndIpoCost.toFixed(2)).toBe('858.00')
   })
 
+  it('includes price per share and other acquisition costs in the actual cost basis', () => {
+    const result = calculateOsakkeet(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2013',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '50',
+          },
+        ],
+        ipo: {
+          ipoDate: '2026-06-01',
+          totalShareCount: '100',
+          totalIpoCost: '0',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '200',
+          estimatedSecondaryShareSellPercentage: '100',
+        },
+        sell: { amount: '100' },
+      })
+    )
+
+    expect(result.subscriptions[0].totalPrice.toFixed(2)).toBe('150.00')
+    expect(result.subscriptions[0].totalPricePerShare.toFixed(2)).toBe('1.50')
+    expect(result.sell.usedSubscriptions[0].realCostBasis.toFixed(2)).toBe('150.00')
+    expect(result.sell.usedSubscriptions[0].selectedMethod).toBe('actual_costs')
+  })
+
   it('excludes vesting-restricted lots from the IPO sale allocation', () => {
     const result = calculateOsakkeet(
       createBaseForm({
         subscriptions: [
-          { id: 's1', date: '01.01.2013', vestingEndsOn: '31.12.2026', amount: '100', totalPrice: '100' },
-          { id: 's2', date: '01.01.2022', vestingEndsOn: '', amount: '50', totalPrice: '200' },
+          {
+            id: 's1',
+            date: '01.01.2013',
+            vestingEndsOn: '31.12.2026',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 's2',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '50',
+            pricePerShare: '4',
+            otherTotalAcquisitionCosts: '',
+          },
         ],
         sell: { amount: '60' },
       })
@@ -220,6 +310,47 @@ describe(calculateOsakkeet, () => {
     expect(result.vesting.unvestedShares.toFixed(2)).toBe('100.00')
     expect(result.errors).toContain(
       'Myytävien osakkeiden määrä ylittää IPO-päivänä myytävissä olevien osakkeiden määrän (50).'
+    )
+  })
+
+  it('excludes subscriptions made after the IPO date from IPO sell calculations', () => {
+    const result = calculateOsakkeet(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2013',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 's2',
+            date: '01.07.2026',
+            vestingEndsOn: '',
+            amount: '50',
+            pricePerShare: '4',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        ipo: {
+          ipoDate: '2026-06-01',
+          totalShareCount: '150',
+          totalIpoCost: '30',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1500',
+          estimatedSecondaryShareSellPercentage: '80',
+        },
+        sell: { amount: '120' },
+      })
+    )
+
+    expect(result.sell.usedSubscriptions).toHaveLength(1)
+    expect(result.sell.usedSubscriptions[0].subscriptionId).toBe('s1')
+    expect(result.vesting.totalShares.toFixed(2)).toBe('100.00')
+    expect(result.errors).toContain(
+      'Myytävien osakkeiden määrä ylittää IPO-päivänä myytävissä olevien osakkeiden määrän (100).'
     )
   })
 
@@ -258,13 +389,49 @@ describe(calculateOsakkeet, () => {
     expect(result.sell.estimatedTax.toFixed(2)).toBe('434.00')
   })
 
+  it('reduces annual tax estimate when other annual capital losses are entered', () => {
+    const result = calculateOsakkeet(
+      createBaseForm({
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
+        sell: { amount: '120', otherAnnualCapitalGainsOrLosses: '-200' },
+      })
+    )
+
+    expect(result.sell.taxableGainTotal.toFixed(2)).toBe('740.00')
+    expect(result.sell.annualNetCapitalGain.toFixed(2)).toBe('540.00')
+    expect(result.sell.estimatedTax.toFixed(2)).toBe('222.00')
+    expect(result.sell.annualEstimatedTax.toFixed(2)).toBe('162.00')
+    expect(result.sell.taxReductionFromOtherLosses.toFixed(2)).toBe('60.00')
+  })
+
   it('matches snapshot for mixed reimbursements dividends vesting and fifo sale', () => {
     expect(
       snapshotCalculation({
         subscriptions: [
-          { id: 's1', date: '15.05.2012', vestingEndsOn: '', amount: '120000', totalPrice: '9600' },
-          { id: 's2', date: '01.09.2018', vestingEndsOn: '', amount: '30000', totalPrice: '18000' },
-          { id: 's3', date: '01.03.2024', vestingEndsOn: '31.12.2026', amount: '10000', totalPrice: '12000' },
+          {
+            id: 's1',
+            date: '15.05.2012',
+            vestingEndsOn: '',
+            amount: '120000',
+            pricePerShare: '0.08',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 's2',
+            date: '01.09.2018',
+            vestingEndsOn: '',
+            amount: '30000',
+            pricePerShare: '0.6',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 's3',
+            date: '01.03.2024',
+            vestingEndsOn: '31.12.2026',
+            amount: '10000',
+            pricePerShare: '1.2',
+            otherTotalAcquisitionCosts: '',
+          },
         ],
         cashDistributions: [
           { id: 'd1', type: 'capital_return', date: '30.06.2023', amountPerShare: '0.10' },
@@ -297,9 +464,30 @@ describe(calculateOsakkeet, () => {
     expect(
       snapshotCalculation({
         subscriptions: [
-          { id: 's1', date: '01.01.2010', vestingEndsOn: '', amount: '100000', totalPrice: '5000' },
-          { id: 's2', date: '01.06.2017', vestingEndsOn: '', amount: '50000', totalPrice: '40000' },
-          { id: 's3', date: '01.02.2021', vestingEndsOn: '', amount: '40000', totalPrice: '36000' },
+          {
+            id: 's1',
+            date: '01.01.2010',
+            vestingEndsOn: '',
+            amount: '100000',
+            pricePerShare: '0.05',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 's2',
+            date: '01.06.2017',
+            vestingEndsOn: '',
+            amount: '50000',
+            pricePerShare: '0.8',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 's3',
+            date: '01.02.2021',
+            vestingEndsOn: '',
+            amount: '40000',
+            pricePerShare: '0.9',
+            otherTotalAcquisitionCosts: '',
+          },
         ],
         cashDistributions: [{ id: 'd1', type: 'capital_return', date: '30.06.2024', amountPerShare: '0.18' }],
         mathematicalShareValues: [
@@ -326,8 +514,22 @@ describe(calculateOsakkeet, () => {
     expect(
       snapshotCalculation({
         subscriptions: [
-          { id: 's1', date: '01.01.2022', vestingEndsOn: '31.12.2027', amount: '100', totalPrice: '1000' },
-          { id: 's2', date: 'not-a-date', vestingEndsOn: '', amount: '-5', totalPrice: 'oops' },
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '31.12.2027',
+            amount: '100',
+            pricePerShare: '10',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 's2',
+            date: 'not-a-date',
+            vestingEndsOn: '',
+            amount: '-5',
+            pricePerShare: 'oops',
+            otherTotalAcquisitionCosts: '',
+          },
         ],
         cashDistributions: [
           { id: 'd1', type: 'dividend', date: '30.06.2025', amountPerShare: '1.5' },

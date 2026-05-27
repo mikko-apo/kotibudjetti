@@ -624,7 +624,7 @@ export function kaukolampoExcessPricingCalculator() {
   const from = { year: 2022, month: 1 }
   const to = { year: 2025, month: 12 }
   const years = range(from.year, to.year)
-  const address = 'Jätintie 1 A'
+  const address = 'Rykmentintie 12 A'
   const monthlyPricing = resolveMonthlyPricingLookup(contract, from, to)
   const pFromBrowserUrl = getPUrlParameter()
   const powerUsage = parseUnderscoreSeparatedYmNumbers(pFromBrowserUrl || usage)

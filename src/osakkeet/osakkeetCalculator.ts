@@ -6,9 +6,9 @@ export type ShareSubscriptionInput = {
   date: string
   vestingEndsOn?: string
   amount: string
-  totalPrice: string
-  originalShareValue?: string
   pricePerShare?: string
+  otherTotalAcquisitionCosts?: string
+  totalPrice?: string
 }
 
 export type CashDistributionInput = {
@@ -16,6 +16,7 @@ export type CashDistributionInput = {
   date: string
   type: 'capital_return' | 'dividend'
   amountPerShare: string
+  shareCount?: string
 }
 
 export type MathematicalShareValueInput = {
@@ -35,6 +36,7 @@ export type IpoDetailsInput = {
 
 export type IpoSellDetailsInput = {
   amount: string
+  otherAnnualCapitalGainsOrLosses?: string
 }
 
 export type OsakkeetFormData = {
@@ -63,7 +65,9 @@ export type SubscriptionSummary = {
   date: string
   amount: Decimal
   totalPrice: Decimal
+  totalPricePerShare: Decimal
   cashDistributionGrossTotal: Decimal
+  capitalRepaymentTotal: Decimal
   capitalRepaymentPerShare: Decimal
   remainingCostPerShare: Decimal
   remainingCostTotal: Decimal
@@ -152,6 +156,7 @@ export type OsakkeetCalculation = {
   }
   sell: {
     amount: Decimal
+    otherAnnualCapitalGainsOrLosses: Decimal
     usedSubscriptions: SellLotSummary[]
     grossTotal: Decimal
     cashAfterIpoCosts: Decimal
@@ -170,7 +175,14 @@ export type OsakkeetCalculation = {
     taxableGainAtLowRate: Decimal
     taxableGainAtHighRate: Decimal
     estimatedTax: Decimal
+    annualNetCapitalGain: Decimal
+    annualTaxableGainAtLowRate: Decimal
+    annualTaxableGainAtHighRate: Decimal
+    annualEstimatedTax: Decimal
+    annualTaxChange: Decimal
+    taxReductionFromOtherLosses: Decimal
     netAfterTaxAndIpoCost: Decimal
+    netAfterAnnualTaxAndIpoCost: Decimal
     remainingUnsoldShares: Decimal
   }
 }
@@ -204,6 +216,11 @@ export type OsakkeetTaxRules = {
     lowWithholdingRate: number
     highWithholdingRate: number
   }
+  listedDividend: {
+    taxableCapitalIncomeRate: number
+    taxFreeCapitalIncomeRate: number
+    withholdingRate: number
+  }
 }
 
 export const OSAKKEET_TAX_RULES_2026: OsakkeetTaxRules = {
@@ -233,6 +250,11 @@ export const OSAKKEET_TAX_RULES_2026: OsakkeetTaxRules = {
     lowWithholdingRate: 0.075,
     highWithholdingRate: 0.28,
   },
+  listedDividend: {
+    taxableCapitalIncomeRate: 0.85,
+    taxFreeCapitalIncomeRate: 0.15,
+    withholdingRate: 0.255,
+  },
 }
 
 function decimalOrZero(value: string, field: string, errors: string[], localization: OsakkeetLocalization) {
@@ -244,6 +266,17 @@ function decimalOrZero(value: string, field: string, errors: string[], localizat
       errors.push(localization.calculator.validation.negative(field))
     }
     return parsed
+  } catch {
+    errors.push(localization.calculator.validation.invalidNumber(field))
+    return zero
+  }
+}
+
+function signedDecimalOrZero(value: string, field: string, errors: string[], localization: OsakkeetLocalization) {
+  const normalized = value.trim()
+  if (normalized === '') return zero
+  try {
+    return new Decimal(normalized)
   } catch {
     errors.push(localization.calculator.validation.invalidNumber(field))
     return zero
@@ -299,12 +332,27 @@ function createLot(input: ShareSubscriptionInput, errors: string[], localization
     errors,
     localization
   )
-  const totalPrice = decimalOrZero(
-    input.totalPrice || input.pricePerShare || '',
-    localization.calculator.fields.subscriptionTotalPrice(input.date || input.id),
+  const pricePerShare = decimalOrZero(
+    input.pricePerShare || '',
+    localization.calculator.fields.subscriptionPricePerShare(input.date || input.id),
     errors,
     localization
   )
+  const otherTotalAcquisitionCosts = decimalOrZero(
+    input.otherTotalAcquisitionCosts || '',
+    localization.calculator.fields.subscriptionOtherTotalAcquisitionCosts(input.date || input.id),
+    errors,
+    localization
+  )
+  const fallbackTotalPrice = decimalOrZero(
+    input.totalPrice || '',
+    localization.calculator.fields.subscriptionOtherTotalAcquisitionCosts(input.date || input.id),
+    [],
+    localization
+  )
+  const totalPrice = amount.mul(pricePerShare).add(otherTotalAcquisitionCosts)
+  const effectiveTotalPrice =
+    totalPrice.gt(0) || input.pricePerShare || input.otherTotalAcquisitionCosts ? totalPrice : fallbackTotalPrice
   return {
     id: input.id,
     date: input.date,
@@ -322,8 +370,8 @@ function createLot(input: ShareSubscriptionInput, errors: string[], localization
       localization
     ),
     amount,
-    totalPrice,
-    remainingCostTotal: totalPrice,
+    totalPrice: effectiveTotalPrice,
+    remainingCostTotal: effectiveTotalPrice,
     capitalRepaymentTotal: zero,
     cashDistributionGrossTotal: zero,
   } satisfies WorkingLot
@@ -427,6 +475,12 @@ function parseIpoAndSellInputs(
     localization
   )
   const sellAmount = decimalOrZero(form.sell.amount, localization.calculator.fields.sellAmount, errors, localization)
+  const otherAnnualCapitalGainsOrLosses = signedDecimalOrZero(
+    form.sell.otherAnnualCapitalGainsOrLosses || '',
+    localization.calculator.fields.otherAnnualCapitalGainsOrLosses,
+    errors,
+    localization
+  )
 
   if (totalShareCountInput.gt(0) && totalShareCountInput.lt(totalSubscribedShares)) {
     warnings.push(localization.calculator.warnings.totalShareCountBelowSubscriptions)
@@ -452,6 +506,7 @@ function parseIpoAndSellInputs(
   return {
     ipoDate,
     sellAmount,
+    otherAnnualCapitalGainsOrLosses,
     ipo: {
       ipoDate,
       totalShareCount,
@@ -473,16 +528,19 @@ function parseIpoAndSellInputs(
 }
 
 function calculateVestingSummary(lots: WorkingLot[], ipoDate?: Date): VestingSummary {
-  const sellableLots = lots.filter(
+  const ipoEligibleLots = lots.filter(
+    (lot) => !lot.dateValue || !ipoDate || lot.dateValue.getTime() <= ipoDate.getTime()
+  )
+  const sellableLots = ipoEligibleLots.filter(
     (lot) => !lot.vestingEndsOnValue || !!(ipoDate && ipoDate.getTime() >= lot.vestingEndsOnValue.getTime())
   )
-  const lockedLots = lots.filter(
+  const lockedLots = ipoEligibleLots.filter(
     (lot) => !!lot.vestingEndsOnValue && (!ipoDate || ipoDate.getTime() < lot.vestingEndsOnValue.getTime())
   )
   return {
     sellableLots,
     lockedLots,
-    totalShares: sumDecimals(lots.map((lot) => lot.amount)),
+    totalShares: sumDecimals(ipoEligibleLots.map((lot) => lot.amount)),
     vestedShares: sumDecimals(sellableLots.map((lot) => lot.amount)),
     unvestedShares: sumDecimals(lockedLots.map((lot) => lot.amount)),
   }
@@ -522,7 +580,9 @@ function applyCashDistributions(
       const expectedTotal = amountPerShare.mul(sharesHeld)
       const grossTotal = expectedTotal
       const effectivePerShare = sharesHeld.gt(0) ? grossTotal.div(sharesHeld) : zero
-      const isDividend = entry.type === 'dividend'
+      const isAfterIpoDate = !!(ipoDate && cashDistributionDate && cashDistributionDate.getTime() >= ipoDate.getTime())
+      const effectiveType: CashDistributionSummary['type'] = isAfterIpoDate ? 'dividend' : entry.type
+      const isDividend = effectiveType === 'dividend'
 
       if (sharesHeld.eq(0) && grossTotal.gt(0)) {
         warnings.push(localization.calculator.warnings.noSharesHeldForDistribution(entry.date))
@@ -575,14 +635,22 @@ function applyCashDistributions(
       )
       const lowCapitalPart = Decimal.min(capitalDividendGross, lowerCapitalDividendRoom)
       const highCapitalPart = Decimal.max(capitalDividendGross.minus(lowCapitalPart), zero)
-      const taxableCapitalIncome = lowCapitalPart
-        .mul(rules.unlistedDividend.lowCapitalDividendTaxableRate)
-        .add(highCapitalPart.mul(rules.unlistedDividend.highCapitalDividendTaxableRate))
-      const taxFreeCapitalIncomePortion = lowCapitalPart
-        .mul(rules.unlistedDividend.lowCapitalDividendTaxFreeRate)
-        .add(highCapitalPart.mul(rules.unlistedDividend.highCapitalDividendTaxFreeRate))
-      const taxableEarnedDividend = earnedDividendGross.mul(rules.unlistedDividend.earnedDividendTaxableRate)
-      const taxFreeEarnedDividend = earnedDividendGross.mul(rules.unlistedDividend.earnedDividendTaxFreeRate)
+      const taxableCapitalIncome = isAfterIpoDate
+        ? dividendTotal.mul(rules.listedDividend.taxableCapitalIncomeRate)
+        : lowCapitalPart
+            .mul(rules.unlistedDividend.lowCapitalDividendTaxableRate)
+            .add(highCapitalPart.mul(rules.unlistedDividend.highCapitalDividendTaxableRate))
+      const taxFreeCapitalIncomePortion = isAfterIpoDate
+        ? dividendTotal.mul(rules.listedDividend.taxFreeCapitalIncomeRate)
+        : lowCapitalPart
+            .mul(rules.unlistedDividend.lowCapitalDividendTaxFreeRate)
+            .add(highCapitalPart.mul(rules.unlistedDividend.highCapitalDividendTaxFreeRate))
+      const taxableEarnedDividend = isAfterIpoDate
+        ? zero
+        : earnedDividendGross.mul(rules.unlistedDividend.earnedDividendTaxableRate)
+      const taxFreeEarnedDividend = isAfterIpoDate
+        ? zero
+        : earnedDividendGross.mul(rules.unlistedDividend.earnedDividendTaxFreeRate)
 
       const usedGrossDividend = year ? grossDividendUsedByYear.get(year) || zero : zero
       const lowerGrossDividendRoom = Decimal.max(
@@ -591,12 +659,14 @@ function applyCashDistributions(
       )
       const lowWithholdingPart = Decimal.min(dividendTotal, lowerGrossDividendRoom)
       const highWithholdingPart = Decimal.max(dividendTotal.minus(lowWithholdingPart), zero)
-      const withholdingToTaxOffice = lowWithholdingPart
-        .mul(rules.unlistedDividend.lowWithholdingRate)
-        .add(highWithholdingPart.mul(rules.unlistedDividend.highWithholdingRate))
+      const withholdingToTaxOffice = isAfterIpoDate
+        ? dividendTotal.mul(rules.listedDividend.withholdingRate)
+        : lowWithholdingPart
+            .mul(rules.unlistedDividend.lowWithholdingRate)
+            .add(highWithholdingPart.mul(rules.unlistedDividend.highWithholdingRate))
       const paidInCash = grossTotal.minus(withholdingToTaxOffice)
 
-      if (year) {
+      if (year && !isAfterIpoDate) {
         capitalDividendUsedByYear.set(year, usedCapitalDividend.add(capitalDividendGross))
         grossDividendUsedByYear.set(year, usedGrossDividend.add(dividendTotal))
       }
@@ -604,7 +674,7 @@ function applyCashDistributions(
       return {
         id: entry.id,
         date: entry.date,
-        type: entry.type,
+        type: effectiveType,
         amountPerShare,
         sharesHeld,
         mathematicalShareValuePerShare,
@@ -620,8 +690,7 @@ function applyCashDistributions(
         taxFreeCapitalIncomePortion,
         taxableEarnedDividend,
         taxFreeEarnedDividend,
-        treatedAsListedDividend:
-          isDividend && !!(ipoDate && cashDistributionDate && cashDistributionDate.getTime() >= ipoDate.getTime()),
+        treatedAsListedDividend: isAfterIpoDate,
         allocations,
       } satisfies CashDistributionSummary
     })
@@ -630,6 +699,7 @@ function applyCashDistributions(
 function calculateSellSummary(
   sellableLots: WorkingLot[],
   sellAmount: Decimal,
+  otherAnnualCapitalGainsOrLosses: Decimal,
   vestingSummary: VestingSummary,
   ipoSummary: IpoSummary,
   rules: OsakkeetTaxRules,
@@ -698,6 +768,12 @@ function calculateSellSummary(
   const taxableGainAtLowRate = Decimal.max(Decimal.min(taxableGainTotal, capitalIncomeThreshold), zero)
   const taxableGainAtHighRate = Decimal.max(taxableGainTotal.minus(capitalIncomeThreshold), zero)
   const estimatedTax = estimateCapitalTax(taxableGainTotal, rules)
+  const annualNetCapitalGain = Decimal.max(taxableGainTotal.add(otherAnnualCapitalGainsOrLosses), zero)
+  const annualEstimatedTax = estimateCapitalTax(annualNetCapitalGain, rules)
+  const annualTaxableGainAtLowRate = Decimal.max(Decimal.min(annualNetCapitalGain, capitalIncomeThreshold), zero)
+  const annualTaxableGainAtHighRate = Decimal.max(annualNetCapitalGain.minus(capitalIncomeThreshold), zero)
+  const annualTaxChange = annualEstimatedTax.minus(estimatedTax)
+  const taxReductionFromOtherLosses = Decimal.max(estimatedTax.minus(annualEstimatedTax), zero)
   const grossTotal = sumDecimals(usedSubscriptions.map((lot) => lot.gross))
   const selectedActualDeductionTotal = sumDecimals(
     usedSubscriptions.filter((lot) => lot.selectedMethod === 'actual_costs').map((lot) => lot.actualDeduction)
@@ -730,13 +806,13 @@ function calculateSellSummary(
   const taxSavedFromDeductibleIpoCosts = estimateCapitalTax(
     taxableGainTotal.add(ipoCostDeductedViaActual),
     rules
-  ).minus(
-    estimatedTax
-  )
+  ).minus(estimatedTax)
   const netAfterTaxAndIpoCost = grossTotal.minus(totalIpoCostAllocated).minus(estimatedTax)
+  const netAfterAnnualTaxAndIpoCost = grossTotal.minus(totalIpoCostAllocated).minus(annualEstimatedTax)
 
   return {
     amount: sellAmount,
+    otherAnnualCapitalGainsOrLosses,
     usedSubscriptions,
     grossTotal,
     cashAfterIpoCosts,
@@ -755,7 +831,14 @@ function calculateSellSummary(
     taxableGainAtLowRate,
     taxableGainAtHighRate,
     estimatedTax,
+    annualNetCapitalGain,
+    annualTaxableGainAtLowRate,
+    annualTaxableGainAtHighRate,
+    annualEstimatedTax,
+    annualTaxChange,
+    taxReductionFromOtherLosses,
     netAfterTaxAndIpoCost,
+    netAfterAnnualTaxAndIpoCost,
     remainingUnsoldShares: Decimal.max(ipoSummary.totalSubscribedShares.minus(soldSharesTotal), zero),
   }
 }
@@ -766,7 +849,9 @@ function buildSubscriptionSummaries(lots: WorkingLot[]): SubscriptionSummary[] {
     date: lot.date,
     amount: lot.amount,
     totalPrice: lot.totalPrice,
+    totalPricePerShare: lot.amount.gt(0) ? lot.totalPrice.div(lot.amount) : zero,
     cashDistributionGrossTotal: lot.cashDistributionGrossTotal,
+    capitalRepaymentTotal: lot.capitalRepaymentTotal,
     capitalRepaymentPerShare: lot.amount.gt(0) ? lot.capitalRepaymentTotal.div(lot.amount) : zero,
     remainingCostPerShare: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
     remainingCostTotal: lot.remainingCostTotal,
@@ -790,7 +875,7 @@ export function calculateOsakkeet(
     errors,
     localization
   )
-  const { ipoDate, sellAmount, ipo } = parseIpoAndSellInputs(
+  const { ipoDate, sellAmount, otherAnnualCapitalGainsOrLosses, ipo } = parseIpoAndSellInputs(
     form,
     totalSubscribedShares,
     totalSubscribedCost,
@@ -812,6 +897,7 @@ export function calculateOsakkeet(
   const sell = calculateSellSummary(
     vesting.sellableLots,
     sellAmount,
+    otherAnnualCapitalGainsOrLosses,
     vesting,
     ipo,
     rules,
