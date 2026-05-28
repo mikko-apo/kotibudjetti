@@ -4,7 +4,15 @@ import {
   calculateOsakkeet,
   type OsakkeetFormData,
   type OsakkeetTaxRules,
+  yearlyTaxCalculator,
 } from './osakkeetCalculator'
+import { getOsakkeetLocalization } from './osakkeetLocalizations'
+
+const localization = getOsakkeetLocalization('fi')
+
+function calculate(form: OsakkeetFormData, rules?: OsakkeetTaxRules) {
+  return calculateOsakkeet(form, localization, rules)
+}
 
 function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetFormData {
   return {
@@ -27,6 +35,8 @@ function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetForm
       },
     ],
     cashDistributions: [],
+    shareSplits: [],
+    demergers: [],
     mathematicalShareValues: [
       { id: 'm1', year: '2024', valuePerShare: '20' },
       { id: 'm2', year: '2025', valuePerShare: '20' },
@@ -53,7 +63,7 @@ function decimalValue(value: { toFixed: (precision?: number) => string }) {
 }
 
 function snapshotCalculation(form: OsakkeetFormData) {
-  const result = calculateOsakkeet(form)
+  const result = calculate(form)
   return {
     warnings: result.warnings,
     errors: result.errors,
@@ -174,8 +184,32 @@ function snapshotCalculation(form: OsakkeetFormData) {
 }
 
 describe(calculateOsakkeet, () => {
+  it('returns 2016-and-later yearly tax rules from the latest matching rule set', () => {
+    expect(yearlyTaxCalculator(2016)).toMatchObject({
+      capitalIncomeTax: {
+        threshold: 30000,
+        lowRate: 0.3,
+        highRate: 0.34,
+      },
+    })
+    expect(yearlyTaxCalculator(2026)).toEqual(yearlyTaxCalculator(2016))
+    expect(() => yearlyTaxCalculator(2015)).toThrow(/2016 and after/)
+  })
+
+  it('warns when yearly tax calculations are used for pre-2016 cash-distribution years', () => {
+    const result = calculate(
+      createBaseForm({
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2015-12-31', amountPerShare: '1' }],
+      })
+    )
+
+    expect(result.warnings).toContain(
+      'Vuositason vero-, osinko- ja pääomanpalautuslaskenta on tuettu verovuosille 2016 ja sitä uudemmille. Syötteissä on vuosi 2015.'
+    )
+  })
+
   it('splits cash distributions into capital repayments and dividends lot by lot', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
       })
@@ -207,8 +241,244 @@ describe(calculateOsakkeet, () => {
     expect(result.subscriptions[1].remainingCostPerShare.toFixed(2)).toBe('2.00')
   })
 
+  it('applies share splits to later share counts while keeping total acquisition cost unchanged', () => {
+    const result = calculate(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '4',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        shareSplits: [{ id: 'split1', date: '2024-01-01', multiplier: '2' }],
+        demergers: [],
+        cashDistributions: [],
+        ipo: {
+          ipoDate: '2026-06-01',
+          totalShareCount: '',
+          totalIpoCost: '0',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1200',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.subscriptions[0].amount.toFixed(2)).toBe('200.00')
+    expect(result.subscriptions[0].totalPrice.toFixed(2)).toBe('400.00')
+    expect(result.subscriptions[0].totalPricePerShare.toFixed(2)).toBe('2.00')
+    expect(result.subscriptions[0].remainingCostPerShare.toFixed(2)).toBe('2.00')
+    expect(result.ipo.totalSubscribedShares.toFixed(2)).toBe('200.00')
+    expect(result.vesting.totalShares.toFixed(2)).toBe('200.00')
+  })
+
+  it('uses split-adjusted shares for later cash distributions', () => {
+    const result = calculate(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '4',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        shareSplits: [{ id: 'split1', date: '2024-01-01', multiplier: '2' }],
+        demergers: [],
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-06-01', amountPerShare: '1' }],
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.cashDistributions[0].sharesHeld.toFixed(2)).toBe('200.00')
+    expect(result.cashDistributions[0].grossTotal.toFixed(2)).toBe('200.00')
+    expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('200.00')
+    expect(result.subscriptions[0].capitalRepaymentPerShare.toFixed(2)).toBe('1.00')
+    expect(result.subscriptions[0].remainingCostTotal.toFixed(2)).toBe('200.00')
+  })
+
+  it('uses split-adjusted shares in ipo sell allocation', () => {
+    const result = calculate(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2013',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        shareSplits: [{ id: 'split1', date: '2024-01-01', multiplier: '2' }],
+        demergers: [],
+        ipo: {
+          ipoDate: '2026-06-01',
+          totalShareCount: '',
+          totalIpoCost: '0',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1000',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+        sell: {
+          amount: '150',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.sell.usedSubscriptions).toHaveLength(1)
+    expect(result.sell.usedSubscriptions[0].totalSubscriptionShares.toFixed(2)).toBe('200.00')
+    expect(result.sell.usedSubscriptions[0].soldAmount.toFixed(2)).toBe('150.00')
+    expect(result.sell.usedSubscriptions[0].originalCostBasis.toFixed(2)).toBe('75.00')
+    expect(result.sell.usedSubscriptions[0].realCostBasis.toFixed(2)).toBe('75.00')
+    expect(result.sell.remainingUnsoldShares.toFixed(2)).toBe('50.00')
+  })
+
+  it('allocates acquisition cost to the old company after a demerger', () => {
+    const result = calculate(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '10',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        demergers: [{ id: 'dmg1', date: '2024-01-01', oldCompanyRatio: '0.72' }],
+        cashDistributions: [],
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.subscriptions[0].amount.toFixed(2)).toBe('100.00')
+    expect(result.subscriptions[0].totalPrice.toFixed(2)).toBe('720.00')
+    expect(result.subscriptions[0].totalPricePerShare.toFixed(2)).toBe('7.20')
+    expect(result.subscriptions[0].remainingCostTotal.toFixed(2)).toBe('720.00')
+    expect(result.subscriptions[0].remainingCostPerShare.toFixed(2)).toBe('7.20')
+  })
+
+  it('uses demerger-adjusted acquisition cost for later capital repayments and sale deductions', () => {
+    const result = calculate(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '10',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        demergers: [{ id: 'dmg1', date: '2024-01-01', oldCompanyRatio: '0.72' }],
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-06-01', amountPerShare: '8' }],
+        ipo: {
+          ipoDate: '2026-06-01',
+          totalShareCount: '',
+          totalIpoCost: '0',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1000',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+        sell: {
+          amount: '100',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.cashDistributions[0].grossTotal.toFixed(2)).toBe('800.00')
+    expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('720.00')
+    expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('80.00')
+    expect(result.subscriptions[0].remainingCostTotal.toFixed(2)).toBe('0.00')
+    expect(result.sell.usedSubscriptions[0].originalCostBasis.toFixed(2)).toBe('720.00')
+    expect(result.sell.usedSubscriptions[0].realCostBasis.toFixed(2)).toBe('0.00')
+  })
+
+  it('does not apply a demerger to subscriptions acquired after the demerger date', () => {
+    const result = calculate(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '10',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 's2',
+            date: '01.06.2024',
+            vestingEndsOn: '',
+            amount: '50',
+            pricePerShare: '8',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        demergers: [{ id: 'dmg1', date: '2024-01-01', oldCompanyRatio: '0.72' }],
+        cashDistributions: [],
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.subscriptions[0].totalPrice.toFixed(2)).toBe('720.00')
+    expect(result.subscriptions[1].totalPrice.toFixed(2)).toBe('400.00')
+    expect(result.subscriptions[0].totalPricePerShare.toFixed(2)).toBe('7.20')
+    expect(result.subscriptions[1].totalPricePerShare.toFixed(2)).toBe('8.00')
+  })
+
+  it('applies same-day split before demerger in the final acquisition cost', () => {
+    const result = calculate(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '10',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        shareSplits: [{ id: 'split1', date: '2024-01-01', multiplier: '2' }],
+        demergers: [{ id: 'dmg1', date: '2024-01-01', oldCompanyRatio: '0.72' }],
+        cashDistributions: [],
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.subscriptions[0].amount.toFixed(2)).toBe('200.00')
+    expect(result.subscriptions[0].totalPrice.toFixed(2)).toBe('720.00')
+    expect(result.subscriptions[0].totalPricePerShare.toFixed(2)).toBe('3.60')
+  })
+
+  it('rejects demerger ratios above one', () => {
+    const result = calculate(
+      createBaseForm({
+        demergers: [{ id: 'dmg1', date: '2024-01-01', oldCompanyRatio: '1.2' }],
+      })
+    )
+
+    expect(result.errors).not.toEqual([])
+    expect(result.errors.some((error) => error.includes('dmg1'))).toBe(true)
+  })
+
   it('treats cash distributions on or after ipo date as dividends', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'dividend', date: '2026-06-01', amountPerShare: '1' }],
       })
@@ -221,7 +491,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('treats post-IPO capital-return rows as listed dividends in yearly tax calculations', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         mathematicalShareValues: [],
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2026-06-15', amountPerShare: '1' }],
@@ -241,7 +511,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('uses fifo lots and picks the more beneficial deduction method per lot', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
         sell: { amount: '120' },
@@ -262,7 +532,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('includes price per share and other acquisition costs in the actual cost basis', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -293,7 +563,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('excludes vesting-restricted lots from the IPO sale allocation', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -329,7 +599,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('excludes subscriptions made after the IPO date from IPO sell calculations', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -370,7 +640,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('calculates current total value from current share value', () => {
-    const result = calculateOsakkeet(createBaseForm())
+    const result = calculate(createBaseForm())
 
     expect(result.errors).toEqual([])
     expect(result.ipo.currentShareValue.toFixed(2)).toBe('12.00')
@@ -390,12 +660,11 @@ describe(calculateOsakkeet, () => {
       },
     }
 
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
         sell: { amount: '120' },
       }),
-      undefined,
       customRules
     )
 
@@ -405,7 +674,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('reduces annual tax estimate when other annual capital losses are entered', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
         sell: { amount: '120', otherAnnualCapitalGainsOrLosses: '-200' },
@@ -448,6 +717,8 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        shareSplits: [],
+        demergers: [],
         cashDistributions: [
           { id: 'd1', type: 'capital_return', date: '30.06.2023', amountPerShare: '0.10' },
           { id: 'd2', type: 'capital_return', date: '30.06.2024', amountPerShare: '0.15' },
@@ -504,6 +775,8 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        shareSplits: [],
+        demergers: [],
         cashDistributions: [{ id: 'd1', type: 'capital_return', date: '30.06.2024', amountPerShare: '0.18' }],
         mathematicalShareValues: [
           { id: 'm1', year: '2024', valuePerShare: '2.20' },
@@ -546,6 +819,8 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        shareSplits: [],
+        demergers: [],
         cashDistributions: [
           { id: 'd1', type: 'dividend', date: '30.06.2025', amountPerShare: '1.5' },
           { id: 'd2', type: 'capital_return', date: 'bad-date', amountPerShare: '-1' },

@@ -4323,6 +4323,1550 @@
     );
   }
 
+  // src/osakkeet/osakkeetUtils.ts
+  function parseSupportedDate(trimmed) {
+    const finnishDateMatch = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(trimmed);
+    const isoDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if (finnishDateMatch) {
+      const [, day, month, year] = finnishDateMatch;
+      return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    }
+    if (isoDateMatch) {
+      return /* @__PURE__ */ new Date(`${trimmed}T00:00:00Z`);
+    }
+    return void 0;
+  }
+  function compareDateStrings(a2, b2) {
+    const dateA = parseSupportedDate(a2.trim());
+    const dateB = parseSupportedDate(b2.trim());
+    if (dateA && dateB) {
+      return dateA.getTime() - dateB.getTime();
+    }
+    if (dateA) return -1;
+    if (dateB) return 1;
+    return a2.localeCompare(b2);
+  }
+  function sumDecimals(values) {
+    return values.reduce((acc, value) => acc.add(value), new decimal_default(0));
+  }
+  function addYears(date, years) {
+    const next = new Date(date.getTime());
+    next.setUTCFullYear(next.getUTCFullYear() + years);
+    return next;
+  }
+  function isWithinYearsInclusive(start, end, years = 10) {
+    if (!start || !end) return false;
+    return end.getTime() <= addYears(start, years).getTime();
+  }
+  function isAtLeastYears(start, end, years = 10) {
+    if (!start || !end) return false;
+    return end.getTime() >= addYears(start, years).getTime();
+  }
+
+  // src/osakkeet/osakkeetCalculator.ts
+  var zero = new decimal_default(0);
+  var OSAKKEET_TAX_RULES_2016 = {
+    year: 2016,
+    capitalIncomeTax: {
+      threshold: 3e4,
+      lowRate: 0.3,
+      highRate: 0.34
+    },
+    capitalRepayment: {
+      eligibilityYears: 10
+    },
+    hankintamenoOlettama: {
+      ownershipYearsThreshold: 10,
+      shortOwnershipRate: 0.2,
+      longOwnershipRate: 0.4
+    },
+    unlistedDividend: {
+      mathematicalValueYieldRate: 0.08,
+      annualCapitalDividendThreshold: 15e4,
+      lowCapitalDividendTaxableRate: 0.25,
+      highCapitalDividendTaxableRate: 0.85,
+      lowCapitalDividendTaxFreeRate: 0.75,
+      highCapitalDividendTaxFreeRate: 0.15,
+      earnedDividendTaxableRate: 0.75,
+      earnedDividendTaxFreeRate: 0.25,
+      withholdingThreshold: 15e4,
+      lowWithholdingRate: 0.075,
+      highWithholdingRate: 0.28
+    },
+    listedDividend: {
+      taxableCapitalIncomeRate: 0.85,
+      taxFreeCapitalIncomeRate: 0.15,
+      withholdingRate: 0.255
+    }
+  };
+  var YEARLY_TAX_RULES = [
+    OSAKKEET_TAX_RULES_2016
+  ];
+  function yearlyTaxCalculator(year) {
+    if (year < OSAKKEET_TAX_RULES_2016.year) {
+      throw new Error(`yearlyTaxCalculator supports years ${OSAKKEET_TAX_RULES_2016.year} and after, got ${year}`);
+    }
+    let activeRules = YEARLY_TAX_RULES[0];
+    for (const rules of YEARLY_TAX_RULES) {
+      if (rules.year > year) break;
+      activeRules = rules;
+    }
+    return activeRules;
+  }
+  var OSAKKEET_TAX_RULES_2026 = yearlyTaxCalculator(2026);
+  function parseDecimalInput(value, field, errors, localization, options = {}) {
+    const normalized = value.trim();
+    if (normalized === "") return zero;
+    try {
+      const parsed = new decimal_default(normalized);
+      if (!options.allowNegative && parsed.isNegative()) {
+        errors.push(localization.calculator.validation.negative(field));
+      }
+      if (options.validate && !options.validate(parsed)) {
+        errors.push(localization.calculator.validation.invalidNumber(field));
+      }
+      return parsed;
+    } catch {
+      errors.push(localization.calculator.validation.invalidNumber(field));
+      return zero;
+    }
+  }
+  function parseOptionalDateInput(value, field, errors, localization) {
+    const trimmed = value.trim();
+    if (!trimmed) return void 0;
+    const date = parseSupportedDate(trimmed);
+    if (!date || Number.isNaN(date.getTime())) {
+      errors.push(localization.calculator.validation.invalidDate(field));
+      return void 0;
+    }
+    return date;
+  }
+  function createLot(input2, errors, localization) {
+    const amount2 = parseDecimalInput(
+      input2.amount,
+      localization.calculator.fields.subscriptionAmount(input2.date || input2.id),
+      errors,
+      localization
+    );
+    const pricePerShare = parseDecimalInput(
+      input2.pricePerShare || "",
+      localization.calculator.fields.subscriptionPricePerShare(input2.date || input2.id),
+      errors,
+      localization
+    );
+    const otherTotalAcquisitionCosts = parseDecimalInput(
+      input2.otherTotalAcquisitionCosts || "",
+      localization.calculator.fields.subscriptionOtherTotalAcquisitionCosts(input2.date || input2.id),
+      errors,
+      localization
+    );
+    const fallbackTotalPrice = parseDecimalInput(
+      input2.totalPrice || "",
+      localization.calculator.fields.subscriptionOtherTotalAcquisitionCosts(input2.date || input2.id),
+      [],
+      localization
+    );
+    const totalPrice = amount2.mul(pricePerShare).add(otherTotalAcquisitionCosts);
+    const effectiveTotalPrice = totalPrice.gt(0) || input2.pricePerShare || input2.otherTotalAcquisitionCosts ? totalPrice : fallbackTotalPrice;
+    return {
+      id: input2.id,
+      date: input2.date,
+      dateValue: parseOptionalDateInput(
+        input2.date,
+        localization.calculator.fields.subscriptionDate(input2.id),
+        errors,
+        localization
+      ),
+      vestingEndsOn: input2.vestingEndsOn || "",
+      vestingEndsOnValue: parseOptionalDateInput(
+        input2.vestingEndsOn || "",
+        localization.calculator.fields.subscriptionVestingEndsOn(input2.id),
+        errors,
+        localization
+      ),
+      amount: amount2,
+      originalAmount: amount2,
+      originalPricePerShare: pricePerShare,
+      originalOtherTotalAcquisitionCosts: otherTotalAcquisitionCosts,
+      originalTotalPrice: effectiveTotalPrice,
+      totalPrice: effectiveTotalPrice,
+      remainingCostTotal: effectiveTotalPrice,
+      capitalRepaymentTotal: zero,
+      cashDistributionGrossTotal: zero,
+      capitalRepaymentBreakdown: [],
+      acquisitionCostAdjustments: []
+    };
+  }
+  function estimateCapitalTax(taxableGain, rules) {
+    if (taxableGain.lte(0)) return zero;
+    const threshold = new decimal_default(rules.capitalIncomeTax.threshold);
+    const lowPart = decimal_default.min(taxableGain, threshold);
+    const highPart = decimal_default.max(taxableGain.minus(threshold), zero);
+    return lowPart.mul(rules.capitalIncomeTax.lowRate).add(highPart.mul(rules.capitalIncomeTax.highRate));
+  }
+  function resolveYearlyTaxRules(year, fallbackRules, useYearlyRules) {
+    if (!useYearlyRules || year == null || year < OSAKKEET_TAX_RULES_2016.year) {
+      return fallbackRules;
+    }
+    return yearlyTaxCalculator(year);
+  }
+  function collectUnsupportedYearWarnings(form2, ipoDate, sellAmount, warnings, localization, useYearlyRules) {
+    if (!useYearlyRules) return;
+    const unsupportedYears = /* @__PURE__ */ new Set();
+    form2.cashDistributions.forEach((entry) => {
+      const date = parseSupportedDate(entry.date.trim());
+      const year = date == null ? void 0 : date.getUTCFullYear();
+      if (year != null && year < OSAKKEET_TAX_RULES_2016.year) {
+        unsupportedYears.add(year);
+      }
+    });
+    const ipoYear = ipoDate == null ? void 0 : ipoDate.getUTCFullYear();
+    if (ipoYear != null && ipoYear < OSAKKEET_TAX_RULES_2016.year && sellAmount.gt(0)) {
+      unsupportedYears.add(ipoYear);
+    }
+    ;
+    [...unsupportedYears].sort((a2, b2) => a2 - b2).forEach((year) => warnings.push(localization.calculator.warnings.unsupportedYearRange(year)));
+  }
+  function createMathematicalShareValuesByYear(rows, errors, localization) {
+    const mathematicalShareValuesByYear = /* @__PURE__ */ new Map();
+    for (const row of rows) {
+      const year = parseDecimalInput(
+        row.year,
+        localization.calculator.fields.mathematicalShareValueYear(row.id),
+        errors,
+        localization
+      );
+      const valuePerShare = parseDecimalInput(
+        row.valuePerShare,
+        localization.calculator.fields.mathematicalShareValuePerShare(row.id),
+        errors,
+        localization
+      );
+      if (year.gt(0)) {
+        mathematicalShareValuesByYear.set(year.toNumber(), valuePerShare);
+      }
+    }
+    return mathematicalShareValuesByYear;
+  }
+  function createParsedCashDistributions(rows = [], errors, localization) {
+    return rows.map((row) => ({
+      id: row.id,
+      date: row.date,
+      dateValue: parseOptionalDateInput(
+        row.date,
+        localization.calculator.fields.cashDistributionDate(row.id),
+        errors,
+        localization
+      ),
+      type: row.type,
+      amountPerShare: parseDecimalInput(
+        row.amountPerShare,
+        localization.calculator.fields.cashDistributionAmountPerShare(row.id),
+        errors,
+        localization
+      )
+    }));
+  }
+  function parseDatedDecimalAction(row, rawValue, valueField, dateField, errors, localization, isValid, build) {
+    const normalizedDate = row.date.trim();
+    const normalizedValue = rawValue.trim();
+    if (normalizedDate === "" && normalizedValue === "") {
+      return build(zero, void 0);
+    }
+    const parsedValue = normalizedValue === "" ? (errors.push(localization.calculator.validation.invalidNumber(valueField)), zero) : parseDecimalInput(rawValue, valueField, errors, localization, { validate: isValid });
+    return build(parsedValue, parseOptionalDateInput(row.date, dateField, errors, localization));
+  }
+  function createParsedShareSplits(rows = [], errors, localization) {
+    return rows.map(
+      (row) => parseDatedDecimalAction(
+        row,
+        row.multiplier,
+        localization.calculator.fields.shareSplitMultiplier(row.id),
+        localization.calculator.fields.shareSplitDate(row.id),
+        errors,
+        localization,
+        (value) => value.gt(0),
+        (multiplier2, dateValue) => ({
+          id: row.id,
+          date: row.date,
+          dateValue,
+          multiplier: multiplier2
+        })
+      )
+    );
+  }
+  function createParsedDemergers(rows = [], errors, localization) {
+    return rows.map(
+      (row) => parseDatedDecimalAction(
+        row,
+        row.oldCompanyRatio,
+        localization.calculator.fields.demergerOldCompanyRatio(row.id),
+        localization.calculator.fields.demergerDate(row.id),
+        errors,
+        localization,
+        (value) => value.gt(0) && value.lte(1),
+        (oldCompanyRatio, dateValue) => ({
+          id: row.id,
+          date: row.date,
+          dateValue,
+          oldCompanyRatio
+        })
+      )
+    );
+  }
+  function cloneLots(lots) {
+    return lots.map((lot) => ({
+      ...lot,
+      capitalRepaymentBreakdown: lot.capitalRepaymentBreakdown.map((entry) => ({ ...entry })),
+      acquisitionCostAdjustments: lot.acquisitionCostAdjustments.map((entry) => ({ ...entry }))
+    }));
+  }
+  function applyToOwnedLots(lots, eventDate, apply) {
+    if (!eventDate) return;
+    for (const lot of lots) {
+      if (lot.dateValue && lot.dateValue.getTime() > eventDate.getTime()) continue;
+      apply(lot);
+    }
+  }
+  function applyShareSplit(lots, entry) {
+    if (entry.multiplier.lte(0)) return;
+    applyToOwnedLots(lots, entry.dateValue, (lot) => {
+      const beforeShares = lot.amount;
+      lot.amount = lot.amount.mul(entry.multiplier);
+      lot.acquisitionCostAdjustments.push({
+        kind: "split",
+        date: entry.date,
+        beforeShares,
+        afterShares: lot.amount,
+        multiplier: entry.multiplier
+      });
+    });
+  }
+  function applyShareSplitsToLots(lots, shareSplits, upToDate) {
+    for (const entry of shareSplits.filter((shareSplit) => {
+      if (!upToDate) return true;
+      return !!shareSplit.dateValue && shareSplit.dateValue.getTime() <= upToDate.getTime();
+    }).sort((a2, b2) => compareDateStrings(a2.date, b2.date))) {
+      applyShareSplit(lots, entry);
+    }
+  }
+  function applyDemerger(lots, entry) {
+    if (entry.oldCompanyRatio.lte(0) || entry.oldCompanyRatio.gt(1)) return;
+    applyToOwnedLots(lots, entry.dateValue, (lot) => {
+      const beforeTotalPrice = lot.totalPrice;
+      lot.totalPrice = lot.totalPrice.mul(entry.oldCompanyRatio);
+      lot.remainingCostTotal = lot.remainingCostTotal.mul(entry.oldCompanyRatio);
+      lot.acquisitionCostAdjustments.push({
+        kind: "demerger",
+        date: entry.date,
+        beforeTotalPrice,
+        afterTotalPrice: lot.totalPrice,
+        oldCompanyRatio: entry.oldCompanyRatio
+      });
+    });
+  }
+  function isEventWithinTimeline(dateValue, ipoDate, stopAtIpoDate) {
+    if (!stopAtIpoDate || !ipoDate) return true;
+    return !!dateValue && dateValue.getTime() <= ipoDate.getTime();
+  }
+  function createTimelineEvents(cashDistributions, shareSplits, demergers, ipoDate, options = {}) {
+    return [
+      ...shareSplits.filter((entry) => isEventWithinTimeline(entry.dateValue, ipoDate, options.stopAtIpoDate)).map((entry) => ({ kind: "split", date: entry.date, entry })),
+      ...demergers.filter((entry) => isEventWithinTimeline(entry.dateValue, ipoDate, options.stopAtIpoDate)).map((entry) => ({ kind: "demerger", date: entry.date, entry })),
+      ...cashDistributions.filter((entry) => {
+        if (!options.stopAtIpoDate || !ipoDate) return true;
+        return !!entry.dateValue && entry.dateValue.getTime() < ipoDate.getTime();
+      }).map((entry) => ({ kind: "distribution", date: entry.date, entry }))
+    ].sort((a2, b2) => {
+      const dateComparison = compareDateStrings(a2.date, b2.date);
+      if (dateComparison !== 0) return dateComparison;
+      if (a2.kind === b2.kind) return 0;
+      if (a2.kind === "distribution") return 1;
+      if (b2.kind === "distribution") return -1;
+      return 0;
+    });
+  }
+  function parseIpoAndSellInputs(form2, ipoDate, totalSubscribedShares, totalSubscribedCost, errors, warnings, localization) {
+    const totalShareCountInput = parseDecimalInput(
+      form2.ipo.totalShareCount,
+      localization.calculator.fields.totalShareCount,
+      errors,
+      localization
+    );
+    const totalShareCount = totalShareCountInput.gt(0) ? totalShareCountInput : totalSubscribedShares;
+    const totalIpoCost = parseDecimalInput(
+      form2.ipo.totalIpoCost,
+      localization.calculator.fields.totalIpoCost,
+      errors,
+      localization
+    );
+    const currentShareValue = parseDecimalInput(
+      form2.ipo.currentShareValue,
+      localization.calculator.fields.currentShareValue,
+      errors,
+      localization
+    );
+    const currentTotalValue = currentShareValue.mul(totalShareCount);
+    const estimatedPreIpoValue = parseDecimalInput(
+      form2.ipo.estimatedPreIpoValue,
+      localization.calculator.fields.estimatedPreIpoValue,
+      errors,
+      localization
+    );
+    const estimatedSecondaryShareSellPercentage = parseDecimalInput(
+      form2.ipo.estimatedSecondaryShareSellPercentage,
+      localization.calculator.fields.estimatedSecondaryShareSellPercentage,
+      errors,
+      localization
+    );
+    const sellAmount = parseDecimalInput(form2.sell.amount, localization.calculator.fields.sellAmount, errors, localization);
+    const otherAnnualCapitalGainsOrLosses = parseDecimalInput(
+      form2.sell.otherAnnualCapitalGainsOrLosses || "",
+      localization.calculator.fields.otherAnnualCapitalGainsOrLosses,
+      errors,
+      localization,
+      { allowNegative: true }
+    );
+    if (totalShareCountInput.gt(0) && totalShareCountInput.lt(totalSubscribedShares)) {
+      warnings.push(localization.calculator.warnings.totalShareCountBelowSubscriptions);
+    }
+    const estimatedSecondaryShareCount = totalShareCount.mul(estimatedSecondaryShareSellPercentage).div(100);
+    const ipoPricePerShare = totalShareCount.gt(0) ? estimatedPreIpoValue.div(totalShareCount) : zero;
+    const currentValuePerShare = totalShareCount.gt(0) ? currentTotalValue.div(totalShareCount) : zero;
+    const increaseMultiplier = currentValuePerShare.gt(0) ? ipoPricePerShare.div(currentValuePerShare) : zero;
+    const increasePercentage = currentValuePerShare.gt(0) ? ipoPricePerShare.div(currentValuePerShare).minus(1).mul(100) : zero;
+    const ipoCostPerShare = estimatedSecondaryShareCount.gt(0) ? totalIpoCost.div(estimatedSecondaryShareCount) : totalShareCount.gt(0) ? totalIpoCost.div(totalShareCount) : zero;
+    if (estimatedSecondaryShareCount.eq(0) && totalIpoCost.gt(0)) {
+      warnings.push(localization.calculator.warnings.secondarySellPercentZero);
+    }
+    return {
+      ipoDate,
+      sellAmount,
+      otherAnnualCapitalGainsOrLosses,
+      ipo: {
+        ipoDate,
+        totalShareCount,
+        totalSubscribedShares,
+        totalSubscribedCost,
+        totalIpoCost,
+        currentShareValue,
+        currentTotalValue,
+        estimatedPreIpoValue,
+        estimatedSecondaryShareSellPercentage,
+        estimatedSecondaryShareCount,
+        ipoPricePerShare,
+        currentValuePerShare,
+        increasePercentage,
+        increaseMultiplier,
+        ipoCostPerShare
+      }
+    };
+  }
+  function calculateVestingSummary(lots, ipoDate) {
+    const ipoEligibleLots = lots.filter(
+      (lot) => !lot.dateValue || !ipoDate || lot.dateValue.getTime() <= ipoDate.getTime()
+    );
+    const sellableLots = ipoEligibleLots.filter(
+      (lot) => !lot.vestingEndsOnValue || !!(ipoDate && ipoDate.getTime() >= lot.vestingEndsOnValue.getTime())
+    );
+    const lockedLots = ipoEligibleLots.filter(
+      (lot) => !!lot.vestingEndsOnValue && (!ipoDate || ipoDate.getTime() < lot.vestingEndsOnValue.getTime())
+    );
+    return {
+      sellableLots,
+      lockedLots,
+      totalShares: sumDecimals(ipoEligibleLots.map((lot) => lot.amount)),
+      vestedShares: sumDecimals(sellableLots.map((lot) => lot.amount)),
+      unvestedShares: sumDecimals(lockedLots.map((lot) => lot.amount))
+    };
+  }
+  function applyCashDistributions(lots, cashDistributions, shareSplits, demergers, ipoDate, mathematicalShareValuesByYear, rules, warnings, localization, useYearlyRules, options = {}) {
+    const capitalDividendUsedByYear = /* @__PURE__ */ new Map();
+    const grossDividendUsedByYear = /* @__PURE__ */ new Map();
+    const events2 = createTimelineEvents(cashDistributions, shareSplits, demergers, ipoDate, options);
+    const summaries = [];
+    for (const event of events2) {
+      if (event.kind === "split") {
+        applyShareSplit(lots, event.entry);
+        continue;
+      }
+      if (event.kind === "demerger") {
+        applyDemerger(lots, event.entry);
+        continue;
+      }
+      const entry = event.entry;
+      const cashDistributionDate = entry.dateValue;
+      const amountPerShare = entry.amountPerShare;
+      const eligibleLots = lots.filter(
+        (lot) => !lot.dateValue || !cashDistributionDate || lot.dateValue.getTime() <= cashDistributionDate.getTime()
+      );
+      const sharesHeld = sumDecimals(eligibleLots.map((lot) => lot.amount));
+      const expectedTotal = amountPerShare.mul(sharesHeld);
+      const grossTotal = expectedTotal;
+      const effectivePerShare = sharesHeld.gt(0) ? grossTotal.div(sharesHeld) : zero;
+      const isAfterIpoDate = !!(ipoDate && cashDistributionDate && cashDistributionDate.getTime() >= ipoDate.getTime());
+      const effectiveType = isAfterIpoDate ? "dividend" : entry.type;
+      const isDividend = effectiveType === "dividend";
+      const year = cashDistributionDate == null ? void 0 : cashDistributionDate.getUTCFullYear();
+      const distributionRules = resolveYearlyTaxRules(year, rules, useYearlyRules);
+      if (sharesHeld.eq(0) && grossTotal.gt(0)) {
+        warnings.push(localization.calculator.warnings.noSharesHeldForDistribution(entry.date));
+      }
+      const allocations = eligibleLots.map((lot) => {
+        const gross = effectivePerShare.mul(lot.amount);
+        const eligibleCapitalRepayment = !isDividend && isWithinYearsInclusive(
+          lot.dateValue,
+          cashDistributionDate,
+          distributionRules.capitalRepayment.eligibilityYears
+        ) && lot.remainingCostTotal.gt(0);
+        const remainingCostPerShare = lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero;
+        const capitalRepaymentPerShare = eligibleCapitalRepayment ? decimal_default.min(effectivePerShare, remainingCostPerShare) : zero;
+        const capitalRepayment = capitalRepaymentPerShare.mul(lot.amount);
+        const dividend = decimal_default.max(gross.minus(capitalRepayment), zero);
+        lot.remainingCostTotal = decimal_default.max(lot.remainingCostTotal.minus(capitalRepayment), zero);
+        lot.capitalRepaymentTotal = lot.capitalRepaymentTotal.add(capitalRepayment);
+        lot.cashDistributionGrossTotal = lot.cashDistributionGrossTotal.add(gross);
+        if (capitalRepayment.gt(0)) {
+          lot.capitalRepaymentBreakdown.push({
+            distributionDate: entry.date,
+            shares: lot.amount,
+            capitalRepaymentPerShare,
+            capitalRepaymentTotal: capitalRepayment
+          });
+        }
+        return {
+          subscriptionId: lot.id,
+          subscriptionDate: lot.date,
+          shares: lot.amount,
+          gross,
+          capitalRepayment,
+          dividend,
+          remainingCostPerShareAfter: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
+          eligibleCapitalRepayment
+        };
+      });
+      const capitalRepaymentTotal = sumDecimals(allocations.map((allocation) => allocation.capitalRepayment));
+      const dividendTotal = sumDecimals(allocations.map((allocation) => allocation.dividend));
+      const mathematicalShareValuePerShare = year ? mathematicalShareValuesByYear.get(year) || zero : zero;
+      const shareholderMathematicalValue = mathematicalShareValuePerShare.mul(sharesHeld);
+      const eightPercentYieldLimit = shareholderMathematicalValue.mul(
+        distributionRules.unlistedDividend.mathematicalValueYieldRate
+      );
+      const capitalDividendGross = shareholderMathematicalValue.gt(0) ? decimal_default.min(dividendTotal, eightPercentYieldLimit) : zero;
+      const earnedDividendGross = shareholderMathematicalValue.gt(0) ? decimal_default.max(dividendTotal.minus(capitalDividendGross), zero) : zero;
+      const usedCapitalDividend = year ? capitalDividendUsedByYear.get(year) || zero : zero;
+      const lowerCapitalDividendRoom = decimal_default.max(
+        new decimal_default(distributionRules.unlistedDividend.annualCapitalDividendThreshold).minus(usedCapitalDividend),
+        zero
+      );
+      const lowCapitalPart = decimal_default.min(capitalDividendGross, lowerCapitalDividendRoom);
+      const highCapitalPart = decimal_default.max(capitalDividendGross.minus(lowCapitalPart), zero);
+      const taxableCapitalIncome = isAfterIpoDate ? dividendTotal.mul(distributionRules.listedDividend.taxableCapitalIncomeRate) : lowCapitalPart.mul(distributionRules.unlistedDividend.lowCapitalDividendTaxableRate).add(highCapitalPart.mul(distributionRules.unlistedDividend.highCapitalDividendTaxableRate));
+      const taxFreeCapitalIncomePortion = isAfterIpoDate ? dividendTotal.mul(distributionRules.listedDividend.taxFreeCapitalIncomeRate) : lowCapitalPart.mul(distributionRules.unlistedDividend.lowCapitalDividendTaxFreeRate).add(highCapitalPart.mul(distributionRules.unlistedDividend.highCapitalDividendTaxFreeRate));
+      const taxableEarnedDividend = isAfterIpoDate ? zero : earnedDividendGross.mul(distributionRules.unlistedDividend.earnedDividendTaxableRate);
+      const taxFreeEarnedDividend = isAfterIpoDate ? zero : earnedDividendGross.mul(distributionRules.unlistedDividend.earnedDividendTaxFreeRate);
+      const usedGrossDividend = year ? grossDividendUsedByYear.get(year) || zero : zero;
+      const lowerGrossDividendRoom = decimal_default.max(
+        new decimal_default(distributionRules.unlistedDividend.withholdingThreshold).minus(usedGrossDividend),
+        zero
+      );
+      const lowWithholdingPart = decimal_default.min(dividendTotal, lowerGrossDividendRoom);
+      const highWithholdingPart = decimal_default.max(dividendTotal.minus(lowWithholdingPart), zero);
+      const withholdingToTaxOffice = isAfterIpoDate ? dividendTotal.mul(distributionRules.listedDividend.withholdingRate) : lowWithholdingPart.mul(distributionRules.unlistedDividend.lowWithholdingRate).add(highWithholdingPart.mul(distributionRules.unlistedDividend.highWithholdingRate));
+      const paidInCash = grossTotal.minus(withholdingToTaxOffice);
+      if (year && !isAfterIpoDate) {
+        capitalDividendUsedByYear.set(year, usedCapitalDividend.add(capitalDividendGross));
+        grossDividendUsedByYear.set(year, usedGrossDividend.add(dividendTotal));
+      }
+      const capitalRepaymentShareCount = sumDecimals(
+        allocations.filter((allocation) => allocation.capitalRepayment.gt(0)).map((allocation) => allocation.shares)
+      );
+      const dividendShareCount = sumDecimals(
+        allocations.filter((allocation) => allocation.dividend.gt(0)).map((allocation) => allocation.shares)
+      );
+      summaries.push(
+        {
+          id: entry.id,
+          date: entry.date,
+          type: effectiveType,
+          amountPerShare,
+          sharesHeld,
+          capitalRepaymentShareCount,
+          dividendShareCount,
+          mathematicalShareValuePerShare,
+          shareholderMathematicalValue,
+          eightPercentYieldLimit,
+          expectedTotal,
+          grossTotal,
+          paidInCash,
+          capitalRepaymentTotal,
+          dividendTotal,
+          withholdingToTaxOffice,
+          taxableCapitalIncome,
+          taxFreeCapitalIncomePortion,
+          taxableEarnedDividend,
+          taxFreeEarnedDividend,
+          treatedAsListedDividend: isAfterIpoDate,
+          allocations
+        }
+      );
+    }
+    return summaries;
+  }
+  function calculateSellSummary(sellableLots, sellAmount, otherAnnualCapitalGainsOrLosses, vestingSummary, ipoSummary, rules, errors, warnings, localization, useYearlyRules) {
+    var _a2;
+    const sellRules = resolveYearlyTaxRules((_a2 = ipoSummary.ipoDate) == null ? void 0 : _a2.getUTCFullYear(), rules, useYearlyRules);
+    if (sellAmount.gt(0) && !ipoSummary.ipoDate && vestingSummary.lockedLots.length > 0) {
+      warnings.push(localization.calculator.warnings.vestingBlockedWithoutIpoDate);
+    }
+    if (sellAmount.gt(vestingSummary.vestedShares)) {
+      errors.push(localization.calculator.errors.sellAmountExceedsSellable(vestingSummary.vestedShares.toString()));
+    }
+    if (ipoSummary.estimatedSecondaryShareCount.gt(0) && sellAmount.gt(ipoSummary.estimatedSecondaryShareCount)) {
+      warnings.push(localization.calculator.warnings.sellAmountExceedsEstimatedSecondary);
+    }
+    let remainingSellAmount = sellAmount;
+    const usedSubscriptions = [];
+    for (const lot of sellableLots) {
+      if (remainingSellAmount.lte(0)) break;
+      const soldAmount = decimal_default.min(lot.amount, remainingSellAmount);
+      if (soldAmount.lte(0)) continue;
+      const gross = soldAmount.mul(ipoSummary.ipoPricePerShare);
+      const originalCostBasis = lot.amount.gt(0) ? lot.totalPrice.mul(soldAmount).div(lot.amount) : zero;
+      const realCostBasis = lot.amount.gt(0) ? lot.remainingCostTotal.mul(soldAmount).div(lot.amount) : zero;
+      const allocatedIpoCost = soldAmount.mul(ipoSummary.ipoCostPerShare);
+      const actualDeduction = realCostBasis.add(allocatedIpoCost);
+      const hankintamenoOlettaRate = isAtLeastYears(
+        lot.dateValue,
+        ipoSummary.ipoDate,
+        sellRules.hankintamenoOlettama.ownershipYearsThreshold
+      ) ? new decimal_default(sellRules.hankintamenoOlettama.longOwnershipRate) : new decimal_default(sellRules.hankintamenoOlettama.shortOwnershipRate);
+      const hankintamenoOlettaDeduction = gross.mul(hankintamenoOlettaRate);
+      const useActualCosts = actualDeduction.gte(hankintamenoOlettaDeduction);
+      const selectedDeduction = useActualCosts ? actualDeduction : hankintamenoOlettaDeduction;
+      const taxableGain = gross.minus(selectedDeduction);
+      usedSubscriptions.push({
+        subscriptionId: lot.id,
+        subscriptionDate: lot.date,
+        totalSubscriptionShares: lot.amount,
+        soldAmount,
+        gross,
+        originalCostBasis,
+        realCostBasis,
+        allocatedIpoCost,
+        actualDeduction,
+        hankintamenoOlettaRate,
+        hankintamenoOlettaDeduction,
+        selectedMethod: useActualCosts ? "actual_costs" : "hmo",
+        selectedDeduction,
+        taxableGain,
+        taxFreeGainPart: zero,
+        taxedGainPart: decimal_default.max(taxableGain, zero)
+      });
+      remainingSellAmount = remainingSellAmount.minus(soldAmount);
+    }
+    const taxableGainTotal = sumDecimals(usedSubscriptions.map((lot) => lot.taxableGain));
+    const capitalIncomeThreshold = new decimal_default(sellRules.capitalIncomeTax.threshold);
+    const taxableGainAtLowRate = decimal_default.max(decimal_default.min(taxableGainTotal, capitalIncomeThreshold), zero);
+    const taxableGainAtHighRate = decimal_default.max(taxableGainTotal.minus(capitalIncomeThreshold), zero);
+    const estimatedTax = estimateCapitalTax(taxableGainTotal, sellRules);
+    const annualNetCapitalGain = decimal_default.max(taxableGainTotal.add(otherAnnualCapitalGainsOrLosses), zero);
+    const annualEstimatedTax = estimateCapitalTax(annualNetCapitalGain, sellRules);
+    const annualTaxableGainAtLowRate = decimal_default.max(decimal_default.min(annualNetCapitalGain, capitalIncomeThreshold), zero);
+    const annualTaxableGainAtHighRate = decimal_default.max(annualNetCapitalGain.minus(capitalIncomeThreshold), zero);
+    const annualTaxChange = annualEstimatedTax.minus(estimatedTax);
+    const taxReductionFromOtherLosses = decimal_default.max(estimatedTax.minus(annualEstimatedTax), zero);
+    const grossTotal = sumDecimals(usedSubscriptions.map((lot) => lot.gross));
+    const selectedActualDeductionTotal = sumDecimals(
+      usedSubscriptions.filter((lot) => lot.selectedMethod === "actual_costs").map((lot) => lot.actualDeduction)
+    );
+    const shortOwnershipRate = new decimal_default(sellRules.hankintamenoOlettama.shortOwnershipRate);
+    const longOwnershipRate = new decimal_default(sellRules.hankintamenoOlettama.longOwnershipRate);
+    const selectedHmo20DeductionTotal = sumDecimals(
+      usedSubscriptions.filter((lot) => lot.selectedMethod === "hmo" && lot.hankintamenoOlettaRate.eq(shortOwnershipRate)).map((lot) => lot.hankintamenoOlettaDeduction)
+    );
+    const selectedHmo40DeductionTotal = sumDecimals(
+      usedSubscriptions.filter((lot) => lot.selectedMethod === "hmo" && lot.hankintamenoOlettaRate.eq(longOwnershipRate)).map((lot) => lot.hankintamenoOlettaDeduction)
+    );
+    const selectedHmoDeductionTotal = selectedHmo20DeductionTotal.add(selectedHmo40DeductionTotal);
+    const selectedDeductionTotal = sumDecimals(usedSubscriptions.map((lot) => lot.selectedDeduction));
+    const soldSharesTotal = sumDecimals(usedSubscriptions.map((lot) => lot.soldAmount));
+    const totalIpoCostAllocated = sumDecimals(usedSubscriptions.map((lot) => lot.allocatedIpoCost));
+    const cashAfterIpoCosts = grossTotal.minus(totalIpoCostAllocated);
+    const taxFreeAcquisitionRecoveryAfterIpoCosts = decimal_default.max(selectedDeductionTotal.minus(totalIpoCostAllocated), zero);
+    const soldShareOriginalCostTotal = sumDecimals(usedSubscriptions.map((lot) => lot.originalCostBasis));
+    const soldShareAcquisitionCostTotal = sumDecimals(usedSubscriptions.map((lot) => lot.realCostBasis));
+    const ipoCostDeductedViaActual = sumDecimals(
+      usedSubscriptions.filter((lot) => lot.selectedMethod === "actual_costs").map((lot) => lot.allocatedIpoCost)
+    );
+    const ipoCostPaidWithoutActualDeduction = sumDecimals(
+      usedSubscriptions.filter((lot) => lot.selectedMethod === "hmo").map((lot) => lot.allocatedIpoCost)
+    );
+    const taxSavedFromDeductibleIpoCosts = estimateCapitalTax(
+      taxableGainTotal.add(ipoCostDeductedViaActual),
+      sellRules
+    ).minus(estimatedTax);
+    const netAfterTaxAndIpoCost = grossTotal.minus(totalIpoCostAllocated).minus(estimatedTax);
+    const netAfterAnnualTaxAndIpoCost = grossTotal.minus(totalIpoCostAllocated).minus(annualEstimatedTax);
+    const netResultAgainstSubscriptionCost = netAfterTaxAndIpoCost.minus(soldShareAcquisitionCostTotal);
+    return {
+      amount: sellAmount,
+      otherAnnualCapitalGainsOrLosses,
+      usedSubscriptions,
+      grossTotal,
+      cashAfterIpoCosts,
+      taxFreeAcquisitionRecoveryAfterIpoCosts,
+      soldShareOriginalCostTotal,
+      soldShareAcquisitionCostTotal,
+      selectedActualDeductionTotal,
+      selectedHmo20DeductionTotal,
+      selectedHmo40DeductionTotal,
+      selectedHmoDeductionTotal,
+      selectedDeductionTotal,
+      totalIpoCostAllocated,
+      ipoCostDeductedViaActual,
+      ipoCostPaidWithoutActualDeduction,
+      taxSavedFromDeductibleIpoCosts,
+      taxableGainTotal,
+      taxableGainAtLowRate,
+      taxableGainAtHighRate,
+      estimatedTax,
+      annualNetCapitalGain,
+      annualTaxableGainAtLowRate,
+      annualTaxableGainAtHighRate,
+      annualEstimatedTax,
+      annualTaxChange,
+      taxReductionFromOtherLosses,
+      netAfterTaxAndIpoCost,
+      netAfterAnnualTaxAndIpoCost,
+      netResultAgainstSubscriptionCost,
+      remainingUnsoldShares: decimal_default.max(ipoSummary.totalSubscribedShares.minus(soldSharesTotal), zero)
+    };
+  }
+  function buildSubscriptionSummaries(lots) {
+    return lots.map((lot) => ({
+      id: lot.id,
+      date: lot.date,
+      amount: lot.amount,
+      acquisitionCostExplanation: {
+        originalAmount: lot.originalAmount,
+        originalPricePerShare: lot.originalPricePerShare,
+        originalOtherTotalAcquisitionCosts: lot.originalOtherTotalAcquisitionCosts,
+        originalTotalPrice: lot.originalTotalPrice,
+        adjustments: lot.acquisitionCostAdjustments
+      },
+      totalPrice: lot.totalPrice,
+      totalPricePerShare: lot.amount.gt(0) ? lot.totalPrice.div(lot.amount) : zero,
+      cashDistributionGrossTotal: lot.cashDistributionGrossTotal,
+      capitalRepaymentTotal: lot.capitalRepaymentTotal,
+      capitalRepaymentBreakdown: lot.capitalRepaymentBreakdown,
+      capitalRepaymentPerShare: lot.amount.gt(0) ? lot.capitalRepaymentTotal.div(lot.amount) : zero,
+      remainingCostPerShare: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
+      remainingCostTotal: lot.remainingCostTotal
+    }));
+  }
+  function createTaxReturnTotals(entries) {
+    return {
+      paidInCash: sumDecimals(entries.map((row) => row.paidInCash)),
+      withholdingToTaxOffice: sumDecimals(entries.map((row) => row.withholdingToTaxOffice)),
+      capitalRepaymentTotal: sumDecimals(entries.map((row) => row.capitalRepaymentTotal)),
+      dividendTotal: sumDecimals(entries.map((row) => row.dividendTotal)),
+      taxableCapitalIncome: sumDecimals(entries.map((row) => row.taxableCapitalIncome)),
+      taxFreeCapitalIncome: sumDecimals(entries.map((row) => row.taxFreeCapitalIncomePortion)),
+      taxableEarnedDividend: sumDecimals(entries.map((row) => row.taxableEarnedDividend)),
+      taxFreeEarnedDividend: sumDecimals(entries.map((row) => row.taxFreeEarnedDividend))
+    };
+  }
+  function buildTaxReturnYearSummaries(cashDistributions, ipoDate, sell) {
+    const yearSet = /* @__PURE__ */ new Set();
+    cashDistributions.forEach((cashDistribution) => {
+      var _a2;
+      const date = (_a2 = cashDistribution.date.match(/(\d{4})$/)) == null ? void 0 : _a2[1];
+      if (date) yearSet.add(Number(date));
+    });
+    const ipoYear = ipoDate == null ? void 0 : ipoDate.getUTCFullYear();
+    if (ipoYear && sell.grossTotal.gt(0)) {
+      yearSet.add(ipoYear);
+    }
+    const years = [...yearSet].sort((a2, b2) => a2 - b2);
+    return years.map((year) => {
+      const yearEntries = cashDistributions.filter((cashDistribution) => cashDistribution.date.endsWith(String(year)));
+      const unlistedEntries = yearEntries.filter((row) => !row.treatedAsListedDividend);
+      const listedEntries = yearEntries.filter((row) => row.treatedAsListedDividend);
+      const missingMathematicalValueWarningDates = unlistedEntries.filter((row) => row.dividendTotal.gt(0) && row.shareholderMathematicalValue.eq(0)).map((row) => row.date);
+      return {
+        year,
+        missingMathematicalValueWarningDates,
+        unlisted: unlistedEntries.length > 0 ? {
+          mode: "unlisted",
+          entries: unlistedEntries,
+          totals: createTaxReturnTotals(unlistedEntries)
+        } : void 0,
+        listed: listedEntries.length > 0 ? {
+          mode: "listed",
+          entries: listedEntries,
+          totals: createTaxReturnTotals(listedEntries)
+        } : void 0,
+        ipoSale: ipoYear === year && sell.grossTotal.gt(0) ? {
+          grossSale: sell.grossTotal,
+          totalIpoCostAllocated: sell.totalIpoCostAllocated,
+          taxableCapitalGain: sell.taxableGainTotal,
+          estimatedTax: sell.estimatedTax,
+          netCash: sell.netAfterTaxAndIpoCost
+        } : void 0
+      };
+    });
+  }
+  function calculateOsakkeet(form2, localization, rules) {
+    const effectiveRules = rules || OSAKKEET_TAX_RULES_2026;
+    const useYearlyRules = rules == null;
+    const errors = [];
+    const warnings = [];
+    const baseLots = [...form2.subscriptions].sort((a2, b2) => compareDateStrings(a2.date, b2.date)).map((subscription) => createLot(subscription, errors, localization));
+    const totalSubscribedCost = sumDecimals(baseLots.map((lot) => lot.totalPrice));
+    const ipoDate = parseOptionalDateInput(form2.ipo.ipoDate, localization.calculator.fields.ipoDate, errors, localization);
+    const mathematicalShareValuesByYear = createMathematicalShareValuesByYear(
+      form2.mathematicalShareValues,
+      errors,
+      localization
+    );
+    const parsedCashDistributions = createParsedCashDistributions(form2.cashDistributions, errors, localization);
+    const parsedShareSplits = createParsedShareSplits(form2.shareSplits, errors, localization);
+    const parsedDemergers = createParsedDemergers(form2.demergers, errors, localization);
+    const splitAdjustedLots = cloneLots(baseLots);
+    applyShareSplitsToLots(splitAdjustedLots, parsedShareSplits, ipoDate);
+    const totalSubscribedShares = sumDecimals(splitAdjustedLots.map((lot) => lot.amount));
+    const { sellAmount, otherAnnualCapitalGainsOrLosses, ipo } = parseIpoAndSellInputs(
+      form2,
+      ipoDate,
+      totalSubscribedShares,
+      totalSubscribedCost,
+      errors,
+      warnings,
+      localization
+    );
+    collectUnsupportedYearWarnings(form2, ipoDate, sellAmount, warnings, localization, useYearlyRules);
+    const ipoTimelineLots = cloneLots(baseLots);
+    applyCashDistributions(
+      ipoTimelineLots,
+      parsedCashDistributions,
+      parsedShareSplits,
+      parsedDemergers,
+      ipoDate,
+      mathematicalShareValuesByYear,
+      effectiveRules,
+      warnings,
+      localization,
+      useYearlyRules,
+      { stopAtIpoDate: true }
+    );
+    const vesting = calculateVestingSummary(ipoTimelineLots, ipoDate);
+    const lots = cloneLots(baseLots);
+    const cashDistributions = applyCashDistributions(
+      lots,
+      parsedCashDistributions,
+      parsedShareSplits,
+      parsedDemergers,
+      ipoDate,
+      mathematicalShareValuesByYear,
+      effectiveRules,
+      warnings,
+      localization,
+      useYearlyRules
+    );
+    const sell = calculateSellSummary(
+      vesting.sellableLots,
+      sellAmount,
+      otherAnnualCapitalGainsOrLosses,
+      vesting,
+      ipo,
+      effectiveRules,
+      errors,
+      warnings,
+      localization,
+      useYearlyRules
+    );
+    return {
+      formData: form2,
+      warnings,
+      errors,
+      subscriptions: buildSubscriptionSummaries(lots),
+      cashDistributions,
+      vesting,
+      ipo,
+      sell,
+      taxReturns: {
+        years: buildTaxReturnYearSummaries(cashDistributions, ipoDate, sell)
+      }
+    };
+  }
+
+  // src/osakkeet/ki-frame-extensions.ts
+  function isCheckboxInput(node) {
+    return node.nodeName === "INPUT" && "type" in node && node.type === "checkbox";
+  }
+  function readDefaultNodeValue(node) {
+    if (isCheckboxInput(node)) {
+      return node.checked;
+    }
+    return node.value;
+  }
+  function writeDefaultNodeValue(node, value) {
+    if (isCheckboxInput(node)) {
+      node.checked = Boolean(value);
+      return;
+    }
+    node.value = value == null ? "" : String(value);
+  }
+  function isBasicTextValue(value) {
+    return value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean" || typeof value === "bigint";
+  }
+  function formatBasicTextValue(value) {
+    return value == null ? "" : String(value);
+  }
+  function isTextNode(value) {
+    return !!value && typeof value === "object" && "nodeType" in value && value.nodeType === 3;
+  }
+  function toRuntimePath(path) {
+    return path;
+  }
+  function getStateValueAtPath(stateValue, path) {
+    return getByPath(stateValue, toRuntimePath(path));
+  }
+  function getStateValueAtOptionalPath(stateValue, path) {
+    if (!path) {
+      return stateValue;
+    }
+    return getStateValueAtPath(stateValue, path);
+  }
+  function setStateValueAtPath(state, path, value) {
+    state.set((current) => copyAndSet(current, toRuntimePath(path), value));
+  }
+  function withDestroy(value, destroy) {
+    return Object.assign(value, { destroy });
+  }
+  function createTextNodesTree(value, noInit) {
+    if (typeof value === "function") return void 0;
+    if (isBasicTextValue(value)) {
+      return text(noInit ? "" : formatBasicTextValue(value));
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => createTextNodesTree(item, noInit)).filter((item) => item !== void 0);
+    }
+    if (value && typeof value === "object") {
+      const entries = Object.entries(value).map(([key, nestedValue]) => [key, createTextNodesTree(nestedValue, noInit)]).filter((entry) => entry[1] !== void 0);
+      return Object.fromEntries(entries);
+    }
+    return void 0;
+  }
+  function syncTextNodesTree(nodes, value) {
+    if (isTextNode(nodes)) {
+      const nextValue = isBasicTextValue(value) ? formatBasicTextValue(value) : "";
+      if (nodes.textContent !== nextValue) {
+        nodes.textContent = nextValue;
+      }
+      return;
+    }
+    if (Array.isArray(nodes)) {
+      const values = Array.isArray(value) ? value : [];
+      nodes.forEach((childNode, index) => {
+        syncTextNodesTree(childNode, values[index]);
+      });
+      return;
+    }
+    if (nodes && typeof nodes === "object") {
+      const values = value && typeof value === "object" ? value : {};
+      Object.entries(nodes).forEach(([key, childNode]) => {
+        syncTextNodesTree(childNode, values[key]);
+      });
+    }
+  }
+  function createTextNodesFromState(state, options = {}) {
+    const initialValue = getStateValueAtOptionalPath(state.get(), options.path);
+    const nodes = createTextNodesTree(initialValue, options.noInit === true);
+    if (nodes === void 0) {
+      throw new Error(
+        Array.isArray(options.path) ? `createTextNodesFromState path "${String(options.path)}" does not resolve to supported text values` : "createTextNodesFromState state does not resolve to supported text values"
+      );
+    }
+    const unsub = state.onValueChange(
+      (nextState) => {
+        const nextValue = getStateValueAtOptionalPath(nextState, options.path);
+        syncTextNodesTree(nodes, nextValue);
+      },
+      { noInit: true }
+    );
+    return withDestroy(nodes, unsub);
+  }
+  function mapStatePathToInput(state, path, node, options = {}) {
+    const eventType = options.event || "input";
+    const read = options.read || ((currentNode) => readDefaultNodeValue(currentNode));
+    const write = options.write || ((currentNode, value) => writeDefaultNodeValue(currentNode, value));
+    const writeStateToNode = (stateValue) => {
+      write(node, getStateValueAtPath(stateValue, path));
+    };
+    writeStateToNode(state.get());
+    const controller = createController({ name: "bind-input" });
+    controller.addDomEvent(`bind:${String(path)}`, node, eventType, (ev) => {
+      const nextValue = read(node);
+      if (options.validate && !options.validate(nextValue, node, ev)) return;
+      setStateValueAtPath(state, path, nextValue);
+    });
+    const unsub = state.onValueChange(
+      (nextState) => {
+        writeStateToNode(nextState);
+      },
+      { noInit: true }
+    );
+    controller.onDestroy(unsub);
+    return controller;
+  }
+  function mapStatePathsToInputs(state, bindings) {
+    const handles = bindings.map(({ path, node, options }) => {
+      const eventType = (options == null ? void 0 : options.event) || "input";
+      const read = (options == null ? void 0 : options.read) || ((currentNode) => readDefaultNodeValue(currentNode));
+      const write = (options == null ? void 0 : options.write) || ((currentNode, value) => writeDefaultNodeValue(currentNode, value));
+      const writeStateToNode = (stateValue) => {
+        write(node, getStateValueAtPath(stateValue, path));
+      };
+      writeStateToNode(state.get());
+      const controller = createController({ name: "bind-inputs" });
+      controller.addDomEvent(`bind:${String(path)}`, node, eventType, (ev) => {
+        const nextValue = read(node);
+        if ((options == null ? void 0 : options.validate) && !options.validate(nextValue, node, ev)) return;
+        setStateValueAtPath(state, path, nextValue);
+      });
+      const unsub = state.onValueChange(
+        (nextState) => {
+          writeStateToNode(nextState);
+        },
+        { noInit: true }
+      );
+      controller.onDestroy(unsub);
+      return controller;
+    });
+    return withDestroy({}, () => {
+      handles.forEach((handle) => handle.destroy());
+    });
+  }
+  function mapStateToDomChildren(state, root, optionsOrRender) {
+    const options = typeof optionsOrRender === "function" ? { render: optionsOrRender } : optionsOrRender;
+    const rows = /* @__PURE__ */ new Map();
+    const itemsSelector = options.items || ((value) => value);
+    const keySelector = options.key || ((item) => item.id);
+    const destroyRow = (row) => {
+      var _a2;
+      (_a2 = row.destroy) == null ? void 0 : _a2.call(row);
+      if (row.node.parentNode === root) {
+        root.removeChild(row.node);
+      }
+    };
+    const sync = (stateValue) => {
+      const items = itemsSelector(stateValue);
+      const nextKeys = /* @__PURE__ */ new Set();
+      items.forEach((item, index) => {
+        var _a2;
+        const key = keySelector(item, index, stateValue);
+        nextKeys.add(key);
+        let row = rows.get(key);
+        if (!row) {
+          const createdRow = options.render(item, index, stateValue);
+          rows.set(key, createdRow);
+          row = createdRow;
+        }
+        (_a2 = row.set) == null ? void 0 : _a2.call(row, item, index, stateValue);
+        const existingNode = root.childNodes[index] || null;
+        if (existingNode !== row.node) {
+          root.insertBefore(row.node, existingNode);
+        }
+      });
+      for (const [key, row] of Array.from(rows.entries())) {
+        if (nextKeys.has(key)) continue;
+        destroyRow(row);
+        rows.delete(key);
+      }
+    };
+    if (!options.noInit) {
+      sync(state.get());
+    }
+    const unsub = state.onValueChange(sync, { noInit: true });
+    const destroy = () => {
+      unsub();
+      for (const row of rows.values()) {
+        destroyRow(row);
+      }
+      rows.clear();
+    };
+    return withDestroy({}, destroy);
+  }
+  function createEditableCollectionTable(options) {
+    const tbodyNode = document.createElement("tbody");
+    const binding = mapStateToDomChildren(options.rowsState, tbodyNode, (row) => {
+      const rowState = createState({ value: { row } });
+      const rowTextNodes = createTextNodesFromSelector(rowState, ({ row: currentRow }) => currentRow);
+      const removeButton = options.createRemoveButton(rowTextNodes.removeLabel, () => {
+        options.remove(row.id);
+      });
+      const rendered = options.render({
+        row,
+        rowState,
+        rowTextNodes,
+        removeButton
+      });
+      return {
+        node: rendered.node,
+        set(nextRow) {
+          var _a2;
+          (_a2 = rendered.set) == null ? void 0 : _a2.call(rendered, nextRow);
+          rowState.set({ row: nextRow });
+        },
+        destroy() {
+          var _a2, _b;
+          (_a2 = rendered.destroy) == null ? void 0 : _a2.call(rendered);
+          rowTextNodes.destroy();
+          (_b = rowState.destroy) == null ? void 0 : _b.call(rowState);
+        }
+      };
+    });
+    return withDestroy(tbodyNode, () => {
+      binding.destroy();
+    });
+  }
+  function normalizeArray(value) {
+    return Array.isArray(value) ? [...value] : [];
+  }
+  function clampIndex(index, length) {
+    if (index < 0) return 0;
+    if (index > length) return length;
+    return index;
+  }
+  function createStateCollectionEditor(state, path, optionsOrKey = {}) {
+    const options = typeof optionsOrKey === "function" ? { key: optionsOrKey } : optionsOrKey;
+    const key = options.key || ((item, index, stateValue) => {
+      void item;
+      void index;
+      void stateValue;
+      return `row-${Math.random().toString(36).slice(2, 10)}`;
+    });
+    const normalize = options.normalize || ((item, index, stateValue) => ({ ...item, id: item.id || key(item, index, stateValue) }));
+    const readItems = () => normalizeArray(getStateValueAtPath(state.get(), path));
+    const writeItems = (items) => {
+      setStateValueAtPath(state, path, items);
+    };
+    return {
+      get() {
+        return readItems();
+      },
+      set(items) {
+        writeItems([...items]);
+      },
+      append(item) {
+        const currentState = state.get();
+        const items = readItems();
+        const nextItem = normalize(item, items.length, currentState);
+        writeItems([...items, nextItem]);
+        return nextItem;
+      },
+      insert(index, item) {
+        const currentState = state.get();
+        const items = readItems();
+        const nextItems = [...items];
+        const insertAt = clampIndex(index, nextItems.length);
+        const nextItem = normalize(item, insertAt, currentState);
+        nextItems.splice(insertAt, 0, nextItem);
+        writeItems(nextItems);
+        return nextItem;
+      },
+      patch(id, patch) {
+        writeItems(readItems().map((item) => item.id === id ? { ...item, ...patch } : item));
+      },
+      replace(id, item) {
+        writeItems(readItems().map((currentItem) => currentItem.id === id ? item : currentItem));
+      },
+      remove(id) {
+        writeItems(readItems().filter((item) => item.id !== id));
+      },
+      move(id, toIndex) {
+        const items = readItems();
+        const fromIndex = items.findIndex((item) => item.id === id);
+        if (fromIndex === -1) return;
+        const nextItems = [...items];
+        const [movedItem] = nextItems.splice(fromIndex, 1);
+        nextItems.splice(clampIndex(toIndex, nextItems.length), 0, movedItem);
+        writeItems(nextItems);
+      },
+      clear() {
+        writeItems([]);
+      }
+    };
+  }
+  function createViewModelState(state, selector) {
+    const initialValue = selector(state.get());
+    const viewModelState = createState({ value: initialValue });
+    const unsub = state.onValueChange(
+      (nextState) => {
+        viewModelState.set(selector(nextState));
+      },
+      { noInit: true }
+    );
+    viewModelState.onDestroy(unsub);
+    return viewModelState;
+  }
+  function createRowViewModelBinder(state, selectRows, mapRow) {
+    return createViewModelState(state, (stateValue) => selectRows(stateValue).map((row, index) => mapRow(row, index, stateValue)));
+  }
+  function safeStorageGet(storage, key) {
+    try {
+      return storage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+  function runStorage(run, onError, fallback) {
+    try {
+      return run();
+    } catch (error) {
+      onError == null ? void 0 : onError(error);
+      return fallback;
+    }
+  }
+  function safeStorageSet(storage, key, value) {
+    storage.setItem(key, value);
+  }
+  function safeStorageRemove(storage, key) {
+    storage.removeItem(key);
+  }
+  function createStorageSource(options) {
+    const serialize = options.serialize || ((value) => JSON.stringify(value));
+    const deserialize = options.deserialize || ((raw) => JSON.parse(raw));
+    return {
+      getRaw() {
+        return safeStorageGet(options.storage, options.key);
+      },
+      hasValue() {
+        return safeStorageGet(options.storage, options.key) != null;
+      },
+      load() {
+        const raw = safeStorageGet(options.storage, options.key);
+        if (raw == null) return void 0;
+        return runStorage(() => deserialize(raw), options.onError, void 0);
+      },
+      save(value) {
+        runStorage(() => safeStorageSet(options.storage, options.key, serialize(value)), options.onError);
+      },
+      remove() {
+        runStorage(() => safeStorageRemove(options.storage, options.key), options.onError);
+      }
+    };
+  }
+  function createStorageBackedState(options) {
+    const state = createState({ value: options.value });
+    const persisted = persistState(state, options);
+    return Object.assign(
+      {
+        state
+      },
+      persisted,
+      {
+        destroy() {
+          var _a2;
+          persisted.destroy();
+          (_a2 = state.destroy) == null ? void 0 : _a2.call(state);
+        }
+      }
+    );
+  }
+  function createSectionController(root, set) {
+    return { root, set };
+  }
+  function createTextNodesFromSelector(state, selector, options) {
+    const viewModelState = createViewModelState(state, selector);
+    const nodes = createTextNodesFromState(viewModelState, options);
+    const destroyTextNodes = nodes.destroy.bind(nodes);
+    return withDestroy(nodes, () => {
+      destroyTextNodes();
+      viewModelState.destroy();
+    });
+  }
+  function createComputedTextState(state, selector, options) {
+    const computedState = createViewModelState(state, selector);
+    const textNodes = createTextNodesFromState(computedState, options);
+    return withDestroy(
+      {
+        state: computedState,
+        textNodes
+      },
+      () => {
+        textNodes.destroy();
+        computedState.destroy();
+      }
+    );
+  }
+  function createSectionCounter(initialText = "") {
+    const state = createState({ value: { text: initialText } });
+    const textNodes = createTextNodesFromState(state, { path: ["text"] });
+    return withDestroy(
+      {
+        node: textNodes,
+        set(text2) {
+          state.set({ text: text2 });
+        },
+        setCount(count, label2) {
+          state.set({ text: `${count} ${label2}` });
+        }
+      },
+      () => {
+        var _a2;
+        textNodes.destroy();
+        (_a2 = state.destroy) == null ? void 0 : _a2.call(state);
+      }
+    );
+  }
+  function syncOptionBoundSelect(node, nextValue, nextOptions) {
+    node.replaceChildren(
+      ...nextOptions.map((optionValue) => {
+        const optionNode = document.createElement("option");
+        optionNode.value = optionValue.value;
+        optionNode.textContent = optionValue.label;
+        return optionNode;
+      })
+    );
+    node.value = nextValue;
+  }
+  function createOptionBoundSelect(value, options, onChange = () => {
+  }) {
+    const node = document.createElement("select");
+    node.addEventListener("change", () => {
+      onChange(node.value);
+    });
+    syncOptionBoundSelect(node, value, options);
+    return {
+      node,
+      setValue(nextValue) {
+        node.value = nextValue;
+      },
+      setOptions(nextOptions) {
+        syncOptionBoundSelect(node, node.value, nextOptions);
+      }
+    };
+  }
+  function toNodeArray(value) {
+    if (Array.isArray(value)) {
+      return value.filter((item) => item !== false && item != null);
+    }
+    if (value === false || value == null) return [];
+    return [value];
+  }
+  function replaceChildrenFromState(state, root, selectorOrRender, renderOrOptions, maybeOptions) {
+    const hasSelector = typeof renderOrOptions === "function";
+    const selector = hasSelector ? selectorOrRender : ((value) => value);
+    const render = hasSelector ? renderOrOptions : selectorOrRender;
+    const options = hasSelector ? maybeOptions : renderOrOptions;
+    const sync = (stateValue) => {
+      replaceChildren(root, toNodeArray(render(selector(stateValue))));
+    };
+    if (!(options == null ? void 0 : options.noInit)) {
+      sync(state.get());
+    }
+    const unsub = state.onValueChange(sync, { noInit: true });
+    return withDestroy({}, unsub);
+  }
+  function createFormBinder(state) {
+    return {
+      // Binds one input node to a single state path.
+      bindInput(path, node, options = {}) {
+        return mapStatePathToInput(state, path, node, options);
+      },
+      // Binds multiple input nodes to their state paths in one call.
+      bindInputs(bindings) {
+        return mapStatePathsToInputs(state, bindings);
+      },
+      // Returns collection editing helpers for an id-based row array at a state path.
+      collection(path, optionsOrKey = {}) {
+        return createStateCollectionEditor(state, path, optionsOrKey);
+      },
+      // Creates live text nodes for the whole state value.
+      textNodes(options) {
+        return createTextNodesFromState(state, options);
+      },
+      // Creates live text nodes for one selected state path.
+      textNodesAtPath(options) {
+        return createTextNodesFromState(state, options);
+      },
+      // Creates live text nodes from a derived value selected from state.
+      textNodesFrom(selector, options) {
+        return createTextNodesFromSelector(state, selector, options);
+      },
+      // Re-renders a root node's children from state changes.
+      children(root, render, options) {
+        return replaceChildrenFromState(state, root, render, options);
+      },
+      // Creates derived state that stays synced with the source state.
+      viewModel(selector) {
+        return createViewModelState(state, selector);
+      }
+    };
+  }
+  function persistState(state, options) {
+    const serialize = options.serialize || ((value) => JSON.stringify(value));
+    const deserialize = options.deserialize || ((raw) => JSON.parse(raw));
+    const hydrate = options.hydrate !== false;
+    const saveOnChange = options.saveOnChange !== false;
+    const saveInitial = options.saveInitial === true;
+    const load = () => {
+      var _a2;
+      const raw = safeStorageGet(options.storage, options.key);
+      if (raw == null) return void 0;
+      try {
+        const loaded = deserialize(raw);
+        state.set(loaded);
+        return loaded;
+      } catch (error) {
+        (_a2 = options.onError) == null ? void 0 : _a2.call(options, error);
+        return void 0;
+      }
+    };
+    const save = (nextValue = state.get()) => {
+      runStorage(() => safeStorageSet(options.storage, options.key, serialize(nextValue)), options.onError);
+    };
+    const remove = () => {
+      runStorage(() => safeStorageRemove(options.storage, options.key), options.onError);
+    };
+    if (hydrate) {
+      load();
+    }
+    const unsub = saveOnChange ? state.onValueChange(
+      (nextValue) => {
+        save(nextValue);
+      },
+      { noInit: !saveInitial }
+    ) : () => {
+    };
+    return withDestroy(
+      {
+        load,
+        save,
+        remove
+      },
+      unsub
+    );
+  }
+
+  // src/osakkeet/osakkeetExamples.ts
+  var DEFAULT_EXAMPLE_PRESET = "medium8y";
+  var examplePresetConfigs = {
+    small2y: {
+      subscriptions: [
+        { date: "15.04.2024", vestingEndsOn: "", amount: "1200", pricePerShare: "2.80", otherTotalAcquisitionCosts: "25" },
+        { date: "15.02.2025", vestingEndsOn: "31.12.2026", amount: "800", pricePerShare: "3.20", otherTotalAcquisitionCosts: "20" }
+      ],
+      cashDistributions: [{ type: "capital_return", date: "30.06.2025", amountPerShare: "0.18", shareCount: "" }],
+      shareSplits: [],
+      demergers: [],
+      mathematicalShareValues: [
+        { year: "2025", valuePerShare: "7.50" },
+        { year: "2026", valuePerShare: "10.20" }
+      ],
+      ipo: {
+        ipoDate: "15.09.2026",
+        totalShareCount: "850000",
+        totalIpoCost: "95000",
+        currentShareValue: "10.20",
+        estimatedPreIpoValue: "9000000",
+        estimatedSecondaryShareSellPercentage: "3"
+      },
+      sell: { amount: "900", otherAnnualCapitalGainsOrLosses: "" }
+    },
+    medium8y: {
+      subscriptions: [
+        { date: "20.05.2018", vestingEndsOn: "", amount: "12000", pricePerShare: "0.85", otherTotalAcquisitionCosts: "120" },
+        { date: "10.02.2021", vestingEndsOn: "", amount: "12000", pricePerShare: "8.50", otherTotalAcquisitionCosts: "300" }
+      ],
+      cashDistributions: [
+        { type: "capital_return", date: "28.06.2022", amountPerShare: "0.12", shareCount: "" },
+        { type: "capital_return", date: "30.06.2023", amountPerShare: "0.16", shareCount: "" },
+        { type: "capital_return", date: "28.06.2024", amountPerShare: "0.22", shareCount: "" },
+        { type: "capital_return", date: "30.06.2025", amountPerShare: "0.28", shareCount: "" }
+      ],
+      shareSplits: [{ date: "02.01.2026", multiplier: "2" }],
+      demergers: [],
+      mathematicalShareValues: [
+        { year: "2022", valuePerShare: "18.00" },
+        { year: "2023", valuePerShare: "21.50" },
+        { year: "2024", valuePerShare: "27.00" },
+        { year: "2025", valuePerShare: "33.00" },
+        { year: "2026", valuePerShare: "41.00" }
+      ],
+      ipo: {
+        ipoDate: "15.09.2026",
+        totalShareCount: "1960000",
+        totalIpoCost: "320000",
+        currentShareValue: "20.50",
+        estimatedPreIpoValue: "40000000",
+        estimatedSecondaryShareSellPercentage: "10"
+      },
+      sell: { amount: "18000", otherAnnualCapitalGainsOrLosses: "-12000" }
+    },
+    large16y: {
+      subscriptions: [
+        { date: "15.03.2010", vestingEndsOn: "", amount: "85000", pricePerShare: "0.18", otherTotalAcquisitionCosts: "550" },
+        { date: "01.06.2021", vestingEndsOn: "", amount: "20000", pricePerShare: "18.00", otherTotalAcquisitionCosts: "800" }
+      ],
+      cashDistributions: [
+        { type: "capital_return", date: "31.03.2022", amountPerShare: "0.10", shareCount: "" },
+        { type: "capital_return", date: "30.06.2023", amountPerShare: "0.14", shareCount: "" },
+        { type: "capital_return", date: "28.06.2024", amountPerShare: "0.18", shareCount: "" },
+        { type: "capital_return", date: "30.06.2025", amountPerShare: "0.24", shareCount: "" },
+        { type: "capital_return", date: "30.06.2026", amountPerShare: "0.28", shareCount: "" },
+        { type: "dividend", date: "30.09.2026", amountPerShare: "0.42", shareCount: "" }
+      ],
+      shareSplits: [],
+      demergers: [{ date: "02.01.2024", oldCompanyRatio: "0.68" }],
+      mathematicalShareValues: [
+        { year: "2022", valuePerShare: "24.00" },
+        { year: "2023", valuePerShare: "31.00" },
+        { year: "2024", valuePerShare: "39.50" },
+        { year: "2025", valuePerShare: "49.00" },
+        { year: "2026", valuePerShare: "63.00" }
+      ],
+      ipo: {
+        ipoDate: "15.09.2026",
+        totalShareCount: "1050000",
+        totalIpoCost: "720000",
+        currentShareValue: "63.00",
+        estimatedPreIpoValue: "66000000",
+        estimatedSecondaryShareSellPercentage: "12"
+      },
+      sell: { amount: "90000", otherAnnualCapitalGainsOrLosses: "25000" }
+    }
+  };
+  function createExampleOsakkeetFormData(preset, createId3) {
+    const config2 = examplePresetConfigs[preset];
+    return {
+      subscriptions: config2.subscriptions.map((row) => ({ id: createId3("sub"), ...row })),
+      cashDistributions: config2.cashDistributions.map((row) => ({ id: createId3("distribution"), ...row })),
+      shareSplits: config2.shareSplits.map((row) => ({ id: createId3("split"), ...row })),
+      demergers: config2.demergers.map((row) => ({ id: createId3("demerger"), ...row })),
+      mathematicalShareValues: config2.mathematicalShareValues.map((row) => ({ id: createId3("math"), ...row })),
+      ipo: { ...config2.ipo },
+      sell: { ...config2.sell }
+    };
+  }
+
+  // src/osakkeet/osakkeetFormat.ts
+  function euro(value) {
+    return `${value.toFixed(2)}\xA0\u20AC`;
+  }
+  function amount(value) {
+    return value.toFixed(2);
+  }
+  function percentage(value) {
+    return `${value.toFixed(2)} %`;
+  }
+  function multiplier(value) {
+    return `${value.toFixed(2)}x`;
+  }
+
   // src/osakkeet/osakkeetLocalizations.ts
   var FI = {
     languageSwitch: {
@@ -4334,7 +5878,7 @@
       unlistedDescription: "T\xE4m\xE4 laskuri on tarkoitettu ennen listautumista olevalle listaamattomalle yhti\xF6lle. IPO-p\xE4iv\xE4st\xE4 eteenp\xE4in varojenjako k\xE4sitell\xE4\xE4n t\xE4ss\xE4 n\xE4kym\xE4ss\xE4 osinkona.",
       warningsTitle: "Varoitukset",
       warnings: [
-        "Laskuri ei tue yritysten sulautumisia eik\xE4 jakautumisia.",
+        "Laskuri ei tue yritysten sulautumisia.",
         "Laskuria ei ole viel\xE4 testattu kattavasti ihmisten toimesta.",
         "Todellisiin rahallisiin p\xE4\xE4t\xF6ksiin kannattaa k\xE4ytt\xE4\xE4 ammattilaispalvelua. T\xE4m\xE4 ei ole sellainen."
       ],
@@ -4360,6 +5904,7 @@
         "IPO-p\xE4iv\xE4n\xE4 tai sen j\xE4lkeen tehdyt varojenjaot k\xE4sitell\xE4\xE4n t\xE4ss\xE4 laskurissa kokonaan osinkona.",
         "Listaamattoman yhti\xF6n osingon verolajit lasketaan sy\xF6tetyn osakkeiden matemaattisen arvon perusteella.",
         "Hankintameno-olettama vertaillaan jokaiselle k\xE4ytetylle merkint\xE4er\xE4lle erikseen.",
+        "Vuositason vero-, osinko- ja p\xE4\xE4omanpalautuslaskenta on tuettu vuosille 2016 ja sit\xE4 uudemmille verovuosille.",
         "P\xE4\xE4omatulovero arvioidaan vain t\xE4m\xE4n myynnin perusteella vuoden 2026 30 % / 34 % verokannoilla."
       ],
       sourcesLabel: "L\xE4hteet: "
@@ -4374,6 +5919,10 @@
         otherTotalAcquisitionCosts: "Muut hankintamenot yhteens\xE4",
         otherTotalAcquisitionCostsHelp: "Sy\xF6t\xE4 t\xE4h\xE4n esimerkiksi varainsiirtovero, merkint\xE4\xE4n liittyv\xE4t palkkiot ja muut hankinnasta aiheutuneet kulut. \xC4l\xE4 sy\xF6t\xE4 t\xE4h\xE4n tulonhankkimisvelan korkoja, vaan ilmoita ne vuosiverotuksessa kohdassa p\xE4\xE4omatuloista teht\xE4v\xE4t v\xE4hennykset.",
         totalPricePerShare: "Kokonaishankintameno / osake",
+        totalPricePerShareTooltipBase: (shares, pricePerShare, otherCosts, total) => `Alku: (${shares} osaketta x ${pricePerShare}) + ${otherCosts} = ${total}`,
+        totalPricePerShareTooltipDemerger: (date, before, ratio, after) => `${date}: jakautuminen ${before} x ${ratio} = ${after}`,
+        totalPricePerShareTooltipSplit: (date, beforeShares, multiplier2, afterShares) => `${date}: split ${beforeShares} osaketta x ${multiplier2} = ${afterShares} osaketta`,
+        totalPricePerShareTooltipResult: (total, shares, perShare) => `Lopuksi: ${total} / ${shares} osaketta = ${perShare}`,
         totalReimbursements: "P\xE4\xE4omanpalautukset yhteens\xE4",
         totalReimbursementsHelp: "T\xE4ss\xE4 laskurissa ennen IPO-p\xE4iv\xE4\xE4 tehty SVOP-varojenjako lasketaan p\xE4\xE4omanpalautukseksi vain silt\xE4 osin kuin se palauttaa saman osakkaan omaa enint\xE4\xE4n 10 vuotta vanhaa p\xE4\xE4omasijoitusta. P\xE4\xE4omanpalautus v\xE4hent\xE4\xE4 j\xE4ljell\xE4 olevaa todellista hankintamenoa enint\xE4\xE4n siihen m\xE4\xE4r\xE4\xE4n asti. Hankintameno-olettamaa ei k\xE4ytet\xE4 p\xE4\xE4omanpalautukseen. IPO-p\xE4iv\xE4n\xE4 tai sen j\xE4lkeen varojenjako k\xE4sitell\xE4\xE4n t\xE4ss\xE4 laskurissa osinkona.",
         totalReimbursementsTooltipIntro: "Muodostuu n\xE4ist\xE4 p\xE4\xE4omanpalautuksista:",
@@ -4416,6 +5965,26 @@
       },
       messages: {
         shareCountMismatch: (expected, given) => `Osakem\xE4\xE4r\xE4 ei t\xE4sm\xE4\xE4 merkint\xF6ihin t\xE4ll\xE4 p\xE4iv\xE4ll\xE4. Odotettu ${expected}, annettu ${given}.`
+      }
+    },
+    shareSplits: {
+      title: "Osakesplitit",
+      help: "Sy\xF6t\xE4 splitin p\xE4iv\xE4 ja kerroin. Kerroin 2 tarkoittaa, ett\xE4 yksi vanha osake muuttuu kahdeksi. Kerroin 0,5 tarkoittaa, ett\xE4 kaksi vanhaa osaketta yhdistyy yhdeksi.",
+      fields: {
+        multiplier: "Osakkeita / vanha osake"
+      },
+      actions: {
+        add: "Lis\xE4\xE4 split"
+      }
+    },
+    demergers: {
+      title: "Yrityksen jakautuminen hankintamenon mukaan",
+      help: "Sy\xF6t\xE4 jakautumisen p\xE4iv\xE4 ja se desimaaliosuus, joka j\xE4\xE4 t\xE4m\xE4n laskurin seuraaman vanhan yhti\xF6n hankintamenoksi. Esimerkiksi 0,72 tarkoittaa, ett\xE4 72 % hankintamenosta j\xE4\xE4 vanhalle yhti\xF6lle ja loput siirtyv\xE4t uudelle yhti\xF6lle. K\xE4yt\xE4 yhti\xF6n tai verotusohjeen ilmoittamaa jakosuhdetta: se perustuu yleens\xE4 nettovarallisuuksien suhteeseen, mutta jos se poikkeaa olennaisesti osakkeiden k\xE4ypien arvojen suhteesta, k\xE4ytet\xE4\xE4n k\xE4ypien arvojen suhdetta.",
+      fields: {
+        oldCompanyRatio: "Vanhan yhti\xF6n osuus hankintamenosta"
+      },
+      actions: {
+        add: "Lis\xE4\xE4 jakautuminen"
       }
     },
     ipo: {
@@ -4629,6 +6198,8 @@
     sources: {
       dividends: "Verohallinto: Osingot listaamattomasta yhti\xF6st\xE4",
       listedDividends: "Verohallinto: Osingot listatusta yhti\xF6st\xE4",
+      demergerAcquisitionCost: "Verohallinto: Arvopaperien luovutusten verotus - jakautuminen",
+      demergers: "Verohallinto: Yritysj\xE4rjestelyt ja verotus - jakautuminen",
       reporting: "Verohallinto: Esit\xE4ytetty veroilmoitus - n\xE4in ilmoitat OmaVerossa tai paperilla",
       form9a: "Verohallinto: 9A t\xE4ytt\xF6ohje",
       sales: "Verohallinto: Osakkeiden myynti"
@@ -4656,12 +6227,17 @@
         sellAmount: "Myyt\xE4vien osakkeiden m\xE4\xE4r\xE4",
         otherAnnualCapitalGainsOrLosses: "Muut luovutusvoitot tai tappiot",
         cashDistributionDate: (id) => `Varojenjako ${id} p\xE4iv\xE4`,
-        cashDistributionAmountPerShare: (id) => `Varojenjako ${id} \u20AC/osake`
+        cashDistributionAmountPerShare: (id) => `Varojenjako ${id} \u20AC/osake`,
+        shareSplitDate: (id) => `Split ${id} p\xE4iv\xE4`,
+        shareSplitMultiplier: (id) => `Split ${id} kerroin`,
+        demergerDate: (id) => `Jakautuminen ${id} p\xE4iv\xE4`,
+        demergerOldCompanyRatio: (id) => `Jakautuminen ${id} vanhan yhti\xF6n osuus`
       },
       warnings: {
         totalShareCountBelowSubscriptions: "Osakkeiden kokonaism\xE4\xE4r\xE4 on pienempi kuin sy\xF6tettyjen merkint\xF6jen yhteism\xE4\xE4r\xE4.",
         secondarySellPercentZero: "Secondary-myyntiprosentti on 0, joten IPO-kulu/osake on jaettu koko osakem\xE4\xE4r\xE4lle.",
         noSharesHeldForDistribution: (date) => `Varojenjaolle ${date} ei l\xF6ytynyt omistettuja osakkeita.`,
+        unsupportedYearRange: (year) => `Vuositason vero-, osinko- ja p\xE4\xE4omanpalautuslaskenta on tuettu verovuosille 2016 ja sit\xE4 uudemmille. Sy\xF6tteiss\xE4 on vuosi ${year}.`,
         sellAmountExceedsEstimatedSecondary: "Myyntim\xE4\xE4r\xE4 ylitt\xE4\xE4 arvioidun secondary-myyntim\xE4\xE4r\xE4n koko yhti\xF6n tasolla.",
         vestingBlockedWithoutIpoDate: "IPO-p\xE4iv\xE4 puuttuu, joten ansaintajakson rajoittamia merkint\xE4eri\xE4 ei voitu ottaa mukaan myyntiin."
       },
@@ -4680,7 +6256,7 @@
       unlistedDescription: "This calculator is intended for an unlisted company before listing. From the IPO date onward, distributions are treated as dividends in this view.",
       warningsTitle: "Warnings",
       warnings: [
-        "This calculator does not support mergers or demergers.",
+        "This calculator does not support mergers.",
         "This calculator has not yet been thoroughly tested by humans.",
         "For real monetary advice, use a professional service. This is not one."
       ],
@@ -4706,6 +6282,7 @@
         "On and after the IPO date, distributions are treated as dividends in this calculator.",
         "Tax categories for dividends from an unlisted company are calculated using the entered mathematical value per share for each year.",
         "The deemed acquisition cost is compared separately for each subscription lot used in the sale.",
+        "Year-level tax, dividend, and capital-repayment calculations are supported for tax years 2016 and later.",
         "Capital income tax is estimated only for this sale using the 2026 30% / 34% rates."
       ],
       sourcesLabel: "Sources: "
@@ -4720,6 +6297,10 @@
         otherTotalAcquisitionCosts: "Other acquisition costs total",
         otherTotalAcquisitionCostsHelp: "Enter items such as transfer tax, subscription-related fees, and other acquisition costs. Do not include interest on income-producing debt here; report that in annual taxation under deductions from capital income.",
         totalPricePerShare: "Total acquisition cost / share",
+        totalPricePerShareTooltipBase: (shares, pricePerShare, otherCosts, total) => `Start: (${shares} shares x ${pricePerShare}) + ${otherCosts} = ${total}`,
+        totalPricePerShareTooltipDemerger: (date, before, ratio, after) => `${date}: demerger ${before} x ${ratio} = ${after}`,
+        totalPricePerShareTooltipSplit: (date, beforeShares, multiplier2, afterShares) => `${date}: split ${beforeShares} shares x ${multiplier2} = ${afterShares} shares`,
+        totalPricePerShareTooltipResult: (total, shares, perShare) => `Final: ${total} / ${shares} shares = ${perShare}`,
         totalReimbursements: "Capital repayments total",
         totalReimbursementsHelp: "In this calculator, a pre-IPO distribution from the invested unrestricted equity reserve is treated as capital repayment only to the extent it returns the same shareholder\u2019s own capital investment made within the previous 10 years. The capital repayment reduces the remaining actual acquisition cost only up to that amount. The deemed acquisition cost is not used for capital repayments. On the IPO date and after it, distributions are treated as dividends in this calculator.",
         totalReimbursementsTooltipIntro: "Built from these applied capital repayments:",
@@ -4762,6 +6343,26 @@
       },
       messages: {
         shareCountMismatch: (expected, given) => `Share count does not match subscriptions on this date. Expected ${expected}, given ${given}.`
+      }
+    },
+    shareSplits: {
+      title: "Share splits",
+      help: "Enter the split date and multiplier. A multiplier of 2 means one old share becomes two. A multiplier of 0.5 means two old shares are combined into one.",
+      fields: {
+        multiplier: "Shares / old share"
+      },
+      actions: {
+        add: "Add split"
+      }
+    },
+    demergers: {
+      title: "Company demerger by acquisition-cost allocation",
+      help: "Enter the demerger date and the decimal portion of acquisition cost that remains with the old company tracked in this calculator. For example, 0.72 means 72% of the acquisition cost remains with the old company and the rest moves to the new company. Use the allocation ratio given by the company or tax guidance: it is usually based on the net-asset ratio, but if that differs materially from the share fair-value ratio, the fair-value ratio is used.",
+      fields: {
+        oldCompanyRatio: "Old company share of acquisition cost"
+      },
+      actions: {
+        add: "Add demerger"
       }
     },
     ipo: {
@@ -4975,6 +6576,8 @@
     sources: {
       dividends: "Tax Admin: Dividends from an unlisted company",
       listedDividends: "Tax Admin: Dividends from a listed company",
+      demergerAcquisitionCost: "Tax Admin: Taxation of securities transfers - demerger",
+      demergers: "Tax Admin: Corporate reorganisations and taxation - demerger",
       reporting: "Tax Admin: Pre-completed tax return - how to report in MyTax or on paper",
       form9a: "Tax Admin: Form 9A instructions",
       sales: "Tax Admin: Sale of shares"
@@ -5002,12 +6605,17 @@
         sellAmount: "Number of shares to sell",
         otherAnnualCapitalGainsOrLosses: "Other capital gains or losses",
         cashDistributionDate: (id) => `Distribution ${id} date`,
-        cashDistributionAmountPerShare: (id) => `Distribution ${id} EUR/share`
+        cashDistributionAmountPerShare: (id) => `Distribution ${id} EUR/share`,
+        shareSplitDate: (id) => `Split ${id} date`,
+        shareSplitMultiplier: (id) => `Split ${id} multiplier`,
+        demergerDate: (id) => `Demerger ${id} date`,
+        demergerOldCompanyRatio: (id) => `Demerger ${id} old-company ratio`
       },
       warnings: {
         totalShareCountBelowSubscriptions: "Total share count is lower than the total amount of entered subscriptions.",
         secondarySellPercentZero: "Secondary sell percentage is 0, so IPO cost/share has been divided across the full share count.",
         noSharesHeldForDistribution: (date) => `No held shares were found for the distribution on ${date}.`,
+        unsupportedYearRange: (year) => `Year-level tax, dividend, and capital-repayment calculations are supported for tax years 2016 and later. The input contains year ${year}.`,
         sellAmountExceedsEstimatedSecondary: "Sell amount exceeds the estimated secondary sell amount at whole-company level.",
         vestingBlockedWithoutIpoDate: "IPO date is missing, so vesting-restricted subscription lots were excluded from the sale."
       },
@@ -5018,896 +6626,6 @@
   };
   function getOsakkeetLocalization(language) {
     return language === "en" ? EN : FI;
-  }
-
-  // src/osakkeet/osakkeetCalculator.ts
-  var zero = new decimal_default(0);
-  var OSAKKEET_TAX_RULES_2026 = {
-    capitalIncomeTax: {
-      threshold: 3e4,
-      lowRate: 0.3,
-      highRate: 0.34
-    },
-    capitalRepayment: {
-      eligibilityYears: 10
-    },
-    hankintamenoOlettama: {
-      ownershipYearsThreshold: 10,
-      shortOwnershipRate: 0.2,
-      longOwnershipRate: 0.4
-    },
-    unlistedDividend: {
-      mathematicalValueYieldRate: 0.08,
-      annualCapitalDividendThreshold: 15e4,
-      lowCapitalDividendTaxableRate: 0.25,
-      highCapitalDividendTaxableRate: 0.85,
-      lowCapitalDividendTaxFreeRate: 0.75,
-      highCapitalDividendTaxFreeRate: 0.15,
-      earnedDividendTaxableRate: 0.75,
-      earnedDividendTaxFreeRate: 0.25,
-      withholdingThreshold: 15e4,
-      lowWithholdingRate: 0.075,
-      highWithholdingRate: 0.28
-    },
-    listedDividend: {
-      taxableCapitalIncomeRate: 0.85,
-      taxFreeCapitalIncomeRate: 0.15,
-      withholdingRate: 0.255
-    }
-  };
-  function decimalOrZero(value, field, errors, localization) {
-    const normalized = value.trim();
-    if (normalized === "") return zero;
-    try {
-      const parsed = new decimal_default(normalized);
-      if (parsed.isNegative()) {
-        errors.push(localization.calculator.validation.negative(field));
-      }
-      return parsed;
-    } catch {
-      errors.push(localization.calculator.validation.invalidNumber(field));
-      return zero;
-    }
-  }
-  function signedDecimalOrZero(value, field, errors, localization) {
-    const normalized = value.trim();
-    if (normalized === "") return zero;
-    try {
-      return new decimal_default(normalized);
-    } catch {
-      errors.push(localization.calculator.validation.invalidNumber(field));
-      return zero;
-    }
-  }
-  function dateOrUndefined(value, field, errors, localization) {
-    const trimmed = value.trim();
-    if (!trimmed) return void 0;
-    const date = parseSupportedDate(trimmed);
-    if (!date || Number.isNaN(date.getTime())) {
-      errors.push(localization.calculator.validation.invalidDate(field));
-      return void 0;
-    }
-    return date;
-  }
-  function parseSupportedDate(trimmed) {
-    const finnishDateMatch = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(trimmed);
-    const isoDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
-    if (finnishDateMatch) {
-      const [, day, month, year] = finnishDateMatch;
-      return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
-    }
-    if (isoDateMatch) {
-      return /* @__PURE__ */ new Date(`${trimmed}T00:00:00Z`);
-    }
-    return void 0;
-  }
-  function addYears(date, years) {
-    const next = new Date(date.getTime());
-    next.setUTCFullYear(next.getUTCFullYear() + years);
-    return next;
-  }
-  function isWithinYearsInclusive(start, end, years = 10) {
-    if (!start || !end) return false;
-    return end.getTime() <= addYears(start, years).getTime();
-  }
-  function isAtLeastYears(start, end, years = 10) {
-    if (!start || !end) return false;
-    return end.getTime() >= addYears(start, years).getTime();
-  }
-  function createLot(input2, errors, localization) {
-    const amount2 = decimalOrZero(
-      input2.amount,
-      localization.calculator.fields.subscriptionAmount(input2.date || input2.id),
-      errors,
-      localization
-    );
-    const pricePerShare = decimalOrZero(
-      input2.pricePerShare || "",
-      localization.calculator.fields.subscriptionPricePerShare(input2.date || input2.id),
-      errors,
-      localization
-    );
-    const otherTotalAcquisitionCosts = decimalOrZero(
-      input2.otherTotalAcquisitionCosts || "",
-      localization.calculator.fields.subscriptionOtherTotalAcquisitionCosts(input2.date || input2.id),
-      errors,
-      localization
-    );
-    const fallbackTotalPrice = decimalOrZero(
-      input2.totalPrice || "",
-      localization.calculator.fields.subscriptionOtherTotalAcquisitionCosts(input2.date || input2.id),
-      [],
-      localization
-    );
-    const totalPrice = amount2.mul(pricePerShare).add(otherTotalAcquisitionCosts);
-    const effectiveTotalPrice = totalPrice.gt(0) || input2.pricePerShare || input2.otherTotalAcquisitionCosts ? totalPrice : fallbackTotalPrice;
-    return {
-      id: input2.id,
-      date: input2.date,
-      dateValue: dateOrUndefined(
-        input2.date,
-        localization.calculator.fields.subscriptionDate(input2.id),
-        errors,
-        localization
-      ),
-      vestingEndsOn: input2.vestingEndsOn || "",
-      vestingEndsOnValue: dateOrUndefined(
-        input2.vestingEndsOn || "",
-        localization.calculator.fields.subscriptionVestingEndsOn(input2.id),
-        errors,
-        localization
-      ),
-      amount: amount2,
-      totalPrice: effectiveTotalPrice,
-      remainingCostTotal: effectiveTotalPrice,
-      capitalRepaymentTotal: zero,
-      cashDistributionGrossTotal: zero,
-      capitalRepaymentBreakdown: []
-    };
-  }
-  function compareDateStrings(a2, b2) {
-    const dateA = parseSupportedDate(a2.trim());
-    const dateB = parseSupportedDate(b2.trim());
-    if (dateA && dateB) {
-      return dateA.getTime() - dateB.getTime();
-    }
-    if (dateA) return -1;
-    if (dateB) return 1;
-    return a2.localeCompare(b2);
-  }
-  function sumDecimals(values) {
-    return values.reduce((acc, value) => acc.add(value), zero);
-  }
-  function estimateCapitalTax(taxableGain, rules) {
-    if (taxableGain.lte(0)) return zero;
-    const threshold = new decimal_default(rules.capitalIncomeTax.threshold);
-    const lowPart = decimal_default.min(taxableGain, threshold);
-    const highPart = decimal_default.max(taxableGain.minus(threshold), zero);
-    return lowPart.mul(rules.capitalIncomeTax.lowRate).add(highPart.mul(rules.capitalIncomeTax.highRate));
-  }
-  function createMathematicalShareValuesByYear(rows, errors, localization) {
-    const mathematicalShareValuesByYear = /* @__PURE__ */ new Map();
-    for (const row of rows) {
-      const year = decimalOrZero(
-        row.year,
-        localization.calculator.fields.mathematicalShareValueYear(row.id),
-        errors,
-        localization
-      );
-      const valuePerShare = decimalOrZero(
-        row.valuePerShare,
-        localization.calculator.fields.mathematicalShareValuePerShare(row.id),
-        errors,
-        localization
-      );
-      if (year.gt(0)) {
-        mathematicalShareValuesByYear.set(year.toNumber(), valuePerShare);
-      }
-    }
-    return mathematicalShareValuesByYear;
-  }
-  function parseIpoAndSellInputs(form2, totalSubscribedShares, totalSubscribedCost, errors, warnings, localization) {
-    const ipoDate = dateOrUndefined(form2.ipo.ipoDate, localization.calculator.fields.ipoDate, errors, localization);
-    const totalShareCountInput = decimalOrZero(
-      form2.ipo.totalShareCount,
-      localization.calculator.fields.totalShareCount,
-      errors,
-      localization
-    );
-    const totalShareCount = totalShareCountInput.gt(0) ? totalShareCountInput : totalSubscribedShares;
-    const totalIpoCost = decimalOrZero(
-      form2.ipo.totalIpoCost,
-      localization.calculator.fields.totalIpoCost,
-      errors,
-      localization
-    );
-    const currentShareValue = decimalOrZero(
-      form2.ipo.currentShareValue,
-      localization.calculator.fields.currentShareValue,
-      errors,
-      localization
-    );
-    const currentTotalValue = currentShareValue.mul(totalShareCount);
-    const estimatedPreIpoValue = decimalOrZero(
-      form2.ipo.estimatedPreIpoValue,
-      localization.calculator.fields.estimatedPreIpoValue,
-      errors,
-      localization
-    );
-    const estimatedSecondaryShareSellPercentage = decimalOrZero(
-      form2.ipo.estimatedSecondaryShareSellPercentage,
-      localization.calculator.fields.estimatedSecondaryShareSellPercentage,
-      errors,
-      localization
-    );
-    const sellAmount = decimalOrZero(form2.sell.amount, localization.calculator.fields.sellAmount, errors, localization);
-    const otherAnnualCapitalGainsOrLosses = signedDecimalOrZero(
-      form2.sell.otherAnnualCapitalGainsOrLosses || "",
-      localization.calculator.fields.otherAnnualCapitalGainsOrLosses,
-      errors,
-      localization
-    );
-    if (totalShareCountInput.gt(0) && totalShareCountInput.lt(totalSubscribedShares)) {
-      warnings.push(localization.calculator.warnings.totalShareCountBelowSubscriptions);
-    }
-    const estimatedSecondaryShareCount = totalShareCount.mul(estimatedSecondaryShareSellPercentage).div(100);
-    const ipoPricePerShare = totalShareCount.gt(0) ? estimatedPreIpoValue.div(totalShareCount) : zero;
-    const currentValuePerShare = totalShareCount.gt(0) ? currentTotalValue.div(totalShareCount) : zero;
-    const increaseMultiplier = currentValuePerShare.gt(0) ? ipoPricePerShare.div(currentValuePerShare) : zero;
-    const increasePercentage = currentValuePerShare.gt(0) ? ipoPricePerShare.div(currentValuePerShare).minus(1).mul(100) : zero;
-    const ipoCostPerShare = estimatedSecondaryShareCount.gt(0) ? totalIpoCost.div(estimatedSecondaryShareCount) : totalShareCount.gt(0) ? totalIpoCost.div(totalShareCount) : zero;
-    if (estimatedSecondaryShareCount.eq(0) && totalIpoCost.gt(0)) {
-      warnings.push(localization.calculator.warnings.secondarySellPercentZero);
-    }
-    return {
-      ipoDate,
-      sellAmount,
-      otherAnnualCapitalGainsOrLosses,
-      ipo: {
-        ipoDate,
-        totalShareCount,
-        totalSubscribedShares,
-        totalSubscribedCost,
-        totalIpoCost,
-        currentShareValue,
-        currentTotalValue,
-        estimatedPreIpoValue,
-        estimatedSecondaryShareSellPercentage,
-        estimatedSecondaryShareCount,
-        ipoPricePerShare,
-        currentValuePerShare,
-        increasePercentage,
-        increaseMultiplier,
-        ipoCostPerShare
-      }
-    };
-  }
-  function calculateVestingSummary(lots, ipoDate) {
-    const ipoEligibleLots = lots.filter(
-      (lot) => !lot.dateValue || !ipoDate || lot.dateValue.getTime() <= ipoDate.getTime()
-    );
-    const sellableLots = ipoEligibleLots.filter(
-      (lot) => !lot.vestingEndsOnValue || !!(ipoDate && ipoDate.getTime() >= lot.vestingEndsOnValue.getTime())
-    );
-    const lockedLots = ipoEligibleLots.filter(
-      (lot) => !!lot.vestingEndsOnValue && (!ipoDate || ipoDate.getTime() < lot.vestingEndsOnValue.getTime())
-    );
-    return {
-      sellableLots,
-      lockedLots,
-      totalShares: sumDecimals(ipoEligibleLots.map((lot) => lot.amount)),
-      vestedShares: sumDecimals(sellableLots.map((lot) => lot.amount)),
-      unvestedShares: sumDecimals(lockedLots.map((lot) => lot.amount))
-    };
-  }
-  function applyCashDistributions(lots, entries, ipoDate, mathematicalShareValuesByYear, rules, errors, warnings, localization) {
-    const capitalDividendUsedByYear = /* @__PURE__ */ new Map();
-    const grossDividendUsedByYear = /* @__PURE__ */ new Map();
-    return [...entries].sort((a2, b2) => compareDateStrings(a2.date, b2.date)).map((entry) => {
-      const cashDistributionDate = dateOrUndefined(
-        entry.date,
-        localization.calculator.fields.cashDistributionDate(entry.id),
-        errors,
-        localization
-      );
-      const amountPerShare = decimalOrZero(
-        entry.amountPerShare,
-        localization.calculator.fields.cashDistributionAmountPerShare(entry.id),
-        errors,
-        localization
-      );
-      const eligibleLots = lots.filter(
-        (lot) => !lot.dateValue || !cashDistributionDate || lot.dateValue.getTime() <= cashDistributionDate.getTime()
-      );
-      const sharesHeld = sumDecimals(eligibleLots.map((lot) => lot.amount));
-      const expectedTotal = amountPerShare.mul(sharesHeld);
-      const grossTotal = expectedTotal;
-      const effectivePerShare = sharesHeld.gt(0) ? grossTotal.div(sharesHeld) : zero;
-      const isAfterIpoDate = !!(ipoDate && cashDistributionDate && cashDistributionDate.getTime() >= ipoDate.getTime());
-      const effectiveType = isAfterIpoDate ? "dividend" : entry.type;
-      const isDividend = effectiveType === "dividend";
-      if (sharesHeld.eq(0) && grossTotal.gt(0)) {
-        warnings.push(localization.calculator.warnings.noSharesHeldForDistribution(entry.date));
-      }
-      const allocations = eligibleLots.map((lot) => {
-        const gross = effectivePerShare.mul(lot.amount);
-        const eligibleCapitalRepayment = !isDividend && isWithinYearsInclusive(lot.dateValue, cashDistributionDate, rules.capitalRepayment.eligibilityYears) && lot.remainingCostTotal.gt(0);
-        const remainingCostPerShare = lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero;
-        const capitalRepaymentPerShare = eligibleCapitalRepayment ? decimal_default.min(effectivePerShare, remainingCostPerShare) : zero;
-        const capitalRepayment = capitalRepaymentPerShare.mul(lot.amount);
-        const dividend = decimal_default.max(gross.minus(capitalRepayment), zero);
-        lot.remainingCostTotal = decimal_default.max(lot.remainingCostTotal.minus(capitalRepayment), zero);
-        lot.capitalRepaymentTotal = lot.capitalRepaymentTotal.add(capitalRepayment);
-        lot.cashDistributionGrossTotal = lot.cashDistributionGrossTotal.add(gross);
-        if (capitalRepayment.gt(0)) {
-          lot.capitalRepaymentBreakdown.push({
-            distributionDate: entry.date,
-            shares: lot.amount,
-            capitalRepaymentPerShare,
-            capitalRepaymentTotal: capitalRepayment
-          });
-        }
-        return {
-          subscriptionId: lot.id,
-          subscriptionDate: lot.date,
-          shares: lot.amount,
-          gross,
-          capitalRepayment,
-          dividend,
-          remainingCostPerShareAfter: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
-          eligibleCapitalRepayment
-        };
-      });
-      const capitalRepaymentTotal = sumDecimals(allocations.map((allocation) => allocation.capitalRepayment));
-      const dividendTotal = sumDecimals(allocations.map((allocation) => allocation.dividend));
-      const year = cashDistributionDate == null ? void 0 : cashDistributionDate.getUTCFullYear();
-      const mathematicalShareValuePerShare = year ? mathematicalShareValuesByYear.get(year) || zero : zero;
-      const shareholderMathematicalValue = mathematicalShareValuePerShare.mul(sharesHeld);
-      const eightPercentYieldLimit = shareholderMathematicalValue.mul(rules.unlistedDividend.mathematicalValueYieldRate);
-      const capitalDividendGross = shareholderMathematicalValue.gt(0) ? decimal_default.min(dividendTotal, eightPercentYieldLimit) : zero;
-      const earnedDividendGross = shareholderMathematicalValue.gt(0) ? decimal_default.max(dividendTotal.minus(capitalDividendGross), zero) : zero;
-      const usedCapitalDividend = year ? capitalDividendUsedByYear.get(year) || zero : zero;
-      const lowerCapitalDividendRoom = decimal_default.max(
-        new decimal_default(rules.unlistedDividend.annualCapitalDividendThreshold).minus(usedCapitalDividend),
-        zero
-      );
-      const lowCapitalPart = decimal_default.min(capitalDividendGross, lowerCapitalDividendRoom);
-      const highCapitalPart = decimal_default.max(capitalDividendGross.minus(lowCapitalPart), zero);
-      const taxableCapitalIncome = isAfterIpoDate ? dividendTotal.mul(rules.listedDividend.taxableCapitalIncomeRate) : lowCapitalPart.mul(rules.unlistedDividend.lowCapitalDividendTaxableRate).add(highCapitalPart.mul(rules.unlistedDividend.highCapitalDividendTaxableRate));
-      const taxFreeCapitalIncomePortion = isAfterIpoDate ? dividendTotal.mul(rules.listedDividend.taxFreeCapitalIncomeRate) : lowCapitalPart.mul(rules.unlistedDividend.lowCapitalDividendTaxFreeRate).add(highCapitalPart.mul(rules.unlistedDividend.highCapitalDividendTaxFreeRate));
-      const taxableEarnedDividend = isAfterIpoDate ? zero : earnedDividendGross.mul(rules.unlistedDividend.earnedDividendTaxableRate);
-      const taxFreeEarnedDividend = isAfterIpoDate ? zero : earnedDividendGross.mul(rules.unlistedDividend.earnedDividendTaxFreeRate);
-      const usedGrossDividend = year ? grossDividendUsedByYear.get(year) || zero : zero;
-      const lowerGrossDividendRoom = decimal_default.max(
-        new decimal_default(rules.unlistedDividend.withholdingThreshold).minus(usedGrossDividend),
-        zero
-      );
-      const lowWithholdingPart = decimal_default.min(dividendTotal, lowerGrossDividendRoom);
-      const highWithholdingPart = decimal_default.max(dividendTotal.minus(lowWithholdingPart), zero);
-      const withholdingToTaxOffice = isAfterIpoDate ? dividendTotal.mul(rules.listedDividend.withholdingRate) : lowWithholdingPart.mul(rules.unlistedDividend.lowWithholdingRate).add(highWithholdingPart.mul(rules.unlistedDividend.highWithholdingRate));
-      const paidInCash = grossTotal.minus(withholdingToTaxOffice);
-      if (year && !isAfterIpoDate) {
-        capitalDividendUsedByYear.set(year, usedCapitalDividend.add(capitalDividendGross));
-        grossDividendUsedByYear.set(year, usedGrossDividend.add(dividendTotal));
-      }
-      return {
-        id: entry.id,
-        date: entry.date,
-        type: effectiveType,
-        amountPerShare,
-        sharesHeld,
-        mathematicalShareValuePerShare,
-        shareholderMathematicalValue,
-        eightPercentYieldLimit,
-        expectedTotal,
-        grossTotal,
-        paidInCash,
-        capitalRepaymentTotal,
-        dividendTotal,
-        withholdingToTaxOffice,
-        taxableCapitalIncome,
-        taxFreeCapitalIncomePortion,
-        taxableEarnedDividend,
-        taxFreeEarnedDividend,
-        treatedAsListedDividend: isAfterIpoDate,
-        allocations
-      };
-    });
-  }
-  function calculateSellSummary(sellableLots, sellAmount, otherAnnualCapitalGainsOrLosses, vestingSummary, ipoSummary, rules, errors, warnings, localization) {
-    if (sellAmount.gt(0) && !ipoSummary.ipoDate && vestingSummary.lockedLots.length > 0) {
-      warnings.push(localization.calculator.warnings.vestingBlockedWithoutIpoDate);
-    }
-    if (sellAmount.gt(vestingSummary.vestedShares)) {
-      errors.push(localization.calculator.errors.sellAmountExceedsSellable(vestingSummary.vestedShares.toString()));
-    }
-    if (ipoSummary.estimatedSecondaryShareCount.gt(0) && sellAmount.gt(ipoSummary.estimatedSecondaryShareCount)) {
-      warnings.push(localization.calculator.warnings.sellAmountExceedsEstimatedSecondary);
-    }
-    let remainingSellAmount = sellAmount;
-    const usedSubscriptions = [];
-    for (const lot of sellableLots) {
-      if (remainingSellAmount.lte(0)) break;
-      const soldAmount = decimal_default.min(lot.amount, remainingSellAmount);
-      if (soldAmount.lte(0)) continue;
-      const gross = soldAmount.mul(ipoSummary.ipoPricePerShare);
-      const originalCostBasis = lot.amount.gt(0) ? lot.totalPrice.mul(soldAmount).div(lot.amount) : zero;
-      const realCostBasis = lot.amount.gt(0) ? lot.remainingCostTotal.mul(soldAmount).div(lot.amount) : zero;
-      const allocatedIpoCost = soldAmount.mul(ipoSummary.ipoCostPerShare);
-      const actualDeduction = realCostBasis.add(allocatedIpoCost);
-      const hankintamenoOlettaRate = isAtLeastYears(
-        lot.dateValue,
-        ipoSummary.ipoDate,
-        rules.hankintamenoOlettama.ownershipYearsThreshold
-      ) ? new decimal_default(rules.hankintamenoOlettama.longOwnershipRate) : new decimal_default(rules.hankintamenoOlettama.shortOwnershipRate);
-      const hankintamenoOlettaDeduction = gross.mul(hankintamenoOlettaRate);
-      const useActualCosts = actualDeduction.gte(hankintamenoOlettaDeduction);
-      const selectedDeduction = useActualCosts ? actualDeduction : hankintamenoOlettaDeduction;
-      const taxableGain = gross.minus(selectedDeduction);
-      usedSubscriptions.push({
-        subscriptionId: lot.id,
-        subscriptionDate: lot.date,
-        totalSubscriptionShares: lot.amount,
-        soldAmount,
-        gross,
-        originalCostBasis,
-        realCostBasis,
-        allocatedIpoCost,
-        actualDeduction,
-        hankintamenoOlettaRate,
-        hankintamenoOlettaDeduction,
-        selectedMethod: useActualCosts ? "actual_costs" : "hmo",
-        selectedDeduction,
-        taxableGain,
-        taxFreeGainPart: zero,
-        taxedGainPart: decimal_default.max(taxableGain, zero)
-      });
-      remainingSellAmount = remainingSellAmount.minus(soldAmount);
-    }
-    const taxableGainTotal = sumDecimals(usedSubscriptions.map((lot) => lot.taxableGain));
-    const capitalIncomeThreshold = new decimal_default(rules.capitalIncomeTax.threshold);
-    const taxableGainAtLowRate = decimal_default.max(decimal_default.min(taxableGainTotal, capitalIncomeThreshold), zero);
-    const taxableGainAtHighRate = decimal_default.max(taxableGainTotal.minus(capitalIncomeThreshold), zero);
-    const estimatedTax = estimateCapitalTax(taxableGainTotal, rules);
-    const annualNetCapitalGain = decimal_default.max(taxableGainTotal.add(otherAnnualCapitalGainsOrLosses), zero);
-    const annualEstimatedTax = estimateCapitalTax(annualNetCapitalGain, rules);
-    const annualTaxableGainAtLowRate = decimal_default.max(decimal_default.min(annualNetCapitalGain, capitalIncomeThreshold), zero);
-    const annualTaxableGainAtHighRate = decimal_default.max(annualNetCapitalGain.minus(capitalIncomeThreshold), zero);
-    const annualTaxChange = annualEstimatedTax.minus(estimatedTax);
-    const taxReductionFromOtherLosses = decimal_default.max(estimatedTax.minus(annualEstimatedTax), zero);
-    const grossTotal = sumDecimals(usedSubscriptions.map((lot) => lot.gross));
-    const selectedActualDeductionTotal = sumDecimals(
-      usedSubscriptions.filter((lot) => lot.selectedMethod === "actual_costs").map((lot) => lot.actualDeduction)
-    );
-    const shortOwnershipRate = new decimal_default(rules.hankintamenoOlettama.shortOwnershipRate);
-    const longOwnershipRate = new decimal_default(rules.hankintamenoOlettama.longOwnershipRate);
-    const selectedHmo20DeductionTotal = sumDecimals(
-      usedSubscriptions.filter((lot) => lot.selectedMethod === "hmo" && lot.hankintamenoOlettaRate.eq(shortOwnershipRate)).map((lot) => lot.hankintamenoOlettaDeduction)
-    );
-    const selectedHmo40DeductionTotal = sumDecimals(
-      usedSubscriptions.filter((lot) => lot.selectedMethod === "hmo" && lot.hankintamenoOlettaRate.eq(longOwnershipRate)).map((lot) => lot.hankintamenoOlettaDeduction)
-    );
-    const selectedDeductionTotal = sumDecimals(usedSubscriptions.map((lot) => lot.selectedDeduction));
-    const soldSharesTotal = sumDecimals(usedSubscriptions.map((lot) => lot.soldAmount));
-    const totalIpoCostAllocated = sumDecimals(usedSubscriptions.map((lot) => lot.allocatedIpoCost));
-    const cashAfterIpoCosts = grossTotal.minus(totalIpoCostAllocated);
-    const taxFreeAcquisitionRecoveryAfterIpoCosts = decimal_default.max(selectedDeductionTotal.minus(totalIpoCostAllocated), zero);
-    const soldShareOriginalCostTotal = sumDecimals(usedSubscriptions.map((lot) => lot.originalCostBasis));
-    const soldShareAcquisitionCostTotal = sumDecimals(usedSubscriptions.map((lot) => lot.realCostBasis));
-    const ipoCostDeductedViaActual = sumDecimals(
-      usedSubscriptions.filter((lot) => lot.selectedMethod === "actual_costs").map((lot) => lot.allocatedIpoCost)
-    );
-    const ipoCostPaidWithoutActualDeduction = sumDecimals(
-      usedSubscriptions.filter((lot) => lot.selectedMethod === "hmo").map((lot) => lot.allocatedIpoCost)
-    );
-    const taxSavedFromDeductibleIpoCosts = estimateCapitalTax(
-      taxableGainTotal.add(ipoCostDeductedViaActual),
-      rules
-    ).minus(estimatedTax);
-    const netAfterTaxAndIpoCost = grossTotal.minus(totalIpoCostAllocated).minus(estimatedTax);
-    const netAfterAnnualTaxAndIpoCost = grossTotal.minus(totalIpoCostAllocated).minus(annualEstimatedTax);
-    return {
-      amount: sellAmount,
-      otherAnnualCapitalGainsOrLosses,
-      usedSubscriptions,
-      grossTotal,
-      cashAfterIpoCosts,
-      taxFreeAcquisitionRecoveryAfterIpoCosts,
-      soldShareOriginalCostTotal,
-      soldShareAcquisitionCostTotal,
-      selectedActualDeductionTotal,
-      selectedHmo20DeductionTotal,
-      selectedHmo40DeductionTotal,
-      selectedDeductionTotal,
-      totalIpoCostAllocated,
-      ipoCostDeductedViaActual,
-      ipoCostPaidWithoutActualDeduction,
-      taxSavedFromDeductibleIpoCosts,
-      taxableGainTotal,
-      taxableGainAtLowRate,
-      taxableGainAtHighRate,
-      estimatedTax,
-      annualNetCapitalGain,
-      annualTaxableGainAtLowRate,
-      annualTaxableGainAtHighRate,
-      annualEstimatedTax,
-      annualTaxChange,
-      taxReductionFromOtherLosses,
-      netAfterTaxAndIpoCost,
-      netAfterAnnualTaxAndIpoCost,
-      remainingUnsoldShares: decimal_default.max(ipoSummary.totalSubscribedShares.minus(soldSharesTotal), zero)
-    };
-  }
-  function buildSubscriptionSummaries(lots) {
-    return lots.map((lot) => ({
-      id: lot.id,
-      date: lot.date,
-      amount: lot.amount,
-      totalPrice: lot.totalPrice,
-      totalPricePerShare: lot.amount.gt(0) ? lot.totalPrice.div(lot.amount) : zero,
-      cashDistributionGrossTotal: lot.cashDistributionGrossTotal,
-      capitalRepaymentTotal: lot.capitalRepaymentTotal,
-      capitalRepaymentBreakdown: lot.capitalRepaymentBreakdown,
-      capitalRepaymentPerShare: lot.amount.gt(0) ? lot.capitalRepaymentTotal.div(lot.amount) : zero,
-      remainingCostPerShare: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
-      remainingCostTotal: lot.remainingCostTotal
-    }));
-  }
-  function calculateOsakkeet(form2, localization = FI, rules = OSAKKEET_TAX_RULES_2026) {
-    const errors = [];
-    const warnings = [];
-    const lots = [...form2.subscriptions].sort((a2, b2) => compareDateStrings(a2.date, b2.date)).map((subscription) => createLot(subscription, errors, localization));
-    const totalSubscribedShares = sumDecimals(lots.map((lot) => lot.amount));
-    const totalSubscribedCost = sumDecimals(lots.map((lot) => lot.totalPrice));
-    const mathematicalShareValuesByYear = createMathematicalShareValuesByYear(
-      form2.mathematicalShareValues,
-      errors,
-      localization
-    );
-    const { ipoDate, sellAmount, otherAnnualCapitalGainsOrLosses, ipo } = parseIpoAndSellInputs(
-      form2,
-      totalSubscribedShares,
-      totalSubscribedCost,
-      errors,
-      warnings,
-      localization
-    );
-    const vesting = calculateVestingSummary(lots, ipoDate);
-    const cashDistributions = applyCashDistributions(
-      lots,
-      form2.cashDistributions,
-      ipoDate,
-      mathematicalShareValuesByYear,
-      rules,
-      errors,
-      warnings,
-      localization
-    );
-    const sell = calculateSellSummary(
-      vesting.sellableLots,
-      sellAmount,
-      otherAnnualCapitalGainsOrLosses,
-      vesting,
-      ipo,
-      rules,
-      errors,
-      warnings,
-      localization
-    );
-    return {
-      formData: form2,
-      warnings,
-      errors,
-      subscriptions: buildSubscriptionSummaries(lots),
-      cashDistributions,
-      vesting,
-      ipo,
-      sell
-    };
-  }
-
-  // src/osakkeet/ki-frame-extensions.ts
-  function isCheckboxInput(node) {
-    return node.nodeName === "INPUT" && "type" in node && node.type === "checkbox";
-  }
-  function readDefaultNodeValue(node) {
-    if (isCheckboxInput(node)) {
-      return node.checked;
-    }
-    return node.value;
-  }
-  function writeDefaultNodeValue(node, value) {
-    if (isCheckboxInput(node)) {
-      node.checked = Boolean(value);
-      return;
-    }
-    node.value = value == null ? "" : String(value);
-  }
-  function isBasicTextValue(value) {
-    return value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean" || typeof value === "bigint";
-  }
-  function formatBasicTextValue(value) {
-    return value == null ? "" : String(value);
-  }
-  function isTextNode(value) {
-    return !!value && typeof value === "object" && "nodeType" in value && value.nodeType === 3;
-  }
-  function toRuntimePath(path) {
-    return path;
-  }
-  function getStateValueAtPath(stateValue, path) {
-    return getByPath(stateValue, toRuntimePath(path));
-  }
-  function getStateValueAtOptionalPath(stateValue, path) {
-    if (!path) {
-      return stateValue;
-    }
-    return getStateValueAtPath(stateValue, path);
-  }
-  function setStateValueAtPath(state, path, value) {
-    state.set((current) => copyAndSet(current, toRuntimePath(path), value));
-  }
-  function withDestroy(value, destroy) {
-    return Object.assign(value, { destroy });
-  }
-  function createTextNodesTree(value, noInit) {
-    if (typeof value === "function") return void 0;
-    if (isBasicTextValue(value)) {
-      return text(noInit ? "" : formatBasicTextValue(value));
-    }
-    if (Array.isArray(value)) {
-      return value.map((item) => createTextNodesTree(item, noInit)).filter((item) => item !== void 0);
-    }
-    if (value && typeof value === "object") {
-      const entries = Object.entries(value).map(([key, nestedValue]) => [key, createTextNodesTree(nestedValue, noInit)]).filter((entry) => entry[1] !== void 0);
-      return Object.fromEntries(entries);
-    }
-    return void 0;
-  }
-  function syncTextNodesTree(nodes, value) {
-    if (isTextNode(nodes)) {
-      const nextValue = isBasicTextValue(value) ? formatBasicTextValue(value) : "";
-      if (nodes.textContent !== nextValue) {
-        nodes.textContent = nextValue;
-      }
-      return;
-    }
-    if (Array.isArray(nodes)) {
-      const values = Array.isArray(value) ? value : [];
-      nodes.forEach((childNode, index) => {
-        syncTextNodesTree(childNode, values[index]);
-      });
-      return;
-    }
-    if (nodes && typeof nodes === "object") {
-      const values = value && typeof value === "object" ? value : {};
-      Object.entries(nodes).forEach(([key, childNode]) => {
-        syncTextNodesTree(childNode, values[key]);
-      });
-    }
-  }
-  function createTextNodesFromState(state, options = {}) {
-    const initialValue = getStateValueAtOptionalPath(state.get(), options.path);
-    const nodes = createTextNodesTree(initialValue, options.noInit === true);
-    if (nodes === void 0) {
-      throw new Error(
-        Array.isArray(options.path) ? `createTextNodesFromState path "${String(options.path)}" does not resolve to supported text values` : "createTextNodesFromState state does not resolve to supported text values"
-      );
-    }
-    const unsub = state.onValueChange(
-      (nextState) => {
-        const nextValue = getStateValueAtOptionalPath(nextState, options.path);
-        syncTextNodesTree(nodes, nextValue);
-      },
-      { noInit: true }
-    );
-    return withDestroy(nodes, unsub);
-  }
-  function mapStatePathToInput(state, path, node, options = {}) {
-    const eventType = options.event || "input";
-    const read = options.read || ((currentNode) => readDefaultNodeValue(currentNode));
-    const write = options.write || ((currentNode, value) => writeDefaultNodeValue(currentNode, value));
-    const writeStateToNode = (stateValue) => {
-      write(node, getStateValueAtPath(stateValue, path));
-    };
-    writeStateToNode(state.get());
-    const controller = createController({ name: "bind-input" });
-    controller.addDomEvent(`bind:${String(path)}`, node, eventType, (ev) => {
-      const nextValue = read(node);
-      if (options.validate && !options.validate(nextValue, node, ev)) return;
-      setStateValueAtPath(state, path, nextValue);
-    });
-    const unsub = state.onValueChange(
-      (nextState) => {
-        writeStateToNode(nextState);
-      },
-      { noInit: true }
-    );
-    controller.onDestroy(unsub);
-    return controller;
-  }
-  function mapStateToDomChildren(state, root, optionsOrRender) {
-    const options = typeof optionsOrRender === "function" ? { render: optionsOrRender } : optionsOrRender;
-    const rows = /* @__PURE__ */ new Map();
-    const itemsSelector = options.items || ((value) => value);
-    const keySelector = options.key || ((item) => item.id);
-    const destroyRow = (row) => {
-      var _a2;
-      (_a2 = row.destroy) == null ? void 0 : _a2.call(row);
-      if (row.node.parentNode === root) {
-        root.removeChild(row.node);
-      }
-    };
-    const sync = (stateValue) => {
-      const items = itemsSelector(stateValue);
-      const nextKeys = /* @__PURE__ */ new Set();
-      items.forEach((item, index) => {
-        var _a2;
-        const key = keySelector(item, index, stateValue);
-        nextKeys.add(key);
-        let row = rows.get(key);
-        if (!row) {
-          const createdRow = options.render(item, index, stateValue);
-          rows.set(key, createdRow);
-          row = createdRow;
-        }
-        (_a2 = row.set) == null ? void 0 : _a2.call(row, item, index, stateValue);
-        const existingNode = root.childNodes[index] || null;
-        if (existingNode !== row.node) {
-          root.insertBefore(row.node, existingNode);
-        }
-      });
-      for (const [key, row] of Array.from(rows.entries())) {
-        if (nextKeys.has(key)) continue;
-        destroyRow(row);
-        rows.delete(key);
-      }
-    };
-    if (!options.noInit) {
-      sync(state.get());
-    }
-    const unsub = state.onValueChange(sync, { noInit: true });
-    const destroy = () => {
-      unsub();
-      for (const row of rows.values()) {
-        destroyRow(row);
-      }
-      rows.clear();
-    };
-    return withDestroy({}, destroy);
-  }
-  function normalizeArray(value) {
-    return Array.isArray(value) ? [...value] : [];
-  }
-  function clampIndex(index, length) {
-    if (index < 0) return 0;
-    if (index > length) return length;
-    return index;
-  }
-  function createStateCollectionEditor(state, path, optionsOrKey = {}) {
-    const options = typeof optionsOrKey === "function" ? { key: optionsOrKey } : optionsOrKey;
-    const key = options.key || ((item, index, stateValue) => {
-      void item;
-      void index;
-      void stateValue;
-      return `row-${Math.random().toString(36).slice(2, 10)}`;
-    });
-    const normalize = options.normalize || ((item, index, stateValue) => ({ ...item, id: item.id || key(item, index, stateValue) }));
-    const readItems = () => normalizeArray(getStateValueAtPath(state.get(), path));
-    const writeItems = (items) => {
-      setStateValueAtPath(state, path, items);
-    };
-    return {
-      get() {
-        return readItems();
-      },
-      set(items) {
-        writeItems([...items]);
-      },
-      append(item) {
-        const currentState = state.get();
-        const items = readItems();
-        const nextItem = normalize(item, items.length, currentState);
-        writeItems([...items, nextItem]);
-        return nextItem;
-      },
-      insert(index, item) {
-        const currentState = state.get();
-        const items = readItems();
-        const nextItems = [...items];
-        const insertAt = clampIndex(index, nextItems.length);
-        const nextItem = normalize(item, insertAt, currentState);
-        nextItems.splice(insertAt, 0, nextItem);
-        writeItems(nextItems);
-        return nextItem;
-      },
-      patch(id, patch) {
-        writeItems(readItems().map((item) => item.id === id ? { ...item, ...patch } : item));
-      },
-      replace(id, item) {
-        writeItems(readItems().map((currentItem) => currentItem.id === id ? item : currentItem));
-      },
-      remove(id) {
-        writeItems(readItems().filter((item) => item.id !== id));
-      },
-      move(id, toIndex) {
-        const items = readItems();
-        const fromIndex = items.findIndex((item) => item.id === id);
-        if (fromIndex === -1) return;
-        const nextItems = [...items];
-        const [movedItem] = nextItems.splice(fromIndex, 1);
-        nextItems.splice(clampIndex(toIndex, nextItems.length), 0, movedItem);
-        writeItems(nextItems);
-      },
-      clear() {
-        writeItems([]);
-      }
-    };
-  }
-  function safeStorageGet(storage, key) {
-    try {
-      return storage.getItem(key);
-    } catch {
-      return null;
-    }
-  }
-  function runStorage(run, onError, fallback) {
-    try {
-      return run();
-    } catch (error) {
-      onError == null ? void 0 : onError(error);
-      return fallback;
-    }
-  }
-  function safeStorageSet(storage, key, value) {
-    storage.setItem(key, value);
-  }
-  function safeStorageRemove(storage, key) {
-    storage.removeItem(key);
-  }
-  function persistState(state, options) {
-    const serialize = options.serialize || ((value) => JSON.stringify(value));
-    const deserialize = options.deserialize || ((raw) => JSON.parse(raw));
-    const hydrate = options.hydrate !== false;
-    const saveOnChange = options.saveOnChange !== false;
-    const saveInitial = options.saveInitial === true;
-    const load = () => {
-      var _a2;
-      const raw = safeStorageGet(options.storage, options.key);
-      if (raw == null) return void 0;
-      try {
-        const loaded = deserialize(raw);
-        state.set(loaded);
-        return loaded;
-      } catch (error) {
-        (_a2 = options.onError) == null ? void 0 : _a2.call(options, error);
-        return void 0;
-      }
-    };
-    const save = (nextValue = state.get()) => {
-      runStorage(() => safeStorageSet(options.storage, options.key, serialize(nextValue)), options.onError);
-    };
-    const remove = () => {
-      runStorage(() => safeStorageRemove(options.storage, options.key), options.onError);
-    };
-    if (hydrate) {
-      load();
-    }
-    const unsub = saveOnChange ? state.onValueChange(
-      (nextValue) => {
-        save(nextValue);
-      },
-      { noInit: !saveInitial }
-    ) : () => {
-    };
-    return withDestroy(
-      {
-        load,
-        save,
-        remove
-      },
-      unsub
-    );
   }
 
   // src/osakkeet/osakkeetUi.ts
@@ -6050,18 +6768,6 @@
     }),
     listCompact: styles({ margin: "0", paddingLeft: "20px" })
   };
-  function euro(value) {
-    return `${value.toFixed(2)}\xA0\u20AC`;
-  }
-  function amount(value) {
-    return value.toFixed(2);
-  }
-  function percentage(value) {
-    return `${value.toFixed(2)} %`;
-  }
-  function multiplier(value) {
-    return `${value.toFixed(2)}x`;
-  }
   function createId2(prefix) {
     return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
   }
@@ -6072,47 +6778,134 @@
     lastFileSavedHash: "osakkeet-ipo-laskuri-last-file-hash"
   };
   var shareUrlQueryKey = "osakkeet";
-  function tryStorageGet(storage, key) {
-    try {
-      return storage.getItem(key);
-    } catch {
-      return null;
-    }
-  }
-  function tryStorageSet(storage, key, value) {
-    try {
-      storage.setItem(key, value);
-    } catch {
-    }
-  }
-  function tryStorageRemove(storage, key) {
-    try {
-      storage.removeItem(key);
-    } catch {
-    }
-  }
   function tryLoadLanguage() {
     return localStorage.getItem(storageKeys.language) === "en" ? "en" : "fi";
   }
-  function createOsakkeetFormData(demo) {
-    if (demo) {
-      return createExampleOsakkeetFormData("medium8y");
+  var formCollectionDefinitions = {
+    subscriptions: {
+      prefix: "sub",
+      create: () => ({
+        date: "",
+        vestingEndsOn: "",
+        amount: "",
+        pricePerShare: "",
+        otherTotalAcquisitionCosts: ""
+      }),
+      normalize: (row) => ({
+        id: row.id || createId2("sub"),
+        date: row.date || "",
+        vestingEndsOn: row.vestingEndsOn || "",
+        amount: row.amount || "",
+        pricePerShare: row.pricePerShare || "",
+        otherTotalAcquisitionCosts: row.otherTotalAcquisitionCosts || ""
+      })
+    },
+    cashDistributions: {
+      prefix: "distribution",
+      create: () => ({
+        type: "capital_return",
+        date: "",
+        amountPerShare: "",
+        shareCount: ""
+      }),
+      normalize: (row) => ({
+        id: row.id || createId2("distribution"),
+        date: row.date || "",
+        type: row.type || "capital_return",
+        amountPerShare: row.amountPerShare || "",
+        shareCount: row.shareCount || ""
+      })
+    },
+    shareSplits: {
+      prefix: "split",
+      create: () => ({
+        date: "",
+        multiplier: ""
+      }),
+      normalize: (row) => ({
+        id: row.id || createId2("split"),
+        date: row.date || "",
+        multiplier: row.multiplier || ""
+      })
+    },
+    demergers: {
+      prefix: "demerger",
+      create: () => ({
+        date: "",
+        oldCompanyRatio: ""
+      }),
+      normalize: (row) => ({
+        id: row.id || createId2("demerger"),
+        date: row.date || "",
+        oldCompanyRatio: row.oldCompanyRatio || ""
+      })
+    },
+    mathematicalShareValues: {
+      prefix: "math",
+      create: () => ({
+        year: "",
+        valuePerShare: ""
+      }),
+      normalize: (row) => ({
+        id: row.id || createId2("math"),
+        year: row.year || "",
+        valuePerShare: row.valuePerShare || ""
+      })
     }
+  };
+  function createEmptyCollectionRow(key) {
+    switch (key) {
+      case "subscriptions":
+        return formCollectionDefinitions.subscriptions.normalize({
+          id: createId2(formCollectionDefinitions.subscriptions.prefix),
+          ...formCollectionDefinitions.subscriptions.create()
+        });
+      case "cashDistributions":
+        return formCollectionDefinitions.cashDistributions.normalize({
+          id: createId2(formCollectionDefinitions.cashDistributions.prefix),
+          ...formCollectionDefinitions.cashDistributions.create()
+        });
+      case "shareSplits":
+        return formCollectionDefinitions.shareSplits.normalize({
+          id: createId2(formCollectionDefinitions.shareSplits.prefix),
+          ...formCollectionDefinitions.shareSplits.create()
+        });
+      case "demergers":
+        return formCollectionDefinitions.demergers.normalize({
+          id: createId2(formCollectionDefinitions.demergers.prefix),
+          ...formCollectionDefinitions.demergers.create()
+        });
+      case "mathematicalShareValues":
+        return formCollectionDefinitions.mathematicalShareValues.normalize({
+          id: createId2(formCollectionDefinitions.mathematicalShareValues.prefix),
+          ...formCollectionDefinitions.mathematicalShareValues.create()
+        });
+    }
+  }
+  function createAppendCollectionRow(key) {
+    switch (key) {
+      case "subscriptions":
+        return formCollectionDefinitions.subscriptions.create();
+      case "cashDistributions":
+        return formCollectionDefinitions.cashDistributions.create();
+      case "shareSplits":
+        return formCollectionDefinitions.shareSplits.create();
+      case "demergers":
+        return formCollectionDefinitions.demergers.create();
+      case "mathematicalShareValues":
+        return formCollectionDefinitions.mathematicalShareValues.create();
+    }
+  }
+  function normalizeCollectionRows(key, rows) {
+    return (rows || []).map((row) => formCollectionDefinitions[key].normalize(row));
+  }
+  function createBlankOsakkeetFormData() {
     return {
-      subscriptions: [
-        {
-          id: createId2("sub"),
-          date: "",
-          vestingEndsOn: "",
-          amount: "",
-          pricePerShare: "",
-          otherTotalAcquisitionCosts: ""
-        }
-      ],
-      cashDistributions: [
-        { id: createId2("distribution"), type: "capital_return", date: "", amountPerShare: "", shareCount: "" }
-      ],
-      mathematicalShareValues: [{ id: createId2("math"), year: "", valuePerShare: "" }],
+      subscriptions: [],
+      cashDistributions: [],
+      shareSplits: [],
+      demergers: [],
+      mathematicalShareValues: [],
       ipo: {
         ipoDate: "",
         totalShareCount: "",
@@ -6127,234 +6920,18 @@
       }
     };
   }
-  function createExampleOsakkeetFormData(preset) {
-    if (preset === "small2y") {
-      return {
-        subscriptions: [
-          {
-            id: createId2("sub"),
-            date: "15.04.2024",
-            vestingEndsOn: "",
-            amount: "1200",
-            pricePerShare: "2.80",
-            otherTotalAcquisitionCosts: "25"
-          },
-          {
-            id: createId2("sub"),
-            date: "15.02.2025",
-            vestingEndsOn: "31.12.2026",
-            amount: "800",
-            pricePerShare: "3.20",
-            otherTotalAcquisitionCosts: "20"
-          }
-        ],
-        cashDistributions: [
-          {
-            id: createId2("distribution"),
-            type: "capital_return",
-            date: "30.06.2025",
-            amountPerShare: "0.18",
-            shareCount: ""
-          }
-        ],
-        mathematicalShareValues: [
-          { id: createId2("math"), year: "2025", valuePerShare: "7.50" },
-          { id: createId2("math"), year: "2026", valuePerShare: "10.20" }
-        ],
-        ipo: {
-          ipoDate: "15.09.2026",
-          totalShareCount: "850000",
-          totalIpoCost: "95000",
-          currentShareValue: "10.20",
-          estimatedPreIpoValue: "9000000",
-          estimatedSecondaryShareSellPercentage: "3"
-        },
-        sell: {
-          amount: "900",
-          otherAnnualCapitalGainsOrLosses: ""
-        }
-      };
-    }
-    if (preset === "medium8y") {
-      return {
-        subscriptions: [
-          {
-            id: createId2("sub"),
-            date: "20.05.2018",
-            vestingEndsOn: "",
-            amount: "12000",
-            pricePerShare: "0.85",
-            otherTotalAcquisitionCosts: "120"
-          },
-          {
-            id: createId2("sub"),
-            date: "10.02.2021",
-            vestingEndsOn: "",
-            amount: "12000",
-            pricePerShare: "8.50",
-            otherTotalAcquisitionCosts: "300"
-          }
-        ],
-        cashDistributions: [
-          {
-            id: createId2("distribution"),
-            type: "capital_return",
-            date: "28.06.2022",
-            amountPerShare: "0.12",
-            shareCount: ""
-          },
-          {
-            id: createId2("distribution"),
-            type: "capital_return",
-            date: "30.06.2023",
-            amountPerShare: "0.16",
-            shareCount: ""
-          },
-          {
-            id: createId2("distribution"),
-            type: "capital_return",
-            date: "28.06.2024",
-            amountPerShare: "0.22",
-            shareCount: ""
-          },
-          {
-            id: createId2("distribution"),
-            type: "capital_return",
-            date: "30.06.2025",
-            amountPerShare: "0.28",
-            shareCount: ""
-          }
-        ],
-        mathematicalShareValues: [
-          { id: createId2("math"), year: "2022", valuePerShare: "18.00" },
-          { id: createId2("math"), year: "2023", valuePerShare: "21.50" },
-          { id: createId2("math"), year: "2024", valuePerShare: "27.00" },
-          { id: createId2("math"), year: "2025", valuePerShare: "33.00" },
-          { id: createId2("math"), year: "2026", valuePerShare: "41.00" }
-        ],
-        ipo: {
-          ipoDate: "15.09.2026",
-          totalShareCount: "980000",
-          totalIpoCost: "320000",
-          currentShareValue: "41.00",
-          estimatedPreIpoValue: "40000000",
-          estimatedSecondaryShareSellPercentage: "10"
-        },
-        sell: {
-          amount: "18000",
-          otherAnnualCapitalGainsOrLosses: "-12000"
-        }
-      };
-    }
+  function normalizeOsakkeetFormData(data2) {
+    var _a2, _b, _c;
+    const blank = createBlankOsakkeetFormData();
+    const ipo = (_a2 = data2.ipo) != null ? _a2 : blank.ipo;
     return {
-      subscriptions: [
-        {
-          id: createId2("sub"),
-          date: "15.03.2010",
-          vestingEndsOn: "",
-          amount: "85000",
-          pricePerShare: "0.18",
-          otherTotalAcquisitionCosts: "550"
-        },
-        {
-          id: createId2("sub"),
-          date: "01.06.2021",
-          vestingEndsOn: "",
-          amount: "20000",
-          pricePerShare: "18.00",
-          otherTotalAcquisitionCosts: "800"
-        }
-      ],
-      cashDistributions: [
-        {
-          id: createId2("distribution"),
-          type: "capital_return",
-          date: "31.03.2022",
-          amountPerShare: "0.10",
-          shareCount: ""
-        },
-        {
-          id: createId2("distribution"),
-          type: "capital_return",
-          date: "30.06.2023",
-          amountPerShare: "0.14",
-          shareCount: ""
-        },
-        {
-          id: createId2("distribution"),
-          type: "capital_return",
-          date: "28.06.2024",
-          amountPerShare: "0.18",
-          shareCount: ""
-        },
-        {
-          id: createId2("distribution"),
-          type: "capital_return",
-          date: "30.06.2025",
-          amountPerShare: "0.24",
-          shareCount: ""
-        },
-        {
-          id: createId2("distribution"),
-          type: "capital_return",
-          date: "30.06.2026",
-          amountPerShare: "0.28",
-          shareCount: ""
-        },
-        {
-          id: createId2("distribution"),
-          type: "dividend",
-          date: "30.09.2026",
-          amountPerShare: "0.42",
-          shareCount: ""
-        }
-      ],
-      mathematicalShareValues: [
-        { id: createId2("math"), year: "2022", valuePerShare: "24.00" },
-        { id: createId2("math"), year: "2023", valuePerShare: "31.00" },
-        { id: createId2("math"), year: "2024", valuePerShare: "39.50" },
-        { id: createId2("math"), year: "2025", valuePerShare: "49.00" },
-        { id: createId2("math"), year: "2026", valuePerShare: "63.00" }
-      ],
+      subscriptions: normalizeCollectionRows("subscriptions", data2.subscriptions),
+      cashDistributions: normalizeCollectionRows("cashDistributions", data2.cashDistributions),
+      shareSplits: normalizeCollectionRows("shareSplits", data2.shareSplits),
+      demergers: normalizeCollectionRows("demergers", data2.demergers),
+      mathematicalShareValues: normalizeCollectionRows("mathematicalShareValues", data2.mathematicalShareValues),
       ipo: {
-        ipoDate: "15.09.2026",
-        totalShareCount: "1050000",
-        totalIpoCost: "720000",
-        currentShareValue: "63.00",
-        estimatedPreIpoValue: "66000000",
-        estimatedSecondaryShareSellPercentage: "12"
-      },
-      sell: {
-        amount: "90000",
-        otherAnnualCapitalGainsOrLosses: "25000"
-      }
-    };
-  }
-  function sanitizeOsakkeetFormData(data2) {
-    var _a2, _b;
-    const ipo = data2.ipo || {};
-    return {
-      subscriptions: (data2.subscriptions || []).map((subscription) => ({
-        id: subscription.id || createId2("sub"),
-        date: subscription.date || "",
-        vestingEndsOn: subscription.vestingEndsOn || "",
-        amount: subscription.amount || "",
-        pricePerShare: subscription.pricePerShare || "",
-        otherTotalAcquisitionCosts: subscription.otherTotalAcquisitionCosts || ""
-      })),
-      cashDistributions: (data2.cashDistributions || []).map((cashDistribution) => ({
-        id: cashDistribution.id || createId2("distribution"),
-        date: cashDistribution.date || "",
-        type: cashDistribution.type || "capital_return",
-        amountPerShare: cashDistribution.amountPerShare || "",
-        shareCount: cashDistribution.shareCount || ""
-      })),
-      mathematicalShareValues: (data2.mathematicalShareValues || []).map((row) => ({
-        id: row.id || createId2("math"),
-        year: row.year || "",
-        valuePerShare: row.valuePerShare || ""
-      })),
-      ipo: {
+        ...blank.ipo,
         ipoDate: ipo.ipoDate || "",
         totalShareCount: ipo.totalShareCount || "",
         totalIpoCost: ipo.totalIpoCost || "",
@@ -6363,13 +6940,25 @@
         estimatedSecondaryShareSellPercentage: ipo.estimatedSecondaryShareSellPercentage || ""
       },
       sell: {
-        amount: ((_a2 = data2.sell) == null ? void 0 : _a2.amount) || "",
-        otherAnnualCapitalGainsOrLosses: ((_b = data2.sell) == null ? void 0 : _b.otherAnnualCapitalGainsOrLosses) || ""
+        ...blank.sell,
+        ...data2.sell,
+        amount: ((_b = data2.sell) == null ? void 0 : _b.amount) || "",
+        otherAnnualCapitalGainsOrLosses: ((_c = data2.sell) == null ? void 0 : _c.otherAnnualCapitalGainsOrLosses) || ""
       }
     };
   }
+  function createOsakkeetFormData(demo) {
+    if (demo) {
+      return createExampleOsakkeetFormData(DEFAULT_EXAMPLE_PRESET, createId2);
+    }
+    return {
+      ...createBlankOsakkeetFormData(),
+      subscriptions: [createEmptyCollectionRow("subscriptions")],
+      cashDistributions: [createEmptyCollectionRow("cashDistributions")]
+    };
+  }
   function createShareableOsakkeetUrlData(data2) {
-    const sanitized = sanitizeOsakkeetFormData(data2);
+    const sanitized = normalizeOsakkeetFormData(data2);
     return {
       cashDistributions: sanitized.cashDistributions.map((cashDistribution) => ({
         id: cashDistribution.id,
@@ -6377,64 +6966,11 @@
         type: cashDistribution.type,
         amountPerShare: cashDistribution.amountPerShare
       })),
+      shareSplits: sanitized.shareSplits,
+      demergers: sanitized.demergers,
       mathematicalShareValues: sanitized.mathematicalShareValues,
       ipo: sanitized.ipo
     };
-  }
-  function normalizeLoadedData(parsed) {
-    const ipo = parsed.ipo || {};
-    return {
-      subscriptions: (parsed.subscriptions || []).map((subscription) => ({
-        id: subscription.id || createId2("sub"),
-        date: subscription.date || "",
-        vestingEndsOn: subscription.vestingEndsOn || "",
-        amount: subscription.amount || "",
-        pricePerShare: subscription.pricePerShare || "",
-        otherTotalAcquisitionCosts: subscription.otherTotalAcquisitionCosts || ""
-      })),
-      cashDistributions: (parsed.cashDistributions || []).map((cashDistribution) => ({
-        id: cashDistribution.id || createId2("distribution"),
-        date: cashDistribution.date || "",
-        type: cashDistribution.type || "capital_return",
-        amountPerShare: cashDistribution.amountPerShare || "",
-        shareCount: cashDistribution.shareCount || ""
-      })),
-      mathematicalShareValues: (parsed.mathematicalShareValues || []).map((row) => ({
-        ...row
-      })),
-      ipo: {
-        ipoDate: ipo.ipoDate || "",
-        totalShareCount: ipo.totalShareCount || "",
-        totalIpoCost: ipo.totalIpoCost || "",
-        currentShareValue: ipo.currentShareValue || "",
-        estimatedPreIpoValue: ipo.estimatedPreIpoValue || "",
-        estimatedSecondaryShareSellPercentage: ipo.estimatedSecondaryShareSellPercentage || ""
-      },
-      sell: {
-        ...createOsakkeetFormData(false).sell,
-        ...parsed.sell
-      }
-    };
-  }
-  function tryLoadSavedData() {
-    const saved = tryStorageGet(localStorage, storageKeys.browserFormData);
-    if (!saved) return createOsakkeetFormData(true);
-    try {
-      const parsed = JSON.parse(saved);
-      return normalizeLoadedData(parsed);
-    } catch {
-      return createOsakkeetFormData(true);
-    }
-  }
-  function tryLoadWindowSavedData() {
-    const saved = tryStorageGet(sessionStorage, storageKeys.windowFormData);
-    if (!saved) return void 0;
-    try {
-      const parsed = JSON.parse(saved);
-      return normalizeLoadedData(parsed);
-    } catch {
-      return void 0;
-    }
   }
   function encodeUrlState(value) {
     const json = JSON.stringify(value);
@@ -6450,15 +6986,33 @@
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     return JSON.parse(new TextDecoder().decode(bytes));
   }
+  function tryLoadSavedData() {
+    return createStorageSource({
+      storage: localStorage,
+      key: storageKeys.browserFormData,
+      serialize: serializeOsakkeetFormData,
+      deserialize: (raw) => normalizeOsakkeetFormData(JSON.parse(raw))
+    }).load() || createOsakkeetFormData(true);
+  }
+  function tryLoadWindowSavedData() {
+    return createStorageSource({
+      storage: sessionStorage,
+      key: storageKeys.windowFormData,
+      serialize: serializeOsakkeetFormData,
+      deserialize: (raw) => normalizeOsakkeetFormData(JSON.parse(raw))
+    }).load();
+  }
   function tryLoadSharedUrlData() {
     const encoded = new URL(window.location.href).searchParams.get(shareUrlQueryKey);
     if (!encoded) return void 0;
     try {
       const parsed = decodeUrlState(encoded);
-      const emptyForm = createOsakkeetFormData(false);
-      return normalizeLoadedData({
+      const emptyForm = createBlankOsakkeetFormData();
+      return normalizeOsakkeetFormData({
         ...emptyForm,
         cashDistributions: parsed.cashDistributions || [],
+        shareSplits: parsed.shareSplits || [],
+        demergers: parsed.demergers || [],
         mathematicalShareValues: parsed.mathematicalShareValues || [],
         ipo: {
           ...emptyForm.ipo,
@@ -6475,7 +7029,7 @@
     return tryLoadSharedUrlData() || tryLoadWindowSavedData() || tryLoadSavedData();
   }
   function serializeOsakkeetFormData(data2) {
-    return JSON.stringify(sanitizeOsakkeetFormData(data2));
+    return JSON.stringify(normalizeOsakkeetFormData(data2));
   }
   function buildShareUrl(data2) {
     const url = new URL(window.location.href);
@@ -6531,19 +7085,6 @@
       })
     );
   }
-  function enumSelectInput(value, options, onChange = () => {
-  }) {
-    return select(
-      pageStyles.input,
-      { value },
-      events({
-        change({ node }) {
-          onChange(node.value);
-        }
-      }),
-      options.map((optionValue) => option(optionValue.label, { value: optionValue.value }))
-    );
-  }
   function infoCard(title2, value, help) {
     return div(
       pageStyles.summaryItem,
@@ -6563,11 +7104,6 @@
     return a(textValue, { href, target: "_blank", rel: "noreferrer" });
   }
   function setInputValue(node, value) {
-    if (node.value !== value) {
-      node.value = value;
-    }
-  }
-  function setSelectValue(node, value) {
     if (node.value !== value) {
       node.value = value;
     }
@@ -6622,6 +7158,36 @@
       })
     );
   }
+  var sourceLinkDefinitions = [
+    {
+      key: "dividends",
+      href: "https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osingot/osingot-listaamattomasta-yhtiosta/"
+    },
+    {
+      key: "listedDividends",
+      href: "https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osingot/listatusta-yhti%C3%B6st%C3%A4-saadut-osingot/"
+    },
+    {
+      key: "reporting",
+      href: "https://www.vero.fi/henkiloasiakkaat/verokortti-ja-veroilmoitus/veroilmoitus_ja_verotuspaato/ilmoittamisen-ohje/"
+    },
+    {
+      key: "demergerAcquisitionCost",
+      href: "https://www.vero.fi/syventavat-vero-ohjeet/ohje-hakusivu/48262/arvopaperien-luovutusten-verotus4/"
+    },
+    {
+      key: "demergers",
+      href: "https://www.vero.fi/syventavat-vero-ohjeet/ohje-hakusivu/49340/yritysjarjestelyt-ja-verotus-jakautuminen4/"
+    },
+    {
+      key: "form9a",
+      href: "https://www.vero.fi/tietoa-verohallinnosta/yhteystiedot-ja-asiointi/lomakkeet/tayttoohjeet/9a-arvopapereiden-luovutusvoitot-ja--tappiot-t%C3%A4ytt%C3%B6ohje/"
+    },
+    {
+      key: "sales",
+      href: "https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osakkeiden_myynt/"
+    }
+  ];
   function assumptionsContent(t) {
     return div(
       pageStyles.denseStack,
@@ -6633,53 +7199,41 @@
       p(
         { class: "muted" },
         t.assumptions.sourcesLabel,
-        linkToSource(
-          t.sources.dividends,
-          "https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osingot/osingot-listaamattomasta-yhtiosta/"
-        ),
-        ", ",
-        linkToSource(
-          t.sources.listedDividends,
-          "https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osingot/listatusta-yhti%C3%B6st%C3%A4-saadut-osingot/"
-        ),
-        ", ",
-        linkToSource(
-          t.sources.reporting,
-          "https://www.vero.fi/henkiloasiakkaat/verokortti-ja-veroilmoitus/veroilmoitus_ja_verotuspaato/ilmoittamisen-ohje/"
-        ),
-        ", ",
-        linkToSource(
-          t.sources.form9a,
-          "https://www.vero.fi/tietoa-verohallinnosta/yhteystiedot-ja-asiointi/lomakkeet/tayttoohjeet/9a-arvopapereiden-luovutusvoitot-ja--tappiot-t%C3%A4ytt%C3%B6ohje/"
-        ),
-        ", ",
-        linkToSource(t.sources.sales, "https://www.vero.fi/henkiloasiakkaat/omaisuus/sijoitukset/osakkeiden_myynt/")
+        ...sourceLinkDefinitions.flatMap((source2, index) => [
+          ...index > 0 ? [", "] : [],
+          linkToSource(t.sources[source2.key], source2.href)
+        ])
       )
     );
   }
-  function createMathematicalShareValuesEditor(dataState, localizedTextNodes) {
-    const mathematicalShareValuesTextNodes = localizedTextNodes.mathematicalShareValues;
-    const tbodyNode = tbody();
-    const rowsState = createState({
-      value: []
+  function createCollectionAppendButton(editor, labelNode, createEmptyItem) {
+    return createActionButton(labelNode, "primary", () => {
+      editor.append(createEmptyItem());
     });
+  }
+  function createMathematicalShareValuesEditor(dataState, pageReadState, localizedTextNodes) {
+    const mathematicalShareValuesTextNodes = localizedTextNodes.mathematicalShareValues;
+    const rowsState = createRowViewModelBinder(
+      pageReadState,
+      ({ osakkeetCalculation }) => osakkeetCalculation.formData.mathematicalShareValues,
+      (row, _index, { texts }) => ({
+        id: row.id,
+        year: row.year,
+        valuePerShare: row.valuePerShare,
+        removeLabel: texts.common.remove
+      })
+    );
     const mathematicalShareValues = createStateCollectionEditor(dataState, ["mathematicalShareValues"]);
-    mapStateToDomChildren(rowsState, tbodyNode, {
-      render: (row) => {
-        const rowState = createState({
-          value: {
-            row
-          }
-        });
-        const rowTextNodes = createTextNodesFromState(rowState, { path: ["row"] });
+    const tbodyNode = createEditableCollectionTable({
+      rowsState,
+      createRemoveButton,
+      remove: mathematicalShareValues.remove,
+      render: ({ row, removeButton }) => {
         const yearInput = numberInput(row.year, (value) => {
           mathematicalShareValues.patch(row.id, { year: value });
         });
         const valuePerShareInput = numberInput(row.valuePerShare, (value) => {
           mathematicalShareValues.patch(row.id, { valuePerShare: value });
-        });
-        const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
-          mathematicalShareValues.remove(row.id);
         });
         return {
           node: tr(
@@ -6690,17 +7244,14 @@
           set(nextRow) {
             setInputValue(yearInput, nextRow.year);
             setInputValue(valuePerShareInput, nextRow.valuePerShare);
-            rowState.set({ row: nextRow });
           }
         };
       }
     });
-    const addButton = createActionButton(mathematicalShareValuesTextNodes.actions.add, "primary", () => {
-      mathematicalShareValues.append({
-        year: "",
-        valuePerShare: ""
-      });
-    });
+    const addButton = createCollectionAppendButton(mathematicalShareValues, mathematicalShareValuesTextNodes.actions.add, () => ({
+      year: "",
+      valuePerShare: ""
+    }));
     const root = div(
       h3(mathematicalShareValuesTextNodes.title),
       table(
@@ -6716,45 +7267,141 @@
       ),
       div({ class: "no-print" }, pageStyles.rowButtons, addButton)
     );
-    return {
-      root,
-      set({ texts, osakkeetCalculation }) {
-        void texts;
-        rowsState.set(
-          osakkeetCalculation.formData.mathematicalShareValues.map((row) => ({
-            id: row.id,
-            year: row.year,
-            valuePerShare: row.valuePerShare,
-            removeLabel: texts.common.remove
-          }))
-        );
+    return createSectionController(root, () => {
+    });
+  }
+  function createShareSplitsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes) {
+    const counter = createSectionCounter();
+    const shareSplitTextNodes = localizedTextNodes.shareSplits;
+    const rowsState = createRowViewModelBinder(
+      pageReadState,
+      ({ osakkeetCalculation }) => osakkeetCalculation.formData.shareSplits,
+      (shareSplit, _index, { texts }) => ({
+        id: shareSplit.id,
+        date: shareSplit.date,
+        multiplier: shareSplit.multiplier,
+        removeLabel: texts.common.remove
+      })
+    );
+    const shareSplits = createStateCollectionEditor(dataState, ["shareSplits"]);
+    const tbodyNode = createEditableCollectionTable({
+      rowsState,
+      createRemoveButton,
+      remove: shareSplits.remove,
+      render: ({ row, removeButton }) => {
+        const dateInput = finnishDateInput(row.date, (value) => {
+          shareSplits.patch(row.id, { date: value });
+        });
+        const multiplierInput = numberInput(row.multiplier, (value) => {
+          shareSplits.patch(row.id, { multiplier: value });
+        });
+        return {
+          node: tr(
+            td(div(pageStyles.compactField, dateInput)),
+            td(div(pageStyles.compactField, multiplierInput)),
+            td({ class: "no-print" }, removeButton)
+          ),
+          set(nextRow) {
+            setInputValue(dateInput, nextRow.date);
+            setInputValue(multiplierInput, nextRow.multiplier);
+          }
+        };
       }
-    };
+    });
+    const addButton = createCollectionAppendButton(shareSplits, shareSplitTextNodes.actions.add, () => ({
+      date: "",
+      multiplier: ""
+    }));
+    const root = section(
+      { class: "card" },
+      div({ class: "heading" }, h2(shareSplitTextNodes.title), span({ class: "muted" }, counter.node)),
+      p({ class: "muted" }, shareSplitTextNodes.help),
+      table(
+        pageStyles.compactTable,
+        thead(
+          tr(
+            th(commonTextNodes.date),
+            th(shareSplitTextNodes.fields.multiplier),
+            th({ class: "no-print" }, "")
+          )
+        ),
+        tbodyNode
+      ),
+      div({ class: "no-print" }, pageStyles.rowButtons, addButton)
+    );
+    return createSectionController(root, ({ osakkeetCalculation, texts }) => {
+      counter.setCount(osakkeetCalculation.formData.shareSplits.length, texts.common.rows);
+    });
+  }
+  function createDemergersSection(dataState, pageReadState, localizedTextNodes, commonTextNodes) {
+    const counter = createSectionCounter();
+    const demergerTextNodes = localizedTextNodes.demergers;
+    const rowsState = createRowViewModelBinder(
+      pageReadState,
+      ({ osakkeetCalculation }) => osakkeetCalculation.formData.demergers,
+      (demerger, _index, { texts }) => ({
+        id: demerger.id,
+        date: demerger.date,
+        oldCompanyRatio: demerger.oldCompanyRatio,
+        removeLabel: texts.common.remove
+      })
+    );
+    const demergers = createStateCollectionEditor(dataState, ["demergers"]);
+    const tbodyNode = createEditableCollectionTable({
+      rowsState,
+      createRemoveButton,
+      remove: demergers.remove,
+      render: ({ row, removeButton }) => {
+        const dateInput = finnishDateInput(row.date, (value) => {
+          demergers.patch(row.id, { date: value });
+        });
+        const oldCompanyRatioInput = numberInput(row.oldCompanyRatio, (value) => {
+          demergers.patch(row.id, { oldCompanyRatio: value });
+        });
+        return {
+          node: tr(
+            td(div(pageStyles.compactField, dateInput)),
+            td(div(pageStyles.compactField, oldCompanyRatioInput)),
+            td({ class: "no-print" }, removeButton)
+          ),
+          set(nextRow) {
+            setInputValue(dateInput, nextRow.date);
+            setInputValue(oldCompanyRatioInput, nextRow.oldCompanyRatio);
+          }
+        };
+      }
+    });
+    const addButton = createCollectionAppendButton(demergers, demergerTextNodes.actions.add, () => ({
+      date: "",
+      oldCompanyRatio: ""
+    }));
+    const root = section(
+      { class: "card" },
+      div({ class: "heading" }, h2(demergerTextNodes.title), span({ class: "muted" }, counter.node)),
+      p({ class: "muted" }, demergerTextNodes.help),
+      table(
+        pageStyles.compactTable,
+        thead(
+          tr(
+            th(commonTextNodes.date),
+            th(demergerTextNodes.fields.oldCompanyRatio),
+            th({ class: "no-print" }, "")
+          )
+        ),
+        tbodyNode
+      ),
+      div({ class: "no-print" }, pageStyles.rowButtons, addButton)
+    );
+    return createSectionController(root, ({ osakkeetCalculation, texts }) => {
+      counter.setCount(osakkeetCalculation.formData.demergers.length, texts.common.rows);
+    });
   }
   function taxSummarySection(calculation, t) {
-    var _a2;
-    const zeroMoney = calculation.ipo.totalIpoCost.mul(0);
-    const yearSet = /* @__PURE__ */ new Set();
-    calculation.cashDistributions.forEach((cashDistribution) => {
-      var _a3;
-      const date = (_a3 = cashDistribution.date.match(/(\d{4})$/)) == null ? void 0 : _a3[1];
-      if (date) yearSet.add(Number(date));
-    });
-    const ipoYear = (_a2 = calculation.ipo.ipoDate) == null ? void 0 : _a2.getUTCFullYear();
-    if (ipoYear && calculation.sell.grossTotal.gt(0)) {
-      yearSet.add(ipoYear);
-    }
-    const years = [...yearSet].sort((a2, b2) => a2 - b2);
+    const years = calculation.taxReturns.years;
     if (years.length === 0) return false;
-    const renderTaxTable = (entries, mode) => {
-      const totalCapitalRepayment = entries.reduce((acc, row) => acc.add(row.capitalRepaymentTotal), zeroMoney);
-      const totalDividend = entries.reduce((acc, row) => acc.add(row.dividendTotal), zeroMoney);
-      const totalTaxableCapitalIncome = entries.reduce((acc, row) => acc.add(row.taxableCapitalIncome), zeroMoney);
-      const totalTaxFreeCapitalIncome = entries.reduce((acc, row) => acc.add(row.taxFreeCapitalIncomePortion), zeroMoney);
-      const totalTaxableEarnedDividend = entries.reduce((acc, row) => acc.add(row.taxableEarnedDividend), zeroMoney);
-      const totalTaxFreeEarnedDividend = entries.reduce((acc, row) => acc.add(row.taxFreeEarnedDividend), zeroMoney);
-      const totalWithholding = entries.reduce((acc, row) => acc.add(row.withholdingToTaxOffice), zeroMoney);
-      const totalCash = entries.reduce((acc, row) => acc.add(row.paidInCash), zeroMoney);
+    const renderTaxTable = (sectionSummary) => {
+      if (!sectionSummary) return false;
+      const { entries, totals, mode } = sectionSummary;
       const capitalRepaymentHeaderNode = mode === "unlisted" ? withHoverInfo(t.cashDistributions.fields.capitalRepayment, t.taxReturns.fields.unlistedCapitalRepaymentHelp) : t.cashDistributions.fields.capitalRepayment;
       const dividendHeaderNode = withHoverInfo(
         t.cashDistributions.fields.dividend,
@@ -6793,51 +7440,43 @@
           tr(
             td(b(t.summary.totalRow)),
             td(),
-            td(euro(totalCash)),
-            td(euro(totalWithholding)),
-            mode === "unlisted" && td(euro(totalCapitalRepayment)),
-            td(euro(totalDividend)),
-            td(euro(totalTaxableCapitalIncome)),
-            td(euro(totalTaxFreeCapitalIncome)),
-            mode === "unlisted" && td(euro(totalTaxableEarnedDividend)),
-            mode === "unlisted" && td(euro(totalTaxFreeEarnedDividend))
+            td(euro(totals.paidInCash)),
+            td(euro(totals.withholdingToTaxOffice)),
+            mode === "unlisted" && td(euro(totals.capitalRepaymentTotal)),
+            td(euro(totals.dividendTotal)),
+            td(euro(totals.taxableCapitalIncome)),
+            td(euro(totals.taxFreeCapitalIncome)),
+            mode === "unlisted" && td(euro(totals.taxableEarnedDividend)),
+            mode === "unlisted" && td(euro(totals.taxFreeEarnedDividend))
           )
         )
       );
     };
     return div(
-      years.map((year) => {
-        const yearEntries = calculation.cashDistributions.filter(
-          (cashDistribution) => cashDistribution.date.endsWith(String(year))
-        );
-        const unlistedEntries = yearEntries.filter((row) => !row.treatedAsListedDividend);
-        const listedEntries = yearEntries.filter((row) => row.treatedAsListedDividend);
-        const yearMathWarnings = unlistedEntries.filter(
-          (row) => row.dividendTotal.gt(0) && !row.treatedAsListedDividend && row.shareholderMathematicalValue.eq(0)
-        );
+      years.map((yearSummary) => {
         return div(
           pageStyles.denseStack,
-          h3(String(year)),
-          yearMathWarnings.length > 0 && div(
+          h3(String(yearSummary.year)),
+          yearSummary.missingMathematicalValueWarningDates.length > 0 && div(
             pageStyles.warningBox,
-            ul(yearMathWarnings.map((row) => li(`${row.date}: ${t.taxReturns.yearWarningMissingMathValue}`)))
+            ul(yearSummary.missingMathematicalValueWarningDates.map((date) => li(`${date}: ${t.taxReturns.yearWarningMissingMathValue}`)))
           ),
-          unlistedEntries.length > 0 && div(
+          yearSummary.unlisted && div(
             pageStyles.denseStack,
             h3(withHoverInfo(t.taxReturns.sections.unlisted, t.taxReturns.sections.unlistedHelp)),
-            renderTaxTable(unlistedEntries, "unlisted")
+            renderTaxTable(yearSummary.unlisted)
           ),
-          listedEntries.length > 0 && div(pageStyles.denseStack, h3(t.taxReturns.sections.listed), renderTaxTable(listedEntries, "listed")),
-          ipoYear === year && calculation.sell.grossTotal.gt(0) && div(
+          yearSummary.listed && div(pageStyles.denseStack, h3(t.taxReturns.sections.listed), renderTaxTable(yearSummary.listed)),
+          yearSummary.ipoSale && div(
             pageStyles.denseStack,
             h3(t.taxReturns.fields.ipoSaleAllocation),
             div(
               pageStyles.summaryGrid,
-              infoCard(t.summary.ipoSell.cards.grossSale, euro(calculation.sell.grossTotal)),
-              infoCard(t.summary.ipoSell.cards.ipoCostsAllocated, euro(calculation.sell.totalIpoCostAllocated)),
-              infoCard(t.summary.ipoSell.cards.taxableCapitalGain, euro(calculation.sell.taxableGainTotal)),
-              infoCard(t.summary.ipoSell.cards.taxMan, euro(calculation.sell.estimatedTax)),
-              infoCard(t.summary.ipoSell.cards.netCash, euro(calculation.sell.netAfterTaxAndIpoCost))
+              infoCard(t.summary.ipoSell.cards.grossSale, euro(yearSummary.ipoSale.grossSale)),
+              infoCard(t.summary.ipoSell.cards.ipoCostsAllocated, euro(yearSummary.ipoSale.totalIpoCostAllocated)),
+              infoCard(t.summary.ipoSell.cards.taxableCapitalGain, euro(yearSummary.ipoSale.taxableCapitalGain)),
+              infoCard(t.summary.ipoSell.cards.taxMan, euro(yearSummary.ipoSale.estimatedTax)),
+              infoCard(t.summary.ipoSell.cards.netCash, euro(yearSummary.ipoSale.netCash))
             )
           )
         );
@@ -6858,14 +7497,85 @@
       )
     ].join("\n");
   }
-  function createSubscriptionsSection(dataState, localizedTextNodes, commonTextNodes) {
-    const textState = createState({
-      value: {
-        rowCount: ""
+  function createTotalPricePerShareTooltip(summary2, texts) {
+    if (!summary2) return "";
+    const explanation = summary2.acquisitionCostExplanation;
+    const lines = [
+      texts.subscriptions.fields.totalPricePerShareTooltipBase(
+        amount(explanation.originalAmount),
+        euro(explanation.originalPricePerShare),
+        euro(explanation.originalOtherTotalAcquisitionCosts),
+        euro(explanation.originalTotalPrice)
+      )
+    ];
+    for (const event of explanation.adjustments) {
+      if (event.kind === "demerger") {
+        lines.push(
+          texts.subscriptions.fields.totalPricePerShareTooltipDemerger(
+            event.date,
+            euro(event.beforeTotalPrice),
+            amount(event.oldCompanyRatio),
+            euro(event.afterTotalPrice)
+          )
+        );
+        continue;
       }
+      lines.push(
+        texts.subscriptions.fields.totalPricePerShareTooltipSplit(
+          event.date,
+          amount(event.beforeShares),
+          amount(event.multiplier),
+          amount(event.afterShares)
+        )
+      );
+    }
+    lines.push(
+      texts.subscriptions.fields.totalPricePerShareTooltipResult(
+        euro(summary2.totalPrice),
+        amount(summary2.amount),
+        euro(summary2.totalPricePerShare)
+      )
+    );
+    return lines.join("\n");
+  }
+  function createSharePercent(totalShares) {
+    return (value) => totalShares.gt(0) ? `${amount(value)} (${percentage(value.div(totalShares).mul(100))})` : `${amount(value)} (0.00 %)`;
+  }
+  function createSubscriptionRowViewModel(subscription, summary2, texts) {
+    return {
+      id: subscription.id,
+      date: subscription.date,
+      vestingEndsOn: subscription.vestingEndsOn || "",
+      amount: subscription.amount,
+      pricePerShare: subscription.pricePerShare || "",
+      otherTotalAcquisitionCosts: subscription.otherTotalAcquisitionCosts || "",
+      totalPricePerShare: summary2 ? euro(summary2.totalPricePerShare) : "-",
+      totalPricePerShareTooltip: createTotalPricePerShareTooltip(summary2, texts),
+      capitalRepaymentTotal: summary2 ? euro(summary2.capitalRepaymentTotal) : "-",
+      capitalRepaymentTotalTooltip: summary2 ? createCapitalRepaymentTooltip(summary2.capitalRepaymentBreakdown, texts) : "",
+      capitalRepaymentPerShare: summary2 ? euro(summary2.capitalRepaymentPerShare) : "-",
+      remainingCostPerShare: summary2 ? euro(summary2.remainingCostPerShare) : "-",
+      removeLabel: texts.common.remove
+    };
+  }
+  function createSubscriptionsSummaryCards(totalShares, vestedShares, unvestedShares, texts) {
+    const sharePercent = createSharePercent(totalShares);
+    return [
+      infoCard(texts.subscriptions.summary.totalShares, amount(totalShares)),
+      infoCard(texts.subscriptions.summary.vestedShares, sharePercent(vestedShares)),
+      infoCard(texts.subscriptions.summary.unvestedShares, sharePercent(unvestedShares))
+    ];
+  }
+  function createSummaryById(summaries) {
+    const summariesById = {};
+    summaries.forEach((summary2) => {
+      summariesById[summary2.id] = summary2;
     });
+    return summariesById;
+  }
+  function createSubscriptionsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes) {
+    const counter = createSectionCounter();
     const subscriptionTextNodes = localizedTextNodes.subscriptions;
-    const rowCountNode = createTextNodesFromState(textState, { path: ["rowCount"] });
     const summaryRoot = div(pageStyles.summaryGrid);
     const vestingEndsOnHeaderNode = withHoverInfo(subscriptionTextNodes.fields.vestingEndsOn, "");
     const otherTotalAcquisitionCostsHeaderNode = withHoverInfo(
@@ -6873,17 +7583,28 @@
       ""
     );
     const totalReimbursementsHeaderNode = withHoverInfo(subscriptionTextNodes.fields.totalReimbursements, "");
-    const tbodyNode = tbody();
-    const rowsState = createState({ value: [] });
+    const subscriptionSummariesByIdState = pageReadState.map(
+      ({ osakkeetCalculation }) => createSummaryById(osakkeetCalculation.subscriptions)
+    );
+    const subscriptionRowsSourceState = mergeStates(
+      { pageReadModel: pageReadState, summariesById: subscriptionSummariesByIdState },
+      ({ pageReadModel, summariesById }) => ({ pageReadModel, summariesById })
+    );
+    const rowsState = createRowViewModelBinder(
+      subscriptionRowsSourceState,
+      ({ pageReadModel }) => pageReadModel.osakkeetCalculation.formData.subscriptions,
+      (subscription, _index, { pageReadModel, summariesById }) => createSubscriptionRowViewModel(
+        subscription,
+        summariesById[subscription.id],
+        pageReadModel.texts
+      )
+    );
     const subscriptions = createStateCollectionEditor(dataState, ["subscriptions"]);
-    mapStateToDomChildren(rowsState, tbodyNode, {
-      render: (row) => {
-        const rowState = createState({
-          value: {
-            row
-          }
-        });
-        const rowTextNodes = createTextNodesFromState(rowState, { path: ["row"] });
+    const tbodyNode = createEditableCollectionTable({
+      rowsState,
+      createRemoveButton,
+      remove: subscriptions.remove,
+      render: ({ row, rowTextNodes, removeButton }) => {
         const dateInput = finnishDateInput(row.date, (value) => {
           subscriptions.patch(row.id, { date: value });
         });
@@ -6899,9 +7620,9 @@
         const otherTotalAcquisitionCostsInput = numberInput(row.otherTotalAcquisitionCosts, (value) => {
           subscriptions.patch(row.id, { otherTotalAcquisitionCosts: value });
         });
-        const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
-          subscriptions.remove(row.id);
-        });
+        const totalPricePerShareCell = td(
+          row.totalPricePerShareTooltip ? hoverValue(row.totalPricePerShare, row.totalPricePerShareTooltip) : row.totalPricePerShare
+        );
         const capitalRepaymentTotalCell = td(
           row.capitalRepaymentTotalTooltip ? hoverValue(row.capitalRepaymentTotal, row.capitalRepaymentTotalTooltip) : row.capitalRepaymentTotal
         );
@@ -6912,7 +7633,7 @@
             td(amountInput),
             td(pricePerShareInput),
             td(otherTotalAcquisitionCostsInput),
-            td(rowTextNodes.totalPricePerShare),
+            totalPricePerShareCell,
             td(rowTextNodes.capitalRepaymentPerShare),
             td(rowTextNodes.remainingCostPerShare),
             capitalRepaymentTotalCell,
@@ -6924,7 +7645,10 @@
             setInputValue(amountInput, nextRow.amount);
             setInputValue(pricePerShareInput, nextRow.pricePerShare);
             setInputValue(otherTotalAcquisitionCostsInput, nextRow.otherTotalAcquisitionCosts);
-            rowState.set({ row: nextRow });
+            replaceChildren(
+              totalPricePerShareCell,
+              nextRow.totalPricePerShareTooltip ? hoverValue(nextRow.totalPricePerShare, nextRow.totalPricePerShareTooltip) : nextRow.totalPricePerShare
+            );
             replaceChildren(
               capitalRepaymentTotalCell,
               nextRow.capitalRepaymentTotalTooltip ? hoverValue(nextRow.capitalRepaymentTotal, nextRow.capitalRepaymentTotalTooltip) : nextRow.capitalRepaymentTotal
@@ -6934,17 +7658,11 @@
       }
     });
     const addButton = createActionButton(subscriptionTextNodes.actions.add, "primary", () => {
-      subscriptions.append({
-        date: "",
-        vestingEndsOn: "",
-        amount: "",
-        pricePerShare: "",
-        otherTotalAcquisitionCosts: ""
-      });
+      subscriptions.append(createAppendCollectionRow("subscriptions"));
     });
     const root = section(
       { class: "card" },
-      div({ class: "heading" }, h2(subscriptionTextNodes.title), span({ class: "muted" }, rowCountNode)),
+      div({ class: "heading" }, h2(subscriptionTextNodes.title), span({ class: "muted" }, counter.node)),
       p({ class: "muted" }, subscriptionTextNodes.help),
       summaryRoot,
       table(
@@ -6966,75 +7684,80 @@
       ),
       div({ class: "no-print" }, pageStyles.rowButtons, addButton)
     );
+    replaceChildrenFromState(
+      pageReadState,
+      summaryRoot,
+      ({ osakkeetCalculation, texts }) => createSubscriptionsSummaryCards(
+        osakkeetCalculation.vesting.totalShares,
+        osakkeetCalculation.vesting.vestedShares,
+        osakkeetCalculation.vesting.unvestedShares,
+        texts
+      )
+    );
+    return createSectionController(root, ({ osakkeetCalculation, texts }) => {
+      const current = osakkeetCalculation.formData;
+      counter.setCount(current.subscriptions.length, texts.common.rows);
+      vestingEndsOnHeaderNode.title = texts.subscriptions.fields.vestingEndsOnHelp;
+      otherTotalAcquisitionCostsHeaderNode.title = texts.subscriptions.fields.otherTotalAcquisitionCostsHelp;
+      totalReimbursementsHeaderNode.title = texts.subscriptions.fields.totalReimbursementsHelp;
+    });
+  }
+  function createCashDistributionRowViewModel(cashDistribution, summary2, texts) {
+    const expectedShareCount = summary2 ? amount(summary2.sharesHeld) : "";
+    const givenShareCount = cashDistribution.shareCount || "";
+    const hasShareCountMismatch = givenShareCount !== "" && summary2 && (Number.isNaN(Number(givenShareCount)) || Number(givenShareCount) !== Number(expectedShareCount));
     return {
-      root,
-      set({ osakkeetCalculation, texts }) {
-        const current = osakkeetCalculation.formData;
-        const totalShares = osakkeetCalculation.vesting.totalShares;
-        const vestedShares = osakkeetCalculation.vesting.vestedShares;
-        const unvestedShares = osakkeetCalculation.vesting.unvestedShares;
-        const sharePercent = (value) => totalShares.gt(0) ? `${amount(value)} (${percentage(value.div(totalShares).mul(100))})` : `${amount(value)} (0.00 %)`;
-        const summariesById = Object.fromEntries(
-          osakkeetCalculation.subscriptions.map((subscription) => [subscription.id, subscription])
-        );
-        textState.set({
-          rowCount: `${current.subscriptions.length} ${texts.common.rows}`
-        });
-        vestingEndsOnHeaderNode.title = texts.subscriptions.fields.vestingEndsOnHelp;
-        otherTotalAcquisitionCostsHeaderNode.title = texts.subscriptions.fields.otherTotalAcquisitionCostsHelp;
-        totalReimbursementsHeaderNode.title = texts.subscriptions.fields.totalReimbursementsHelp;
-        replaceChildren(
-          summaryRoot,
-          infoCard(texts.subscriptions.summary.totalShares, amount(totalShares)),
-          infoCard(texts.subscriptions.summary.vestedShares, sharePercent(vestedShares)),
-          infoCard(texts.subscriptions.summary.unvestedShares, sharePercent(unvestedShares))
-        );
-        rowsState.set(
-          current.subscriptions.map((subscription) => ({
-            id: subscription.id,
-            date: subscription.date,
-            vestingEndsOn: subscription.vestingEndsOn || "",
-            amount: subscription.amount,
-            pricePerShare: subscription.pricePerShare || "",
-            otherTotalAcquisitionCosts: subscription.otherTotalAcquisitionCosts || "",
-            totalPricePerShare: summariesById[subscription.id] ? euro(summariesById[subscription.id].totalPricePerShare) : "-",
-            capitalRepaymentTotal: summariesById[subscription.id] ? euro(summariesById[subscription.id].capitalRepaymentTotal) : "-",
-            capitalRepaymentTotalTooltip: summariesById[subscription.id] ? createCapitalRepaymentTooltip(summariesById[subscription.id].capitalRepaymentBreakdown, texts) : "",
-            capitalRepaymentPerShare: summariesById[subscription.id] ? euro(summariesById[subscription.id].capitalRepaymentPerShare) : "-",
-            remainingCostPerShare: summariesById[subscription.id] ? euro(summariesById[subscription.id].remainingCostPerShare) : "-",
-            removeLabel: texts.common.remove
-          }))
-        );
-      }
+      id: cashDistribution.id,
+      date: cashDistribution.date,
+      type: cashDistribution.type,
+      shareCount: givenShareCount,
+      amountPerShare: cashDistribution.amountPerShare,
+      grossTotal: summary2 ? euro(summary2.grossTotal) : "-",
+      withholdingToTaxOffice: summary2 ? euro(summary2.withholdingToTaxOffice) : "-",
+      paidInCash: summary2 ? euro(summary2.paidInCash) : "-",
+      capitalRepaymentTotal: summary2 ? euro(summary2.capitalRepaymentTotal) : "-",
+      capitalRepaymentTotalTooltip: summary2 ? texts.cashDistributions.fields.capitalRepaymentSharesHelp(amount(summary2.capitalRepaymentShareCount)) : "",
+      dividendTotal: summary2 ? euro(summary2.dividendTotal) : "-",
+      dividendTotalTooltip: summary2 ? texts.cashDistributions.fields.dividendSharesHelp(amount(summary2.dividendShareCount)) : "",
+      shareCountMismatch: hasShareCountMismatch ? texts.cashDistributions.messages.shareCountMismatch(expectedShareCount, givenShareCount) : "",
+      removeLabel: texts.common.remove,
+      capitalReturnLabel: texts.cashDistributions.types.capitalReturn,
+      dividendLabel: texts.cashDistributions.types.dividend
     };
   }
-  function createCashDistributionsSection(dataState, localizedTextNodes, commonTextNodes) {
-    const textState = createState({
-      value: {
-        rowCount: ""
-      }
-    });
+  function createCashDistributionsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes) {
+    const counter = createSectionCounter();
     const cashDistributionTextNodes = localizedTextNodes.cashDistributions;
-    const rowCountNode = createTextNodesFromState(textState, { path: ["rowCount"] });
     const withholdingHeaderNode = withHoverInfo(cashDistributionTextNodes.fields.withholding, "");
     const cashPaidHeaderNode = withHoverInfo(cashDistributionTextNodes.fields.cashPaid, "");
     const capitalRepaymentHeaderNode = withHoverInfo(cashDistributionTextNodes.fields.capitalRepayment, "");
     const dividendHeaderNode = withHoverInfo(cashDistributionTextNodes.fields.dividend, "");
-    const tbodyNode = tbody();
-    const rowsState = createState({ value: [] });
+    const cashDistributionSummariesByIdState = pageReadState.map(
+      ({ osakkeetCalculation }) => createSummaryById(osakkeetCalculation.cashDistributions)
+    );
+    const cashDistributionRowsSourceState = mergeStates(
+      { pageReadModel: pageReadState, summariesById: cashDistributionSummariesByIdState },
+      ({ pageReadModel, summariesById }) => ({ pageReadModel, summariesById })
+    );
+    const rowsState = createRowViewModelBinder(
+      cashDistributionRowsSourceState,
+      ({ pageReadModel }) => pageReadModel.osakkeetCalculation.formData.cashDistributions,
+      (cashDistribution, _index, { pageReadModel, summariesById }) => createCashDistributionRowViewModel(
+        cashDistribution,
+        summariesById[cashDistribution.id],
+        pageReadModel.texts
+      )
+    );
     const cashDistributions = createStateCollectionEditor(dataState, ["cashDistributions"]);
-    mapStateToDomChildren(rowsState, tbodyNode, {
-      render: (row) => {
-        const rowState = createState({
-          value: {
-            row
-          }
-        });
-        const rowTextNodes = createTextNodesFromState(rowState, { path: ["row"] });
+    const tbodyNode = createEditableCollectionTable({
+      rowsState,
+      createRemoveButton,
+      remove: cashDistributions.remove,
+      render: ({ row, rowTextNodes, removeButton }) => {
         const dateInput = finnishDateInput(row.date, (value) => {
           cashDistributions.patch(row.id, { date: value });
         });
-        const typeInput = enumSelectInput(
+        const typeSelect = createOptionBoundSelect(
           row.type,
           [
             { label: row.capitalReturnLabel, value: "capital_return" },
@@ -7044,14 +7767,12 @@
             cashDistributions.patch(row.id, { type: value });
           }
         );
+        setStyle(typeSelect.node, pageStyles.input);
         const shareCountInput = numberInput(row.shareCount, (value) => {
           cashDistributions.patch(row.id, { shareCount: value });
         });
         const amountPerShareInput = numberInput(row.amountPerShare, (value) => {
           cashDistributions.patch(row.id, { amountPerShare: value });
-        });
-        const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
-          cashDistributions.remove(row.id);
         });
         const shareCountCell = td(
           div(pageStyles.denseStack, shareCountInput, span(pageStyles.rowErrorText, rowTextNodes.shareCountMismatch))
@@ -7064,7 +7785,7 @@
         );
         const rowNode = tr(
           td(dateInput),
-          td(typeInput),
+          td(typeSelect.node),
           shareCountCell,
           td(amountPerShareInput),
           td(rowTextNodes.grossTotal),
@@ -7078,12 +7799,13 @@
           node: rowNode,
           set(nextRow) {
             setInputValue(dateInput, nextRow.date);
-            setSelectValue(typeInput, nextRow.type);
-            typeInput.options[0].textContent = nextRow.capitalReturnLabel;
-            typeInput.options[1].textContent = nextRow.dividendLabel;
+            typeSelect.setOptions([
+              { label: nextRow.capitalReturnLabel, value: "capital_return" },
+              { label: nextRow.dividendLabel, value: "dividend" }
+            ]);
+            typeSelect.setValue(nextRow.type);
             setInputValue(shareCountInput, nextRow.shareCount);
             setInputValue(amountPerShareInput, nextRow.amountPerShare);
-            rowState.set({ row: nextRow });
             replaceChildren(
               capitalRepaymentTotalCell,
               nextRow.capitalRepaymentTotalTooltip ? hoverValue(nextRow.capitalRepaymentTotal, nextRow.capitalRepaymentTotalTooltip) : nextRow.capitalRepaymentTotal
@@ -7099,16 +7821,11 @@
       }
     });
     const addButton = createActionButton(cashDistributionTextNodes.actions.add, "primary", () => {
-      cashDistributions.append({
-        type: "capital_return",
-        date: "",
-        amountPerShare: "",
-        shareCount: ""
-      });
+      cashDistributions.append(createAppendCollectionRow("cashDistributions"));
     });
     const root = section(
       { class: "card" },
-      div({ class: "heading" }, h2(cashDistributionTextNodes.title), span({ class: "muted" }, rowCountNode)),
+      div({ class: "heading" }, h2(cashDistributionTextNodes.title), span({ class: "muted" }, counter.node)),
       p({ class: "muted" }, cashDistributionTextNodes.help),
       table(
         thead(
@@ -7129,86 +7846,255 @@
       ),
       div({ class: "no-print" }, pageStyles.rowButtons, addButton)
     );
+    return createSectionController(root, ({ osakkeetCalculation, texts }) => {
+      const current = osakkeetCalculation.formData;
+      counter.setCount(current.cashDistributions.length, texts.common.rows);
+      withholdingHeaderNode.title = texts.cashDistributions.fields.withholdingHelp;
+      cashPaidHeaderNode.title = texts.cashDistributions.fields.cashPaidHelp;
+      capitalRepaymentHeaderNode.title = texts.cashDistributions.fields.capitalRepaymentHelp;
+      dividendHeaderNode.title = texts.cashDistributions.fields.dividendHelp;
+    });
+  }
+  function createSellOverviewCards(osakkeetCalculation, texts) {
+    const sharePercent = createSharePercent(osakkeetCalculation.vesting.totalShares);
+    return [
+      infoCard(texts.summary.ipoSell.cards.sellableShares, sharePercent(osakkeetCalculation.vesting.vestedShares)),
+      infoCard(texts.summary.ipoSell.cards.unvestedShares, sharePercent(osakkeetCalculation.vesting.unvestedShares)),
+      infoCard(texts.summary.ipoSell.cards.sharesLeft, amount(osakkeetCalculation.sell.remainingUnsoldShares))
+    ];
+  }
+  function createSellAllocationTable(osakkeetCalculation, texts) {
+    return table(
+      thead(
+        tr(
+          th(texts.common.date),
+          th(texts.common.amount),
+          th(texts.summary.ipoSell.fields.ipoPriceTotal),
+          th(texts.summary.ipoSell.fields.actualCosts),
+          th(texts.summary.ipoSell.fields.hmo),
+          th(texts.summary.ipoSell.fields.capitalGain)
+        )
+      ),
+      tbody([
+        osakkeetCalculation.sell.usedSubscriptions.map(
+          (lot) => tr(
+            td(lot.subscriptionDate || "-"),
+            td(`${amount(lot.soldAmount)} / ${amount(lot.totalSubscriptionShares)}`),
+            td(euro(lot.gross)),
+            td(
+              hoverValue(
+                euro(lot.actualDeduction),
+                texts.summary.ipoSell.tooltips.actualCosts(
+                  euro(lot.realCostBasis),
+                  euro(lot.allocatedIpoCost),
+                  euro(lot.actualDeduction)
+                ),
+                lot.selectedMethod === "actual_costs"
+              )
+            ),
+            td(
+              hoverValue(
+                euro(lot.hankintamenoOlettaDeduction),
+                texts.summary.ipoSell.tooltips.hmo(
+                  euro(lot.gross),
+                  percentage(lot.hankintamenoOlettaRate.mul(100)),
+                  euro(lot.hankintamenoOlettaDeduction)
+                ),
+                lot.selectedMethod === "hmo"
+              )
+            ),
+            td(lot.taxableGain.gte(0) ? euro(lot.taxableGain) : `${lot.taxableGain.toFixed(2)} \u20AC`)
+          )
+        ),
+        tr(
+          td(b(texts.summary.totalRow)),
+          td(),
+          td(euro(osakkeetCalculation.sell.grossTotal)),
+          td(b(euro(osakkeetCalculation.sell.selectedActualDeductionTotal))),
+          td(b(euro(osakkeetCalculation.sell.selectedHmoDeductionTotal))),
+          td(euro(osakkeetCalculation.sell.taxableGainTotal))
+        )
+      ])
+    );
+  }
+  function createSellExplanationCards(osakkeetCalculation, texts) {
+    return [
+      infoCard(
+        texts.summary.ipoSell.explanations.ipoPriceTotal,
+        euro(osakkeetCalculation.sell.grossTotal),
+        texts.summary.ipoSell.explanations.ipoPriceTotalHelp(euro(osakkeetCalculation.sell.grossTotal))
+      ),
+      infoCard(
+        texts.summary.ipoSell.explanations.ipoCostsAllocated,
+        euro(osakkeetCalculation.sell.totalIpoCostAllocated),
+        texts.summary.ipoSell.explanations.ipoCostsAllocatedHelp(euro(osakkeetCalculation.sell.totalIpoCostAllocated))
+      ),
+      infoCard(
+        texts.summary.ipoSell.explanations.netCash,
+        euro(osakkeetCalculation.sell.cashAfterIpoCosts),
+        texts.summary.ipoSell.explanations.netCashHelp(
+          euro(osakkeetCalculation.sell.grossTotal),
+          euro(osakkeetCalculation.sell.totalIpoCostAllocated),
+          euro(osakkeetCalculation.sell.cashAfterIpoCosts)
+        )
+      )
+    ];
+  }
+  function createCapitalGainCards(osakkeetCalculation, texts) {
+    return [
+      infoCard(
+        texts.summary.ipoSell.capitalGainAnnualTax.driversTitle,
+        texts.summary.ipoSell.capitalGainAnnualTax.driversValue,
+        texts.summary.ipoSell.capitalGainAnnualTax.driversHelp
+      ),
+      infoCard(
+        texts.summary.ipoSell.explanations.selectedDeductions,
+        euro(osakkeetCalculation.sell.selectedDeductionTotal),
+        texts.summary.ipoSell.explanations.selectedDeductionsHelp(
+          euro(osakkeetCalculation.sell.selectedActualDeductionTotal),
+          euro(osakkeetCalculation.sell.selectedHmoDeductionTotal)
+        )
+      ),
+      infoCard(
+        texts.summary.ipoSell.explanations.capitalGain,
+        euro(osakkeetCalculation.sell.taxableGainTotal),
+        texts.summary.ipoSell.explanations.capitalGainHelp(
+          euro(osakkeetCalculation.sell.grossTotal),
+          euro(osakkeetCalculation.sell.selectedDeductionTotal)
+        )
+      ),
+      infoCard(
+        texts.summary.ipoSell.explanations.taxOnCapitalGain,
+        euro(osakkeetCalculation.sell.estimatedTax),
+        texts.summary.ipoSell.explanations.taxOnCapitalGainHelp(
+          euro(osakkeetCalculation.sell.taxableGainTotal),
+          euro(osakkeetCalculation.sell.taxableGainAtLowRate),
+          euro(osakkeetCalculation.sell.taxableGainAtHighRate),
+          euro(osakkeetCalculation.sell.estimatedTax)
+        )
+      )
+    ];
+  }
+  function createCashReserveCards(osakkeetCalculation, texts) {
+    return [
+      infoCard(
+        texts.summary.ipoSell.cashReserve.keepAfterTaxes,
+        euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost),
+        texts.summary.ipoSell.cashReserve.keepAfterTaxesHelp(
+          euro(osakkeetCalculation.sell.cashAfterIpoCosts),
+          euro(osakkeetCalculation.sell.estimatedTax),
+          euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost)
+        )
+      ),
+      infoCard(
+        texts.summary.ipoSell.cashReserve.reserveForTaxes,
+        euro(osakkeetCalculation.sell.estimatedTax),
+        texts.summary.ipoSell.cashReserve.reserveForTaxesHelp(euro(osakkeetCalculation.sell.estimatedTax))
+      ),
+      infoCard(
+        texts.summary.ipoSell.cashReserve.taxPaymentStatus,
+        texts.summary.ipoSell.cashReserve.taxPaymentManual,
+        texts.summary.ipoSell.cashReserve.taxPaymentStatusHelp
+      )
+    ];
+  }
+  function createSaleResultComparisonCards(osakkeetCalculation, texts) {
+    const netResultPercent = osakkeetCalculation.sell.soldShareAcquisitionCostTotal.gt(0) ? percentage(
+      osakkeetCalculation.sell.netResultAgainstSubscriptionCost.div(osakkeetCalculation.sell.soldShareAcquisitionCostTotal).mul(100)
+    ) : "0.00 %";
+    return [
+      infoCard(
+        texts.summary.ipoSell.saleResultComparison.cardTitle,
+        texts.summary.ipoSell.saleResultComparison.value(
+          euro(osakkeetCalculation.sell.soldShareOriginalCostTotal),
+          euro(osakkeetCalculation.sell.soldShareAcquisitionCostTotal),
+          euro(osakkeetCalculation.sell.netResultAgainstSubscriptionCost),
+          netResultPercent
+        ),
+        texts.summary.ipoSell.saleResultComparison.help(
+          euro(osakkeetCalculation.sell.soldShareOriginalCostTotal),
+          euro(osakkeetCalculation.sell.soldShareAcquisitionCostTotal),
+          euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost),
+          euro(osakkeetCalculation.sell.netResultAgainstSubscriptionCost),
+          netResultPercent
+        )
+      )
+    ];
+  }
+  function createIpoCostEffectCards(osakkeetCalculation, texts) {
+    return [
+      infoCard(
+        texts.summary.ipoSell.explanations.deductibleIpoCosts,
+        euro(osakkeetCalculation.sell.taxSavedFromDeductibleIpoCosts),
+        texts.summary.ipoSell.explanations.deductibleIpoCostsHelp(
+          euro(osakkeetCalculation.sell.ipoCostDeductedViaActual),
+          euro(osakkeetCalculation.sell.taxSavedFromDeductibleIpoCosts)
+        )
+      ),
+      infoCard(
+        texts.summary.ipoSell.explanations.hmoIpoCosts,
+        euro(osakkeetCalculation.sell.ipoCostPaidWithoutActualDeduction),
+        texts.summary.ipoSell.explanations.hmoIpoCostsHelp()
+      )
+    ];
+  }
+  function createAnnualAdjustmentCards(osakkeetCalculation, texts) {
+    const zeroMoney = osakkeetCalculation.sell.grossTotal.mul(0);
     return {
-      root,
-      set({ osakkeetCalculation, texts }) {
-        const current = osakkeetCalculation.formData;
-        const summariesById = Object.fromEntries(
-          osakkeetCalculation.cashDistributions.map((cashDistribution) => [cashDistribution.id, cashDistribution])
-        );
-        textState.set({
-          rowCount: `${current.cashDistributions.length} ${texts.common.rows}`
-        });
-        withholdingHeaderNode.title = texts.cashDistributions.fields.withholdingHelp;
-        cashPaidHeaderNode.title = texts.cashDistributions.fields.cashPaidHelp;
-        capitalRepaymentHeaderNode.title = texts.cashDistributions.fields.capitalRepaymentHelp;
-        dividendHeaderNode.title = texts.cashDistributions.fields.dividendHelp;
-        rowsState.set(
-          current.cashDistributions.map((cashDistribution) => {
-            const summary2 = summariesById[cashDistribution.id];
-            const capitalRepaymentShares = summary2 ? summary2.allocations.reduce(
-              (total, allocation) => allocation.capitalRepayment.gt(0) ? total.add(allocation.shares) : total,
-              new decimal_default(0)
-            ) : new decimal_default(0);
-            const dividendShares = summary2 ? summary2.allocations.reduce(
-              (total, allocation) => allocation.dividend.gt(0) ? total.add(allocation.shares) : total,
-              new decimal_default(0)
-            ) : new decimal_default(0);
-            const expectedShareCount = summary2 ? amount(summary2.sharesHeld) : "";
-            const givenShareCount = cashDistribution.shareCount || "";
-            const hasShareCountMismatch = givenShareCount !== "" && summary2 && (Number.isNaN(Number(givenShareCount)) || Number(givenShareCount) !== Number(expectedShareCount));
-            return {
-              id: cashDistribution.id,
-              date: cashDistribution.date,
-              type: cashDistribution.type,
-              shareCount: givenShareCount,
-              amountPerShare: cashDistribution.amountPerShare,
-              grossTotal: summary2 ? euro(summary2.grossTotal) : "-",
-              withholdingToTaxOffice: summary2 ? euro(summary2.withholdingToTaxOffice) : "-",
-              paidInCash: summary2 ? euro(summary2.paidInCash) : "-",
-              capitalRepaymentTotal: summary2 ? euro(summary2.capitalRepaymentTotal) : "-",
-              capitalRepaymentTotalTooltip: summary2 ? texts.cashDistributions.fields.capitalRepaymentSharesHelp(amount(capitalRepaymentShares)) : "",
-              dividendTotal: summary2 ? euro(summary2.dividendTotal) : "-",
-              dividendTotalTooltip: summary2 ? texts.cashDistributions.fields.dividendSharesHelp(amount(dividendShares)) : "",
-              shareCountMismatch: hasShareCountMismatch ? texts.cashDistributions.messages.shareCountMismatch(expectedShareCount, givenShareCount) : "",
-              removeLabel: texts.common.remove,
-              capitalReturnLabel: texts.cashDistributions.types.capitalReturn,
-              dividendLabel: texts.cashDistributions.types.dividend
-            };
-          })
-        );
-      }
+      taxEffect: infoCard(
+        texts.summary.ipoSell.cashReserve.taxEffectFromOtherAnnualCapital,
+        osakkeetCalculation.sell.taxReductionFromOtherLosses.gt(0) ? euro(osakkeetCalculation.sell.taxReductionFromOtherLosses) : osakkeetCalculation.sell.annualTaxChange.gt(0) ? `+${euro(osakkeetCalculation.sell.annualTaxChange)}` : euro(zeroMoney),
+        texts.summary.ipoSell.cashReserve.taxEffectFromOtherAnnualCapitalHelp(
+          euro(osakkeetCalculation.sell.otherAnnualCapitalGainsOrLosses),
+          euro(osakkeetCalculation.sell.taxReductionFromOtherLosses),
+          euro(decimal_default.max(osakkeetCalculation.sell.annualTaxChange, zeroMoney))
+        )
+      ),
+      reserve: infoCard(
+        texts.summary.ipoSell.cashReserve.annualAdjustedReserveForTaxes,
+        euro(osakkeetCalculation.sell.annualEstimatedTax),
+        texts.summary.ipoSell.cashReserve.annualAdjustedReserveForTaxesHelp(
+          euro(osakkeetCalculation.sell.annualEstimatedTax)
+        )
+      ),
+      keep: infoCard(
+        texts.summary.ipoSell.cashReserve.annualAdjustedKeepAfterTaxes,
+        euro(osakkeetCalculation.sell.netAfterAnnualTaxAndIpoCost),
+        texts.summary.ipoSell.cashReserve.annualAdjustedKeepAfterTaxesHelp(
+          euro(osakkeetCalculation.sell.cashAfterIpoCosts),
+          euro(osakkeetCalculation.sell.annualEstimatedTax),
+          euro(osakkeetCalculation.sell.netAfterAnnualTaxAndIpoCost)
+        )
+      )
     };
   }
-  function createIpoSection(dataState, localizedTextNodes) {
-    const viewState = createState({
-      value: {
-        values: {
-          currentTotalValue: "",
-          subscribedShares: "",
-          ipoSharePrice: "",
-          increasePercent: "",
-          increaseMultiplier: "",
-          ipoCostPerSecondaryShare: "",
-          secondarySharesTotal: ""
-        }
-      }
-    });
+  function createIpoSection(dataState, pageReadState, localizedTextNodes) {
+    const formBinder = createFormBinder(dataState);
     const ipoTextNodes = localizedTextNodes.ipo;
     const summaryCardTextNodes = localizedTextNodes.summary.cards;
-    const valueNodes = createTextNodesFromState(viewState, { path: ["values"] });
+    const valueNodes = createComputedTextState(pageReadState, ({ osakkeetCalculation }) => ({
+      currentTotalValue: euro(osakkeetCalculation.ipo.currentTotalValue),
+      subscribedShares: amount(osakkeetCalculation.ipo.totalSubscribedShares),
+      ipoSharePrice: euro(osakkeetCalculation.ipo.ipoPricePerShare),
+      increasePercent: percentage(osakkeetCalculation.ipo.increasePercentage),
+      increaseMultiplier: multiplier(osakkeetCalculation.ipo.increaseMultiplier),
+      ipoCostPerSecondaryShare: euro(osakkeetCalculation.ipo.ipoCostPerShare),
+      secondarySharesTotal: amount(osakkeetCalculation.ipo.estimatedSecondaryShareCount)
+    })).textNodes;
     const currentShareValueInput = numberInput("");
     const totalShareCountInput = numberInput("");
     const estimatedPreIpoValueInput = numberInput("");
     const totalIpoCostInput = numberInput("");
     const secondarySellPercentInput = numberInput("");
     const ipoDateInput = finnishDateInput("");
-    mapStatePathToInput(dataState, ["ipo", "currentShareValue"], currentShareValueInput);
-    mapStatePathToInput(dataState, ["ipo", "totalShareCount"], totalShareCountInput);
-    mapStatePathToInput(dataState, ["ipo", "estimatedPreIpoValue"], estimatedPreIpoValueInput);
-    mapStatePathToInput(dataState, ["ipo", "totalIpoCost"], totalIpoCostInput);
-    mapStatePathToInput(dataState, ["ipo", "estimatedSecondaryShareSellPercentage"], secondarySellPercentInput);
-    mapStatePathToInput(dataState, ["ipo", "ipoDate"], ipoDateInput);
+    formBinder.bindInputs([
+      { path: ["ipo", "currentShareValue"], node: currentShareValueInput },
+      { path: ["ipo", "totalShareCount"], node: totalShareCountInput },
+      { path: ["ipo", "estimatedPreIpoValue"], node: estimatedPreIpoValueInput },
+      { path: ["ipo", "totalIpoCost"], node: totalIpoCostInput },
+      { path: ["ipo", "estimatedSecondaryShareSellPercentage"], node: secondarySellPercentInput },
+      { path: ["ipo", "ipoDate"], node: ipoDateInput }
+    ]);
     const root = section(
       { class: "card" },
       h2(ipoTextNodes.title),
@@ -7254,25 +8140,11 @@
         div()
       )
     );
-    return {
-      root,
-      set({ texts, osakkeetCalculation }) {
-        void texts;
-        viewState.set({
-          values: {
-            currentTotalValue: euro(osakkeetCalculation.ipo.currentTotalValue),
-            subscribedShares: amount(osakkeetCalculation.ipo.totalSubscribedShares),
-            ipoSharePrice: euro(osakkeetCalculation.ipo.ipoPricePerShare),
-            increasePercent: percentage(osakkeetCalculation.ipo.increasePercentage),
-            increaseMultiplier: multiplier(osakkeetCalculation.ipo.increaseMultiplier),
-            ipoCostPerSecondaryShare: euro(osakkeetCalculation.ipo.ipoCostPerShare),
-            secondarySharesTotal: amount(osakkeetCalculation.ipo.estimatedSecondaryShareCount)
-          }
-        });
-      }
-    };
+    return createSectionController(root, () => {
+    });
   }
-  function createResultsSection(dataState, localizedTextNodes) {
+  function createResultsSection(dataState, pageReadState, localizedTextNodes) {
+    const formBinder = createFormBinder(dataState);
     const warningRoot = div();
     const ipoSellContentRoot = div(pageStyles.denseStack);
     const summaryTextNodes = localizedTextNodes.summary;
@@ -7281,8 +8153,13 @@
     const annualAdjustmentKeepRoot = div();
     const sellInput = numberInput("");
     const otherAnnualCapitalInput = numberInput("");
-    mapStatePathToInput(dataState, ["sell", "amount"], sellInput);
-    mapStatePathToInput(dataState, ["sell", "otherAnnualCapitalGainsOrLosses"], otherAnnualCapitalInput);
+    const annualAdjustmentCardsState = pageReadState.map(
+      ({ osakkeetCalculation, texts }) => createAnnualAdjustmentCards(osakkeetCalculation, texts)
+    );
+    formBinder.bindInputs([
+      { path: ["sell", "amount"], node: sellInput },
+      { path: ["sell", "otherAnnualCapitalGainsOrLosses"], node: otherAnnualCapitalInput }
+    ]);
     const annualAdjustmentInputCard = div(
       pageStyles.summaryItem,
       h3(summaryTextNodes.ipoSell.cashReserve.otherAnnualCapitalGainsOrLosses),
@@ -7303,6 +8180,38 @@
         annualAdjustmentKeepRoot
       )
     );
+    replaceChildrenFromState(pageReadState, warningRoot, ({ osakkeetCalculation, texts }) => [
+      osakkeetCalculation.errors.length > 0 && div(
+        pageStyles.errorBox,
+        h3(texts.messages.errorsTitle),
+        ul(osakkeetCalculation.errors.map((error) => li(error)))
+      ),
+      osakkeetCalculation.warnings.length > 0 && div(
+        pageStyles.warningBox,
+        h3(texts.messages.warningsTitle),
+        ul(osakkeetCalculation.warnings.map((warning) => li(warning)))
+      )
+    ]);
+    replaceChildrenFromState(pageReadState, ipoSellContentRoot, ({ osakkeetCalculation, texts }) => {
+      return [
+        div(pageStyles.summaryGrid, createSellOverviewCards(osakkeetCalculation, texts)),
+        h3(texts.summary.allocationByLot.title),
+        createSellAllocationTable(osakkeetCalculation, texts),
+        h3(texts.summary.ipoSell.explanations.title),
+        div(pageStyles.summaryGrid, createSellExplanationCards(osakkeetCalculation, texts)),
+        h3(texts.summary.ipoSell.capitalGainAnnualTax.title),
+        div(pageStyles.summaryGrid, createCapitalGainCards(osakkeetCalculation, texts)),
+        h3(texts.summary.ipoSell.cashReserve.title),
+        div(pageStyles.summaryGrid, createCashReserveCards(osakkeetCalculation, texts)),
+        h3(texts.summary.ipoSell.saleResultComparison.title),
+        div(pageStyles.summaryGrid, createSaleResultComparisonCards(osakkeetCalculation, texts)),
+        h3(texts.summary.ipoSell.ipoCostEffects.title),
+        div(pageStyles.summaryGrid, createIpoCostEffectCards(osakkeetCalculation, texts))
+      ];
+    });
+    replaceChildrenFromState(annualAdjustmentCardsState, annualAdjustmentTaxEffectRoot, (cards) => cards.taxEffect);
+    replaceChildrenFromState(annualAdjustmentCardsState, annualAdjustmentReserveRoot, (cards) => cards.reserve);
+    replaceChildrenFromState(annualAdjustmentCardsState, annualAdjustmentKeepRoot, (cards) => cards.keep);
     const root = div(
       pageStyles.stack,
       section(
@@ -7320,263 +8229,14 @@
         annualAdjustmentRoot
       )
     );
-    return {
-      root,
-      set({ osakkeetCalculation, texts }) {
-        const totalShares = osakkeetCalculation.vesting.totalShares;
-        const vestedShares = osakkeetCalculation.vesting.vestedShares;
-        const unvestedShares = osakkeetCalculation.vesting.unvestedShares;
-        const sharePercent = (value) => totalShares.gt(0) ? `${amount(value)} (${percentage(value.div(totalShares).mul(100))})` : `${amount(value)} (0.00 %)`;
-        const soldShareOriginalCost = osakkeetCalculation.sell.soldShareOriginalCostTotal;
-        const soldShareAcquisitionCost = osakkeetCalculation.sell.soldShareAcquisitionCostTotal;
-        const keepAfterTaxes = osakkeetCalculation.sell.netAfterTaxAndIpoCost;
-        const netResultAgainstSubscriptionCost = keepAfterTaxes.minus(soldShareAcquisitionCost);
-        const netResultPercent = soldShareAcquisitionCost.gt(0) ? percentage(netResultAgainstSubscriptionCost.div(soldShareAcquisitionCost).mul(100)) : "0.00 %";
-        const zeroMoney = osakkeetCalculation.sell.grossTotal.mul(0);
-        const totalTaxableGain = osakkeetCalculation.sell.usedSubscriptions.reduce(
-          (acc, lot) => acc.add(lot.taxableGain),
-          zeroMoney
-        );
-        const selectedHmoDeductionTotal = osakkeetCalculation.sell.selectedHmo20DeductionTotal.add(
-          osakkeetCalculation.sell.selectedHmo40DeductionTotal
-        );
-        void texts;
-        replaceChildren(
-          warningRoot,
-          osakkeetCalculation.errors.length > 0 && div(
-            pageStyles.errorBox,
-            h3(texts.messages.errorsTitle),
-            ul(osakkeetCalculation.errors.map((error) => li(error)))
-          ),
-          osakkeetCalculation.warnings.length > 0 && div(
-            pageStyles.warningBox,
-            h3(texts.messages.warningsTitle),
-            ul(osakkeetCalculation.warnings.map((warning) => li(warning)))
-          )
-        );
-        replaceChildren(
-          ipoSellContentRoot,
-          div(
-            pageStyles.summaryGrid,
-            infoCard(texts.summary.ipoSell.cards.sellableShares, sharePercent(vestedShares)),
-            infoCard(texts.summary.ipoSell.cards.unvestedShares, sharePercent(unvestedShares)),
-            infoCard(texts.summary.ipoSell.cards.sharesLeft, amount(osakkeetCalculation.sell.remainingUnsoldShares))
-          ),
-          h3(texts.summary.allocationByLot.title),
-          table(
-            thead(
-              tr(
-                th(texts.common.date),
-                th(texts.common.amount),
-                th(texts.summary.ipoSell.fields.ipoPriceTotal),
-                th(texts.summary.ipoSell.fields.actualCosts),
-                th(texts.summary.ipoSell.fields.hmo),
-                th(texts.summary.ipoSell.fields.capitalGain)
-              )
-            ),
-            tbody([
-              osakkeetCalculation.sell.usedSubscriptions.map(
-                (lot) => tr(
-                  td(lot.subscriptionDate || "-"),
-                  td(`${amount(lot.soldAmount)} / ${amount(lot.totalSubscriptionShares)}`),
-                  td(euro(lot.gross)),
-                  td(
-                    hoverValue(
-                      euro(lot.actualDeduction),
-                      texts.summary.ipoSell.tooltips.actualCosts(
-                        euro(lot.realCostBasis),
-                        euro(lot.allocatedIpoCost),
-                        euro(lot.actualDeduction)
-                      ),
-                      lot.selectedMethod === "actual_costs"
-                    )
-                  ),
-                  td(
-                    hoverValue(
-                      euro(lot.hankintamenoOlettaDeduction),
-                      texts.summary.ipoSell.tooltips.hmo(
-                        euro(lot.gross),
-                        percentage(lot.hankintamenoOlettaRate.mul(100)),
-                        euro(lot.hankintamenoOlettaDeduction)
-                      ),
-                      lot.selectedMethod === "hmo"
-                    )
-                  ),
-                  td(lot.taxableGain.gte(0) ? euro(lot.taxableGain) : `${lot.taxableGain.toFixed(2)} \u20AC`)
-                )
-              ),
-              tr(
-                td(b(texts.summary.totalRow)),
-                td(),
-                td(euro(osakkeetCalculation.sell.grossTotal)),
-                td(b(euro(osakkeetCalculation.sell.selectedActualDeductionTotal))),
-                td(b(euro(selectedHmoDeductionTotal))),
-                td(euro(totalTaxableGain))
-              )
-            ])
-          ),
-          h3(texts.summary.ipoSell.explanations.title),
-          div(
-            pageStyles.summaryGrid,
-            infoCard(
-              texts.summary.ipoSell.explanations.ipoPriceTotal,
-              euro(osakkeetCalculation.sell.grossTotal),
-              texts.summary.ipoSell.explanations.ipoPriceTotalHelp(euro(osakkeetCalculation.sell.grossTotal))
-            ),
-            infoCard(
-              texts.summary.ipoSell.explanations.ipoCostsAllocated,
-              euro(osakkeetCalculation.sell.totalIpoCostAllocated),
-              texts.summary.ipoSell.explanations.ipoCostsAllocatedHelp(
-                euro(osakkeetCalculation.sell.totalIpoCostAllocated)
-              )
-            ),
-            infoCard(
-              texts.summary.ipoSell.explanations.netCash,
-              euro(osakkeetCalculation.sell.cashAfterIpoCosts),
-              texts.summary.ipoSell.explanations.netCashHelp(
-                euro(osakkeetCalculation.sell.grossTotal),
-                euro(osakkeetCalculation.sell.totalIpoCostAllocated),
-                euro(osakkeetCalculation.sell.cashAfterIpoCosts)
-              )
-            )
-          ),
-          h3(texts.summary.ipoSell.capitalGainAnnualTax.title),
-          div(
-            pageStyles.summaryGrid,
-            infoCard(
-              texts.summary.ipoSell.capitalGainAnnualTax.driversTitle,
-              texts.summary.ipoSell.capitalGainAnnualTax.driversValue,
-              texts.summary.ipoSell.capitalGainAnnualTax.driversHelp
-            ),
-            infoCard(
-              texts.summary.ipoSell.explanations.selectedDeductions,
-              euro(osakkeetCalculation.sell.selectedDeductionTotal),
-              texts.summary.ipoSell.explanations.selectedDeductionsHelp(
-                euro(osakkeetCalculation.sell.selectedActualDeductionTotal),
-                euro(selectedHmoDeductionTotal)
-              )
-            ),
-            infoCard(
-              texts.summary.ipoSell.explanations.capitalGain,
-              euro(osakkeetCalculation.sell.taxableGainTotal),
-              texts.summary.ipoSell.explanations.capitalGainHelp(
-                euro(osakkeetCalculation.sell.grossTotal),
-                euro(osakkeetCalculation.sell.selectedDeductionTotal)
-              )
-            ),
-            infoCard(
-              texts.summary.ipoSell.explanations.taxOnCapitalGain,
-              euro(osakkeetCalculation.sell.estimatedTax),
-              texts.summary.ipoSell.explanations.taxOnCapitalGainHelp(
-                euro(osakkeetCalculation.sell.taxableGainTotal),
-                euro(osakkeetCalculation.sell.taxableGainAtLowRate),
-                euro(osakkeetCalculation.sell.taxableGainAtHighRate),
-                euro(osakkeetCalculation.sell.estimatedTax)
-              )
-            )
-          ),
-          h3(texts.summary.ipoSell.cashReserve.title),
-          div(
-            pageStyles.summaryGrid,
-            infoCard(
-              texts.summary.ipoSell.cashReserve.keepAfterTaxes,
-              euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost),
-              texts.summary.ipoSell.cashReserve.keepAfterTaxesHelp(
-                euro(osakkeetCalculation.sell.cashAfterIpoCosts),
-                euro(osakkeetCalculation.sell.estimatedTax),
-                euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost)
-              )
-            ),
-            infoCard(
-              texts.summary.ipoSell.cashReserve.reserveForTaxes,
-              euro(osakkeetCalculation.sell.estimatedTax),
-              texts.summary.ipoSell.cashReserve.reserveForTaxesHelp(euro(osakkeetCalculation.sell.estimatedTax))
-            ),
-            infoCard(
-              texts.summary.ipoSell.cashReserve.taxPaymentStatus,
-              texts.summary.ipoSell.cashReserve.taxPaymentManual,
-              texts.summary.ipoSell.cashReserve.taxPaymentStatusHelp
-            )
-          ),
-          h3(texts.summary.ipoSell.saleResultComparison.title),
-          div(
-            pageStyles.summaryGrid,
-            infoCard(
-              texts.summary.ipoSell.saleResultComparison.cardTitle,
-              texts.summary.ipoSell.saleResultComparison.value(
-                euro(soldShareOriginalCost),
-                euro(soldShareAcquisitionCost),
-                euro(netResultAgainstSubscriptionCost),
-                netResultPercent
-              ),
-              texts.summary.ipoSell.saleResultComparison.help(
-                euro(soldShareOriginalCost),
-                euro(soldShareAcquisitionCost),
-                euro(keepAfterTaxes),
-                euro(netResultAgainstSubscriptionCost),
-                netResultPercent
-              )
-            )
-          ),
-          h3(texts.summary.ipoSell.ipoCostEffects.title),
-          div(
-            pageStyles.summaryGrid,
-            infoCard(
-              texts.summary.ipoSell.explanations.deductibleIpoCosts,
-              euro(osakkeetCalculation.sell.taxSavedFromDeductibleIpoCosts),
-              texts.summary.ipoSell.explanations.deductibleIpoCostsHelp(
-                euro(osakkeetCalculation.sell.ipoCostDeductedViaActual),
-                euro(osakkeetCalculation.sell.taxSavedFromDeductibleIpoCosts)
-              )
-            ),
-            infoCard(
-              texts.summary.ipoSell.explanations.hmoIpoCosts,
-              euro(osakkeetCalculation.sell.ipoCostPaidWithoutActualDeduction),
-              texts.summary.ipoSell.explanations.hmoIpoCostsHelp()
-            )
-          )
-        );
-        replaceChildren(
-          annualAdjustmentTaxEffectRoot,
-          infoCard(
-            texts.summary.ipoSell.cashReserve.taxEffectFromOtherAnnualCapital,
-            osakkeetCalculation.sell.taxReductionFromOtherLosses.gt(0) ? euro(osakkeetCalculation.sell.taxReductionFromOtherLosses) : osakkeetCalculation.sell.annualTaxChange.gt(0) ? `+${euro(osakkeetCalculation.sell.annualTaxChange)}` : euro(osakkeetCalculation.sell.grossTotal.mul(0)),
-            texts.summary.ipoSell.cashReserve.taxEffectFromOtherAnnualCapitalHelp(
-              euro(osakkeetCalculation.sell.otherAnnualCapitalGainsOrLosses),
-              euro(osakkeetCalculation.sell.taxReductionFromOtherLosses),
-              euro(decimal_default.max(osakkeetCalculation.sell.annualTaxChange, osakkeetCalculation.sell.grossTotal.mul(0)))
-            )
-          )
-        );
-        replaceChildren(
-          annualAdjustmentReserveRoot,
-          infoCard(
-            texts.summary.ipoSell.cashReserve.annualAdjustedReserveForTaxes,
-            euro(osakkeetCalculation.sell.annualEstimatedTax),
-            texts.summary.ipoSell.cashReserve.annualAdjustedReserveForTaxesHelp(
-              euro(osakkeetCalculation.sell.annualEstimatedTax)
-            )
-          )
-        );
-        replaceChildren(
-          annualAdjustmentKeepRoot,
-          infoCard(
-            texts.summary.ipoSell.cashReserve.annualAdjustedKeepAfterTaxes,
-            euro(osakkeetCalculation.sell.netAfterAnnualTaxAndIpoCost),
-            texts.summary.ipoSell.cashReserve.annualAdjustedKeepAfterTaxesHelp(
-              euro(osakkeetCalculation.sell.cashAfterIpoCosts),
-              euro(osakkeetCalculation.sell.annualEstimatedTax),
-              euro(osakkeetCalculation.sell.netAfterAnnualTaxAndIpoCost)
-            )
-          )
-        );
-      }
-    };
+    return createSectionController(root, () => {
+    });
   }
-  function createIntroSection(languageSelectionState, localizedTextNodes) {
+  function createIntroSection(pageReadState, languageSelectionState, localizedTextNodes) {
     const introTextNodes = localizedTextNodes.intro;
     const languageSwitchTextNodes = localizedTextNodes.languageSwitch;
     const assumptionsRoot = div();
+    replaceChildrenFromState(pageReadState, assumptionsRoot, ({ texts }) => assumptionsContent(texts));
     const fiButton = button(
       "FI",
       pageStyles.smallButton,
@@ -7620,32 +8280,21 @@
       ),
       assumptionsRoot
     );
-    return {
-      root,
-      set({ languageSelection, texts }) {
-        void texts;
-        setButtonVariant(fiButton, languageSelection === "fi");
-        setButtonVariant(enButton, languageSelection === "en");
-        replaceChildren(assumptionsRoot, assumptionsContent(texts));
-      }
-    };
+    return createSectionController(root, ({ languageSelection, texts }) => {
+      void texts;
+      setButtonVariant(fiButton, languageSelection === "fi");
+      setButtonVariant(enButton, languageSelection === "en");
+    });
   }
-  function createStickyWarningsSection(localizedTextNodes) {
+  function createStickyWarningsSection(pageReadState, localizedTextNodes) {
     const introTextNodes = localizedTextNodes.intro;
     const warningListRoot = ul();
+    replaceChildrenFromState(pageReadState, warningListRoot, ({ texts }) => texts.intro.warnings.map((warning) => li(warning)));
     const root = div(pageStyles.stickyWarningBox, h3(introTextNodes.warningsTitle), warningListRoot);
-    return {
-      root,
-      set({ texts }) {
-        void texts;
-        replaceChildren(
-          warningListRoot,
-          texts.intro.warnings.map((warning) => li(warning))
-        );
-      }
-    };
+    return createSectionController(root, () => {
+    });
   }
-  function createToolbarSection(dataState, localizedTextNodes) {
+  function createToolbarSection(dataState, pageReadState, localizedTextNodes) {
     const viewState = createState({
       value: {
         status: ""
@@ -7653,14 +8302,26 @@
     });
     const storageTextNodes = localizedTextNodes.storage;
     const statusNode = createTextNodesFromState(viewState, { path: ["status"] });
-    let currentTexts = getOsakkeetLocalization(tryLoadLanguage());
+    let currentTexts = pageReadState.get().texts;
+    const browserFormDataSource = createStorageSource({
+      storage: localStorage,
+      key: storageKeys.browserFormData,
+      serialize: serializeOsakkeetFormData,
+      deserialize: (raw) => normalizeOsakkeetFormData(JSON.parse(raw))
+    });
+    const lastFileSavedHashSource = createStorageSource({
+      storage: sessionStorage,
+      key: storageKeys.lastFileSavedHash,
+      serialize: (value) => value,
+      deserialize: (raw) => raw
+    });
     const setStatus = (status) => {
       viewState.set((current) => ({ ...current, status }));
     };
     const refreshStorageButtons = () => {
       const currentSerialized = serializeOsakkeetFormData(dataState.get());
-      const browserSerialized = tryStorageGet(localStorage, storageKeys.browserFormData);
-      const lastFileSavedHash = tryStorageGet(sessionStorage, storageKeys.lastFileSavedHash);
+      const browserSerialized = browserFormDataSource.getRaw();
+      const lastFileSavedHash = lastFileSavedHashSource.load();
       const browserNeedsSave = browserSerialized !== currentSerialized;
       const hasBrowserSavedData = !!browserSerialized;
       const fileNeedsSave = lastFileSavedHash !== currentSerialized;
@@ -7685,9 +8346,9 @@
           reader.onload = () => {
             try {
               const parsed = JSON.parse(String(reader.result || "{}"));
-              const normalized = normalizeLoadedData(parsed);
+              const normalized = normalizeOsakkeetFormData(parsed);
               dataState.set(normalized);
-              tryStorageSet(sessionStorage, storageKeys.lastFileSavedHash, serializeOsakkeetFormData(normalized));
+              lastFileSavedHashSource.save(serializeOsakkeetFormData(normalized));
               setStatus(currentTexts.storage.status.loaded);
               refreshStorageButtons();
             } catch {
@@ -7708,7 +8369,7 @@
         labelNode: storageTextNodes.actions.saveFile,
         variant: "secondary",
         action: () => {
-          const blob = new Blob([JSON.stringify(sanitizeOsakkeetFormData(dataState.get()), null, 2)], {
+          const blob = new Blob([JSON.stringify(normalizeOsakkeetFormData(dataState.get()), null, 2)], {
             type: "application/json"
           });
           const serialized = serializeOsakkeetFormData(dataState.get());
@@ -7718,7 +8379,7 @@
           link2.download = "osakkeet-input-state.json";
           link2.click();
           URL.revokeObjectURL(url);
-          tryStorageSet(sessionStorage, storageKeys.lastFileSavedHash, serialized);
+          lastFileSavedHashSource.save(serialized);
           setStatus(currentTexts.storage.status.fileSaved);
           refreshStorageButtons();
         }
@@ -7727,7 +8388,7 @@
         labelNode: storageTextNodes.actions.saveToBrowserStorage,
         variant: "secondary",
         action: () => {
-          tryStorageSet(localStorage, storageKeys.browserFormData, serializeOsakkeetFormData(dataState.get()));
+          browserFormDataSource.save(dataState.get());
           setStatus(currentTexts.storage.status.browserSaved);
           refreshStorageButtons();
         }
@@ -7736,11 +8397,10 @@
         labelNode: storageTextNodes.actions.loadFromBrowserStorage,
         variant: "secondary",
         action: () => {
-          const saved = tryStorageGet(localStorage, storageKeys.browserFormData);
+          const saved = browserFormDataSource.load();
           if (!saved) return;
           try {
-            const parsed = JSON.parse(saved);
-            dataState.set(normalizeLoadedData(parsed));
+            dataState.set(saved);
             setStatus(currentTexts.storage.status.browserLoaded);
             refreshStorageButtons();
           } catch {
@@ -7752,7 +8412,7 @@
         labelNode: storageTextNodes.actions.removeFromBrowserStorage,
         variant: "secondary",
         action: () => {
-          tryStorageRemove(localStorage, storageKeys.browserFormData);
+          browserFormDataSource.remove();
           setStatus(currentTexts.storage.status.browserRemoved);
           refreshStorageButtons();
         }
@@ -7768,7 +8428,7 @@
         labelNode: storageTextNodes.actions.showSmallExample,
         variant: "secondary",
         action: () => {
-          dataState.set(createExampleOsakkeetFormData("small2y"));
+          dataState.set(createExampleOsakkeetFormData("small2y", createId2));
           setStatus(currentTexts.storage.status.exampleShown);
         }
       },
@@ -7776,7 +8436,7 @@
         labelNode: storageTextNodes.actions.showMediumExample,
         variant: "secondary",
         action: () => {
-          dataState.set(createExampleOsakkeetFormData("medium8y"));
+          dataState.set(createExampleOsakkeetFormData("medium8y", createId2));
           setStatus(currentTexts.storage.status.exampleShown);
         }
       },
@@ -7784,7 +8444,7 @@
         labelNode: storageTextNodes.actions.showLargeExample,
         variant: "secondary",
         action: () => {
-          dataState.set(createExampleOsakkeetFormData("large16y"));
+          dataState.set(createExampleOsakkeetFormData("large16y", createId2));
           setStatus(currentTexts.storage.status.exampleShown);
         }
       },
@@ -7918,36 +8578,48 @@
         )
       )
     );
-    return {
-      root,
-      set({ texts }) {
-        currentTexts = texts;
-        refreshStorageButtons();
-      }
-    };
+    return createSectionController(root, ({ texts }) => {
+      currentTexts = texts;
+      refreshStorageButtons();
+    });
   }
-  function createTaxSummarySection(dataState, localizedTextNodes) {
+  function createTaxSummarySection(dataState, pageReadState, localizedTextNodes) {
     const taxReturnsTextNodes = localizedTextNodes.taxReturns;
-    const mathematicalShareValuesEditor = createMathematicalShareValuesEditor(dataState, localizedTextNodes);
+    const mathematicalShareValuesEditor = createMathematicalShareValuesEditor(dataState, pageReadState, localizedTextNodes);
     const resultsRoot = div(pageStyles.denseStack);
+    replaceChildrenFromState(
+      pageReadState,
+      resultsRoot,
+      ({ osakkeetCalculation, texts }) => taxSummarySection(osakkeetCalculation, texts)
+    );
     const root = section(
       { class: "card" },
       h2(taxReturnsTextNodes.title),
       mathematicalShareValuesEditor.root,
       resultsRoot
     );
-    return {
-      root,
-      set({ texts, osakkeetCalculation }) {
-        void texts;
-        mathematicalShareValuesEditor.set({ texts, osakkeetCalculation });
-        replaceChildren(resultsRoot, taxSummarySection(osakkeetCalculation, texts));
-      }
-    };
+    return createSectionController(root, () => {
+    });
   }
   function osakkeetIpoCalculatorPage() {
-    const dataState = createState({ value: tryLoadInitialData() });
-    const languageSelectionState = createState({ value: tryLoadLanguage() });
+    const dataStateHandle = createStorageBackedState({
+      value: tryLoadInitialData(),
+      storage: sessionStorage,
+      key: storageKeys.windowFormData,
+      serialize: serializeOsakkeetFormData,
+      deserialize: (raw) => normalizeOsakkeetFormData(JSON.parse(raw)),
+      hydrate: false
+    });
+    const languageSelectionStateHandle = createStorageBackedState({
+      value: tryLoadLanguage(),
+      storage: localStorage,
+      key: storageKeys.language,
+      serialize: (languageSelection) => languageSelection,
+      deserialize: (raw) => raw === "en" ? "en" : "fi",
+      hydrate: false
+    });
+    const dataState = dataStateHandle.state;
+    const languageSelectionState = languageSelectionStateHandle.state;
     const localizationTexts = languageSelectionState.map(
       (languageSelection) => getOsakkeetLocalization(languageSelection)
     );
@@ -7963,22 +8635,36 @@
         };
       }
     );
-    const stickyWarningsSection = createStickyWarningsSection(localizedTextNodes);
-    const introSection = createIntroSection(languageSelectionState, localizedTextNodes);
-    const toolbarSection = createToolbarSection(dataState, localizedTextNodes);
+    const stickyWarningsSection = createStickyWarningsSection(pageReadState, localizedTextNodes);
+    const introSection = createIntroSection(pageReadState, languageSelectionState, localizedTextNodes);
+    const toolbarSection = createToolbarSection(dataState, pageReadState, localizedTextNodes);
     const subscriptionsSection = createSubscriptionsSection(
       dataState,
+      pageReadState,
       localizedTextNodes,
       createTextNodesFromState(localizationTexts, { path: ["common"] })
     );
     const cashDistributionsSection = createCashDistributionsSection(
       dataState,
+      pageReadState,
       localizedTextNodes,
       createTextNodesFromState(localizationTexts, { path: ["common"] })
     );
-    const taxSummarySectionController = createTaxSummarySection(dataState, localizedTextNodes);
-    const ipoSection = createIpoSection(dataState, localizedTextNodes);
-    const resultsSection = createResultsSection(dataState, localizedTextNodes);
+    const demergersSection = createDemergersSection(
+      dataState,
+      pageReadState,
+      localizedTextNodes,
+      createTextNodesFromState(localizationTexts, { path: ["common"] })
+    );
+    const shareSplitsSection = createShareSplitsSection(
+      dataState,
+      pageReadState,
+      localizedTextNodes,
+      createTextNodesFromState(localizationTexts, { path: ["common"] })
+    );
+    const taxSummarySectionController = createTaxSummarySection(dataState, pageReadState, localizedTextNodes);
+    const ipoSection = createIpoSection(dataState, pageReadState, localizedTextNodes);
+    const resultsSection = createResultsSection(dataState, pageReadState, localizedTextNodes);
     const root = div(pageStyles.stack);
     const applyPageReadModel = (pageReadModel) => {
       stickyWarningsSection.set(pageReadModel);
@@ -7986,24 +8672,12 @@
       toolbarSection.set(pageReadModel);
       subscriptionsSection.set(pageReadModel);
       cashDistributionsSection.set(pageReadModel);
+      demergersSection.set(pageReadModel);
+      shareSplitsSection.set(pageReadModel);
       taxSummarySectionController.set(pageReadModel);
       ipoSection.set(pageReadModel);
       resultsSection.set(pageReadModel);
     };
-    persistState(languageSelectionState, {
-      storage: localStorage,
-      key: storageKeys.language,
-      serialize: (languageSelection) => languageSelection,
-      deserialize: (raw) => raw === "en" ? "en" : "fi",
-      hydrate: false
-    });
-    persistState(dataState, {
-      storage: sessionStorage,
-      key: storageKeys.windowFormData,
-      serialize: serializeOsakkeetFormData,
-      deserialize: (raw) => normalizeLoadedData(JSON.parse(raw)),
-      hydrate: false
-    });
     pageReadState.onValueChange(applyPageReadModel);
     const initialPageReadModel = pageReadState.get();
     applyPageReadModel(initialPageReadModel);
@@ -8014,6 +8688,8 @@
       toolbarSection.root,
       subscriptionsSection.root,
       cashDistributionsSection.root,
+      demergersSection.root,
+      shareSplitsSection.root,
       taxSummarySectionController.root,
       ipoSection.root,
       resultsSection.root

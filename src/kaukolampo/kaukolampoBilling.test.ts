@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { calculateValues, resolveMonthlyPricingLookup, ymToIndex } from './kaukolampoBilling'
 import type { ContractPricing, MonthlyPrice } from './kaukolampoTypes'
 import { tuusulanjarvenLampo } from './prices/tuusulanjarvenLampo'
@@ -164,5 +164,70 @@ describe(calculateValues, () => {
     expectMoney(totalsByYear[2024].billedTotals.usedPowerPrice, '320.00')
     expectMoney(totalsByYear[2024].billedTotals.monthlyFees, '160.00')
     expectMoney(totalsByYear[2024].billedTotals.total, '480.00')
+  })
+})
+
+describe('payback interest calculations', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-03-01T00:00:00Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('applies the 150 euro buffer month by month before calculating interest', () => {
+    const monthlyPricing: Record<number, MonthlyPrice> = {
+      [ymToIndex({ year: 2024, month: 1 })]: {
+        monthlyFee: Decimal(100),
+        powerPrice: Decimal(100),
+      },
+      [ymToIndex({ year: 2024, month: 2 })]: {
+        monthlyFee: Decimal(100),
+        powerPrice: Decimal(100),
+      },
+      [ymToIndex({ year: 2025, month: 1 })]: {
+        monthlyFee: Decimal(250),
+        powerPrice: Decimal(150),
+      },
+      [ymToIndex({ year: 2025, month: 2 })]: {
+        monthlyFee: Decimal(250),
+        powerPrice: Decimal(150),
+      },
+    }
+    const powerUsage = {
+      [ymToIndex({ year: 2024, month: 1 })]: Decimal(1),
+      [ymToIndex({ year: 2024, month: 2 })]: Decimal(1),
+      [ymToIndex({ year: 2025, month: 1 })]: Decimal(1),
+      [ymToIndex({ year: 2025, month: 2 })]: Decimal(1),
+    }
+
+    const { excessYears, paybackInterestYears } = calculateValues([2024, 2025], monthlyPricing, powerUsage)
+
+    expect(excessYears).toEqual([2025])
+    expect(paybackInterestYears).toHaveLength(1)
+
+    const [interestYear] = paybackInterestYears
+    const [january, february] = interestYear.months
+    expect(interestYear.year).toBe(2025)
+    expectMoney(interestYear.billedTotal, '800.00')
+    expectMoney(interestYear.fromAveragePricesTotals.total, '550.00')
+    expectMoney(interestYear.fromAveragePricesTotals.excess, '250.00')
+    expectMoney(interestYear.fromAveragePricesTotals.interest, '3.43')
+    expectMoney(interestYear.comparingToPreviousYearAnd150BufferTotals.total, '550.00')
+    expectMoney(interestYear.comparingToPreviousYearAnd150BufferTotals.excess, '250.00')
+    expectMoney(interestYear.comparingToPreviousYearAnd150BufferTotals.interest, '2.69')
+
+    expect(january.month).toBe(1)
+    expectMoney(january.excessComparingToPreviousYearAnd150Buffer.totalWithLastYearLevel, '200.00')
+    expectMoney(january.excessComparingToPreviousYearAnd150Buffer.total, '350.00')
+    expectMoney(january.excessComparingToPreviousYearAnd150Buffer.excess, '50.00')
+    expectMoney(january.excessComparingToPreviousYearAnd150Buffer.leftFrom150, '0.00')
+
+    expect(february.month).toBe(2)
+    expectMoney(february.excessComparingToPreviousYearAnd150Buffer.totalWithLastYearLevel, '200.00')
+    expectMoney(february.excessComparingToPreviousYearAnd150Buffer.total, '200.00')
+    expectMoney(february.excessComparingToPreviousYearAnd150Buffer.excess, '200.00')
   })
 })
