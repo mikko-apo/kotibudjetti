@@ -260,6 +260,7 @@ function createOsakkeetFormData(demo: boolean): OsakkeetFormData {
     cashDistributions: [
       { id: createId('distribution'), type: 'capital_return', date: '', amountPerShare: '', shareCount: '' },
     ],
+    shareSplits: [{ id: createId('split'), date: '', multiplier: '' }],
     mathematicalShareValues: [{ id: createId('math'), year: '', valuePerShare: '' }],
     ipo: {
       ipoDate: '',
@@ -306,6 +307,7 @@ function createExampleOsakkeetFormData(preset: ExamplePreset): OsakkeetFormData 
           shareCount: '',
         },
       ],
+      shareSplits: [],
       mathematicalShareValues: [
         { id: createId('math'), year: '2025', valuePerShare: '7.50' },
         { id: createId('math'), year: '2026', valuePerShare: '10.20' },
@@ -375,6 +377,7 @@ function createExampleOsakkeetFormData(preset: ExamplePreset): OsakkeetFormData 
           shareCount: '',
         },
       ],
+      shareSplits: [{ id: createId('split'), date: '02.01.2026', multiplier: '2' }],
       mathematicalShareValues: [
         { id: createId('math'), year: '2022', valuePerShare: '18.00' },
         { id: createId('math'), year: '2023', valuePerShare: '21.50' },
@@ -384,9 +387,9 @@ function createExampleOsakkeetFormData(preset: ExamplePreset): OsakkeetFormData 
       ],
       ipo: {
         ipoDate: '15.09.2026',
-        totalShareCount: '980000',
+        totalShareCount: '1960000',
         totalIpoCost: '320000',
-        currentShareValue: '41.00',
+        currentShareValue: '20.50',
         estimatedPreIpoValue: '40000000',
         estimatedSecondaryShareSellPercentage: '10',
       },
@@ -460,6 +463,7 @@ function createExampleOsakkeetFormData(preset: ExamplePreset): OsakkeetFormData 
         shareCount: '',
       },
     ],
+    shareSplits: [],
     mathematicalShareValues: [
       { id: createId('math'), year: '2022', valuePerShare: '24.00' },
       { id: createId('math'), year: '2023', valuePerShare: '31.00' },
@@ -500,6 +504,11 @@ function sanitizeOsakkeetFormData(data: Partial<OsakkeetFormData>): OsakkeetForm
       amountPerShare: cashDistribution.amountPerShare || '',
       shareCount: cashDistribution.shareCount || '',
     })),
+    shareSplits: (data.shareSplits || []).map((shareSplit) => ({
+      id: shareSplit.id || createId('split'),
+      date: shareSplit.date || '',
+      multiplier: shareSplit.multiplier || '',
+    })),
     mathematicalShareValues: (data.mathematicalShareValues || []).map((row) => ({
       id: row.id || createId('math'),
       year: row.year || '',
@@ -520,7 +529,10 @@ function sanitizeOsakkeetFormData(data: Partial<OsakkeetFormData>): OsakkeetForm
   }
 }
 
-type ShareableOsakkeetUrlData = Pick<OsakkeetFormData, 'cashDistributions' | 'mathematicalShareValues' | 'ipo'>
+type ShareableOsakkeetUrlData = Pick<
+  OsakkeetFormData,
+  'cashDistributions' | 'shareSplits' | 'mathematicalShareValues' | 'ipo'
+>
 
 function createShareableOsakkeetUrlData(data: OsakkeetFormData): ShareableOsakkeetUrlData {
   const sanitized = sanitizeOsakkeetFormData(data)
@@ -531,6 +543,7 @@ function createShareableOsakkeetUrlData(data: OsakkeetFormData): ShareableOsakke
       type: cashDistribution.type,
       amountPerShare: cashDistribution.amountPerShare,
     })),
+    shareSplits: sanitized.shareSplits,
     mathematicalShareValues: sanitized.mathematicalShareValues,
     ipo: sanitized.ipo,
   }
@@ -553,6 +566,11 @@ function normalizeLoadedData(parsed: Partial<OsakkeetFormData>): OsakkeetFormDat
       type: cashDistribution.type || 'capital_return',
       amountPerShare: cashDistribution.amountPerShare || '',
       shareCount: cashDistribution.shareCount || '',
+    })),
+    shareSplits: (parsed.shareSplits || []).map((shareSplit) => ({
+      id: shareSplit.id || createId('split'),
+      date: shareSplit.date || '',
+      multiplier: shareSplit.multiplier || '',
     })),
     mathematicalShareValues: (parsed.mathematicalShareValues || []).map((row) => ({
       ...row,
@@ -619,6 +637,7 @@ function tryLoadSharedUrlData(): OsakkeetFormData | undefined {
     return normalizeLoadedData({
       ...emptyForm,
       cashDistributions: parsed.cashDistributions || [],
+      shareSplits: parsed.shareSplits || [],
       mathematicalShareValues: parsed.mathematicalShareValues || [],
       ipo: {
         ...emptyForm.ipo,
@@ -922,6 +941,102 @@ function createMathematicalShareValuesEditor(
           id: row.id,
           year: row.year,
           valuePerShare: row.valuePerShare,
+          removeLabel: texts.common.remove,
+        }))
+      )
+    },
+  }
+}
+
+type ShareSplitRowViewModel = {
+  id: string
+  date: string
+  multiplier: string
+  removeLabel: string
+}
+
+function createShareSplitsSection(
+  dataState: State<OsakkeetFormData>,
+  localizedTextNodes: LocalizedTextNodes,
+  commonTextNodes: CommonLocalizedTextNodes
+) {
+  const textState = createState({
+    value: {
+      rowCount: '',
+    },
+  })
+  const shareSplitTextNodes = localizedTextNodes.shareSplits
+  const rowCountNode = createTextNodesFromState(textState, { path: ['rowCount'] })
+  const tbodyNode = tbody()
+  const rowsState = createState<ShareSplitRowViewModel[]>({ value: [] })
+  const shareSplits = createStateCollectionEditor(dataState, ['shareSplits'])
+
+  mapStateToDomChildren(rowsState, tbodyNode, {
+    render: (row) => {
+      const rowState = createState({ value: { row } })
+      const rowTextNodes = createTextNodesFromState(rowState, { path: ['row'] })
+      const dateInput = finnishDateInput(row.date, (value) => {
+        shareSplits.patch(row.id, { date: value })
+      })
+      const multiplierInput = numberInput(row.multiplier, (value) => {
+        shareSplits.patch(row.id, { multiplier: value })
+      })
+      const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
+        shareSplits.remove(row.id)
+      })
+
+      return {
+        node: tr(
+          td(div(pageStyles.compactField, dateInput)),
+          td(div(pageStyles.compactField, multiplierInput)),
+          td({ class: 'no-print' }, removeButton)
+        ),
+        set(nextRow) {
+          setInputValue(dateInput, nextRow.date)
+          setInputValue(multiplierInput, nextRow.multiplier)
+          rowState.set({ row: nextRow })
+        },
+      }
+    },
+  })
+
+  const addButton = createActionButton(shareSplitTextNodes.actions.add, 'primary', () => {
+    shareSplits.append({
+      date: '',
+      multiplier: '',
+    })
+  })
+
+  const root = section(
+    { class: 'card' },
+    div({ class: 'heading' }, h2(shareSplitTextNodes.title), span({ class: 'muted' }, rowCountNode)),
+    p({ class: 'muted' }, shareSplitTextNodes.help),
+    table(
+      pageStyles.compactTable,
+      thead(
+        tr(
+          th(commonTextNodes.date),
+          th(shareSplitTextNodes.fields.multiplier),
+          th({ class: 'no-print' }, '')
+        )
+      ),
+      tbodyNode
+    ),
+    div({ class: 'no-print' }, pageStyles.rowButtons, addButton)
+  )
+
+  return {
+    root,
+    set({ osakkeetCalculation, texts }: OsakkeetPageReadModel) {
+      const current = osakkeetCalculation.formData
+      textState.set({
+        rowCount: `${current.shareSplits.length} ${texts.common.rows}`,
+      })
+      rowsState.set(
+        current.shareSplits.map((shareSplit) => ({
+          id: shareSplit.id,
+          date: shareSplit.date,
+          multiplier: shareSplit.multiplier,
           removeLabel: texts.common.remove,
         }))
       )
@@ -2319,6 +2434,11 @@ export function osakkeetIpoCalculatorPage() {
     localizedTextNodes,
     createTextNodesFromState(localizationTexts, { path: ['common'] })
   )
+  const shareSplitsSection = createShareSplitsSection(
+    dataState,
+    localizedTextNodes,
+    createTextNodesFromState(localizationTexts, { path: ['common'] })
+  )
   const taxSummarySectionController = createTaxSummarySection(dataState, localizedTextNodes)
   const ipoSection = createIpoSection(dataState, localizedTextNodes)
   const resultsSection = createResultsSection(dataState, localizedTextNodes)
@@ -2329,6 +2449,7 @@ export function osakkeetIpoCalculatorPage() {
     toolbarSection.set(pageReadModel)
     subscriptionsSection.set(pageReadModel)
     cashDistributionsSection.set(pageReadModel)
+    shareSplitsSection.set(pageReadModel)
     taxSummarySectionController.set(pageReadModel)
     ipoSection.set(pageReadModel)
     resultsSection.set(pageReadModel)
@@ -2359,6 +2480,7 @@ export function osakkeetIpoCalculatorPage() {
     toolbarSection.root,
     subscriptionsSection.root,
     cashDistributionsSection.root,
+    shareSplitsSection.root,
     taxSummarySectionController.root,
     ipoSection.root,
     resultsSection.root

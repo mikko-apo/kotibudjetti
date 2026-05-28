@@ -107,6 +107,16 @@ export const FI = {
         `Osakemäärä ei täsmää merkintöihin tällä päivällä. Odotettu ${expected}, annettu ${given}.`,
     },
   },
+  shareSplits: {
+    title: 'Osakesplitit',
+    help: 'Syötä splitin päivä ja kerroin. Kerroin 2 tarkoittaa, että yksi vanha osake muuttuu kahdeksi. Kerroin 0,5 tarkoittaa, että kaksi vanhaa osaketta yhdistyy yhdeksi.',
+    fields: {
+      multiplier: 'Osakkeita / vanha osake',
+    },
+    actions: {
+      add: 'Lisää split',
+    },
+  },
   ipo: {
     title: 'IPO-tiedot ja yhteenveto',
     fields: {
@@ -371,6 +381,8 @@ export const FI = {
       otherAnnualCapitalGainsOrLosses: 'Muut luovutusvoitot tai tappiot',
       cashDistributionDate: (id: string) => `Varojenjako ${id} päivä`,
       cashDistributionAmountPerShare: (id: string) => `Varojenjako ${id} €/osake`,
+      shareSplitDate: (id: string) => `Split ${id} päivä`,
+      shareSplitMultiplier: (id: string) => `Split ${id} kerroin`,
     },
     warnings: {
       totalShareCountBelowSubscriptions:
@@ -494,6 +506,16 @@ export const EN: typeof FI = {
     messages: {
       shareCountMismatch: (expected: string, given: string) =>
         `Share count does not match subscriptions on this date. Expected ${expected}, given ${given}.`,
+    },
+  },
+  shareSplits: {
+    title: 'Share splits',
+    help: 'Enter the split date and multiplier. A multiplier of 2 means one old share becomes two. A multiplier of 0.5 means two old shares are combined into one.',
+    fields: {
+      multiplier: 'Shares / old share',
+    },
+    actions: {
+      add: 'Add split',
     },
   },
   ipo: {
@@ -761,6 +783,8 @@ export const EN: typeof FI = {
       otherAnnualCapitalGainsOrLosses: 'Other capital gains or losses',
       cashDistributionDate: (id: string) => `Distribution ${id} date`,
       cashDistributionAmountPerShare: (id: string) => `Distribution ${id} EUR/share`,
+      shareSplitDate: (id: string) => `Split ${id} date`,
+      shareSplitMultiplier: (id: string) => `Split ${id} multiplier`,
     },
     warnings: {
       totalShareCountBelowSubscriptions: 'Total share count is lower than the total amount of entered subscriptions.',

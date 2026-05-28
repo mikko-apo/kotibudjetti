@@ -4418,6 +4418,16 @@
         shareCountMismatch: (expected, given) => `Osakem\xE4\xE4r\xE4 ei t\xE4sm\xE4\xE4 merkint\xF6ihin t\xE4ll\xE4 p\xE4iv\xE4ll\xE4. Odotettu ${expected}, annettu ${given}.`
       }
     },
+    shareSplits: {
+      title: "Osakesplitit",
+      help: "Sy\xF6t\xE4 splitin p\xE4iv\xE4 ja kerroin. Kerroin 2 tarkoittaa, ett\xE4 yksi vanha osake muuttuu kahdeksi. Kerroin 0,5 tarkoittaa, ett\xE4 kaksi vanhaa osaketta yhdistyy yhdeksi.",
+      fields: {
+        multiplier: "Osakkeita / vanha osake"
+      },
+      actions: {
+        add: "Lis\xE4\xE4 split"
+      }
+    },
     ipo: {
       title: "IPO-tiedot ja yhteenveto",
       fields: {
@@ -4656,7 +4666,9 @@
         sellAmount: "Myyt\xE4vien osakkeiden m\xE4\xE4r\xE4",
         otherAnnualCapitalGainsOrLosses: "Muut luovutusvoitot tai tappiot",
         cashDistributionDate: (id) => `Varojenjako ${id} p\xE4iv\xE4`,
-        cashDistributionAmountPerShare: (id) => `Varojenjako ${id} \u20AC/osake`
+        cashDistributionAmountPerShare: (id) => `Varojenjako ${id} \u20AC/osake`,
+        shareSplitDate: (id) => `Split ${id} p\xE4iv\xE4`,
+        shareSplitMultiplier: (id) => `Split ${id} kerroin`
       },
       warnings: {
         totalShareCountBelowSubscriptions: "Osakkeiden kokonaism\xE4\xE4r\xE4 on pienempi kuin sy\xF6tettyjen merkint\xF6jen yhteism\xE4\xE4r\xE4.",
@@ -4762,6 +4774,16 @@
       },
       messages: {
         shareCountMismatch: (expected, given) => `Share count does not match subscriptions on this date. Expected ${expected}, given ${given}.`
+      }
+    },
+    shareSplits: {
+      title: "Share splits",
+      help: "Enter the split date and multiplier. A multiplier of 2 means one old share becomes two. A multiplier of 0.5 means two old shares are combined into one.",
+      fields: {
+        multiplier: "Shares / old share"
+      },
+      actions: {
+        add: "Add split"
       }
     },
     ipo: {
@@ -5002,7 +5024,9 @@
         sellAmount: "Number of shares to sell",
         otherAnnualCapitalGainsOrLosses: "Other capital gains or losses",
         cashDistributionDate: (id) => `Distribution ${id} date`,
-        cashDistributionAmountPerShare: (id) => `Distribution ${id} EUR/share`
+        cashDistributionAmountPerShare: (id) => `Distribution ${id} EUR/share`,
+        shareSplitDate: (id) => `Split ${id} date`,
+        shareSplitMultiplier: (id) => `Split ${id} multiplier`
       },
       warnings: {
         totalShareCountBelowSubscriptions: "Total share count is lower than the total amount of entered subscriptions.",
@@ -5206,8 +5230,76 @@
     }
     return mathematicalShareValuesByYear;
   }
-  function parseIpoAndSellInputs(form2, totalSubscribedShares, totalSubscribedCost, errors, warnings, localization) {
-    const ipoDate = dateOrUndefined(form2.ipo.ipoDate, localization.calculator.fields.ipoDate, errors, localization);
+  function createParsedCashDistributions(rows = [], errors, localization) {
+    return rows.map((row) => ({
+      id: row.id,
+      date: row.date,
+      dateValue: dateOrUndefined(row.date, localization.calculator.fields.cashDistributionDate(row.id), errors, localization),
+      type: row.type,
+      amountPerShare: decimalOrZero(
+        row.amountPerShare,
+        localization.calculator.fields.cashDistributionAmountPerShare(row.id),
+        errors,
+        localization
+      )
+    }));
+  }
+  function createParsedShareSplits(rows = [], errors, localization) {
+    return rows.map((row) => {
+      const multiplierField = localization.calculator.fields.shareSplitMultiplier(row.id);
+      const normalizedDate = row.date.trim();
+      const normalizedMultiplier = row.multiplier.trim();
+      if (normalizedDate === "" && normalizedMultiplier === "") {
+        return {
+          id: row.id,
+          date: row.date,
+          dateValue: void 0,
+          multiplier: zero
+        };
+      }
+      let parsedMultiplier = zero;
+      if (normalizedMultiplier === "") {
+        errors.push(localization.calculator.validation.invalidNumber(multiplierField));
+      } else {
+        try {
+          parsedMultiplier = new decimal_default(normalizedMultiplier);
+          if (parsedMultiplier.lte(0)) {
+            errors.push(localization.calculator.validation.invalidNumber(multiplierField));
+          }
+        } catch {
+          errors.push(localization.calculator.validation.invalidNumber(multiplierField));
+        }
+      }
+      return {
+        id: row.id,
+        date: row.date,
+        dateValue: dateOrUndefined(row.date, localization.calculator.fields.shareSplitDate(row.id), errors, localization),
+        multiplier: parsedMultiplier
+      };
+    });
+  }
+  function cloneLots(lots) {
+    return lots.map((lot) => ({
+      ...lot,
+      capitalRepaymentBreakdown: lot.capitalRepaymentBreakdown.map((entry) => ({ ...entry }))
+    }));
+  }
+  function applyShareSplit(lots, entry) {
+    if (!entry.dateValue || entry.multiplier.lte(0)) return;
+    for (const lot of lots) {
+      if (lot.dateValue && lot.dateValue.getTime() > entry.dateValue.getTime()) continue;
+      lot.amount = lot.amount.mul(entry.multiplier);
+    }
+  }
+  function applyShareSplitsToLots(lots, shareSplits, upToDate) {
+    for (const entry of shareSplits.filter((shareSplit) => {
+      if (!upToDate) return true;
+      return !!shareSplit.dateValue && shareSplit.dateValue.getTime() <= upToDate.getTime();
+    }).sort((a2, b2) => compareDateStrings(a2.date, b2.date))) {
+      applyShareSplit(lots, entry);
+    }
+  }
+  function parseIpoAndSellInputs(form2, ipoDate, totalSubscribedShares, totalSubscribedCost, errors, warnings, localization) {
     const totalShareCountInput = decimalOrZero(
       form2.ipo.totalShareCount,
       localization.calculator.fields.totalShareCount,
@@ -5300,22 +5392,33 @@
       unvestedShares: sumDecimals(lockedLots.map((lot) => lot.amount))
     };
   }
-  function applyCashDistributions(lots, entries, ipoDate, mathematicalShareValuesByYear, rules, errors, warnings, localization) {
+  function applyCashDistributions(lots, cashDistributions, shareSplits, ipoDate, mathematicalShareValuesByYear, rules, warnings, localization, options = {}) {
     const capitalDividendUsedByYear = /* @__PURE__ */ new Map();
     const grossDividendUsedByYear = /* @__PURE__ */ new Map();
-    return [...entries].sort((a2, b2) => compareDateStrings(a2.date, b2.date)).map((entry) => {
-      const cashDistributionDate = dateOrUndefined(
-        entry.date,
-        localization.calculator.fields.cashDistributionDate(entry.id),
-        errors,
-        localization
-      );
-      const amountPerShare = decimalOrZero(
-        entry.amountPerShare,
-        localization.calculator.fields.cashDistributionAmountPerShare(entry.id),
-        errors,
-        localization
-      );
+    const events2 = [
+      ...shareSplits.filter((entry) => {
+        if (!options.stopAtIpoDate || !ipoDate) return true;
+        return !!entry.dateValue && entry.dateValue.getTime() <= ipoDate.getTime();
+      }).map((entry) => ({ kind: "split", date: entry.date, entry })),
+      ...cashDistributions.filter((entry) => {
+        if (!options.stopAtIpoDate || !ipoDate) return true;
+        return !!entry.dateValue && entry.dateValue.getTime() < ipoDate.getTime();
+      }).map((entry) => ({ kind: "distribution", date: entry.date, entry }))
+    ].sort((a2, b2) => {
+      const dateComparison = compareDateStrings(a2.date, b2.date);
+      if (dateComparison !== 0) return dateComparison;
+      if (a2.kind === b2.kind) return 0;
+      return a2.kind === "split" ? -1 : 1;
+    });
+    const summaries = [];
+    for (const event of events2) {
+      if (event.kind === "split") {
+        applyShareSplit(lots, event.entry);
+        continue;
+      }
+      const entry = event.entry;
+      const cashDistributionDate = entry.dateValue;
+      const amountPerShare = entry.amountPerShare;
       const eligibleLots = lots.filter(
         (lot) => !lot.dateValue || !cashDistributionDate || lot.dateValue.getTime() <= cashDistributionDate.getTime()
       );
@@ -5390,29 +5493,32 @@
         capitalDividendUsedByYear.set(year, usedCapitalDividend.add(capitalDividendGross));
         grossDividendUsedByYear.set(year, usedGrossDividend.add(dividendTotal));
       }
-      return {
-        id: entry.id,
-        date: entry.date,
-        type: effectiveType,
-        amountPerShare,
-        sharesHeld,
-        mathematicalShareValuePerShare,
-        shareholderMathematicalValue,
-        eightPercentYieldLimit,
-        expectedTotal,
-        grossTotal,
-        paidInCash,
-        capitalRepaymentTotal,
-        dividendTotal,
-        withholdingToTaxOffice,
-        taxableCapitalIncome,
-        taxFreeCapitalIncomePortion,
-        taxableEarnedDividend,
-        taxFreeEarnedDividend,
-        treatedAsListedDividend: isAfterIpoDate,
-        allocations
-      };
-    });
+      summaries.push(
+        {
+          id: entry.id,
+          date: entry.date,
+          type: effectiveType,
+          amountPerShare,
+          sharesHeld,
+          mathematicalShareValuePerShare,
+          shareholderMathematicalValue,
+          eightPercentYieldLimit,
+          expectedTotal,
+          grossTotal,
+          paidInCash,
+          capitalRepaymentTotal,
+          dividendTotal,
+          withholdingToTaxOffice,
+          taxableCapitalIncome,
+          taxFreeCapitalIncomePortion,
+          taxableEarnedDividend,
+          taxFreeEarnedDividend,
+          treatedAsListedDividend: isAfterIpoDate,
+          allocations
+        }
+      );
+    }
+    return summaries;
   }
   function calculateSellSummary(sellableLots, sellAmount, otherAnnualCapitalGainsOrLosses, vestingSummary, ipoSummary, rules, errors, warnings, localization) {
     if (sellAmount.gt(0) && !ipoSummary.ipoDate && vestingSummary.lockedLots.length > 0) {
@@ -5556,30 +5662,49 @@
   function calculateOsakkeet(form2, localization = FI, rules = OSAKKEET_TAX_RULES_2026) {
     const errors = [];
     const warnings = [];
-    const lots = [...form2.subscriptions].sort((a2, b2) => compareDateStrings(a2.date, b2.date)).map((subscription) => createLot(subscription, errors, localization));
-    const totalSubscribedShares = sumDecimals(lots.map((lot) => lot.amount));
-    const totalSubscribedCost = sumDecimals(lots.map((lot) => lot.totalPrice));
+    const baseLots = [...form2.subscriptions].sort((a2, b2) => compareDateStrings(a2.date, b2.date)).map((subscription) => createLot(subscription, errors, localization));
+    const totalSubscribedCost = sumDecimals(baseLots.map((lot) => lot.totalPrice));
+    const ipoDate = dateOrUndefined(form2.ipo.ipoDate, localization.calculator.fields.ipoDate, errors, localization);
     const mathematicalShareValuesByYear = createMathematicalShareValuesByYear(
       form2.mathematicalShareValues,
       errors,
       localization
     );
-    const { ipoDate, sellAmount, otherAnnualCapitalGainsOrLosses, ipo } = parseIpoAndSellInputs(
+    const parsedCashDistributions = createParsedCashDistributions(form2.cashDistributions, errors, localization);
+    const parsedShareSplits = createParsedShareSplits(form2.shareSplits, errors, localization);
+    const splitAdjustedLots = cloneLots(baseLots);
+    applyShareSplitsToLots(splitAdjustedLots, parsedShareSplits, ipoDate);
+    const totalSubscribedShares = sumDecimals(splitAdjustedLots.map((lot) => lot.amount));
+    const { sellAmount, otherAnnualCapitalGainsOrLosses, ipo } = parseIpoAndSellInputs(
       form2,
+      ipoDate,
       totalSubscribedShares,
       totalSubscribedCost,
       errors,
       warnings,
       localization
     );
-    const vesting = calculateVestingSummary(lots, ipoDate);
-    const cashDistributions = applyCashDistributions(
-      lots,
-      form2.cashDistributions,
+    const ipoTimelineLots = cloneLots(baseLots);
+    applyCashDistributions(
+      ipoTimelineLots,
+      parsedCashDistributions,
+      parsedShareSplits,
       ipoDate,
       mathematicalShareValuesByYear,
       rules,
-      errors,
+      warnings,
+      localization,
+      { stopAtIpoDate: true }
+    );
+    const vesting = calculateVestingSummary(ipoTimelineLots, ipoDate);
+    const lots = cloneLots(baseLots);
+    const cashDistributions = applyCashDistributions(
+      lots,
+      parsedCashDistributions,
+      parsedShareSplits,
+      ipoDate,
+      mathematicalShareValuesByYear,
+      rules,
       warnings,
       localization
     );
@@ -6112,6 +6237,7 @@
       cashDistributions: [
         { id: createId2("distribution"), type: "capital_return", date: "", amountPerShare: "", shareCount: "" }
       ],
+      shareSplits: [{ id: createId2("split"), date: "", multiplier: "" }],
       mathematicalShareValues: [{ id: createId2("math"), year: "", valuePerShare: "" }],
       ipo: {
         ipoDate: "",
@@ -6157,6 +6283,7 @@
             shareCount: ""
           }
         ],
+        shareSplits: [],
         mathematicalShareValues: [
           { id: createId2("math"), year: "2025", valuePerShare: "7.50" },
           { id: createId2("math"), year: "2026", valuePerShare: "10.20" }
@@ -6225,6 +6352,7 @@
             shareCount: ""
           }
         ],
+        shareSplits: [{ id: createId2("split"), date: "02.01.2026", multiplier: "2" }],
         mathematicalShareValues: [
           { id: createId2("math"), year: "2022", valuePerShare: "18.00" },
           { id: createId2("math"), year: "2023", valuePerShare: "21.50" },
@@ -6234,9 +6362,9 @@
         ],
         ipo: {
           ipoDate: "15.09.2026",
-          totalShareCount: "980000",
+          totalShareCount: "1960000",
           totalIpoCost: "320000",
-          currentShareValue: "41.00",
+          currentShareValue: "20.50",
           estimatedPreIpoValue: "40000000",
           estimatedSecondaryShareSellPercentage: "10"
         },
@@ -6309,6 +6437,7 @@
           shareCount: ""
         }
       ],
+      shareSplits: [],
       mathematicalShareValues: [
         { id: createId2("math"), year: "2022", valuePerShare: "24.00" },
         { id: createId2("math"), year: "2023", valuePerShare: "31.00" },
@@ -6349,6 +6478,11 @@
         amountPerShare: cashDistribution.amountPerShare || "",
         shareCount: cashDistribution.shareCount || ""
       })),
+      shareSplits: (data2.shareSplits || []).map((shareSplit) => ({
+        id: shareSplit.id || createId2("split"),
+        date: shareSplit.date || "",
+        multiplier: shareSplit.multiplier || ""
+      })),
       mathematicalShareValues: (data2.mathematicalShareValues || []).map((row) => ({
         id: row.id || createId2("math"),
         year: row.year || "",
@@ -6377,6 +6511,7 @@
         type: cashDistribution.type,
         amountPerShare: cashDistribution.amountPerShare
       })),
+      shareSplits: sanitized.shareSplits,
       mathematicalShareValues: sanitized.mathematicalShareValues,
       ipo: sanitized.ipo
     };
@@ -6398,6 +6533,11 @@
         type: cashDistribution.type || "capital_return",
         amountPerShare: cashDistribution.amountPerShare || "",
         shareCount: cashDistribution.shareCount || ""
+      })),
+      shareSplits: (parsed.shareSplits || []).map((shareSplit) => ({
+        id: shareSplit.id || createId2("split"),
+        date: shareSplit.date || "",
+        multiplier: shareSplit.multiplier || ""
       })),
       mathematicalShareValues: (parsed.mathematicalShareValues || []).map((row) => ({
         ...row
@@ -6459,6 +6599,7 @@
       return normalizeLoadedData({
         ...emptyForm,
         cashDistributions: parsed.cashDistributions || [],
+        shareSplits: parsed.shareSplits || [],
         mathematicalShareValues: parsed.mathematicalShareValues || [],
         ipo: {
           ...emptyForm.ipo,
@@ -6725,6 +6866,85 @@
             id: row.id,
             year: row.year,
             valuePerShare: row.valuePerShare,
+            removeLabel: texts.common.remove
+          }))
+        );
+      }
+    };
+  }
+  function createShareSplitsSection(dataState, localizedTextNodes, commonTextNodes) {
+    const textState = createState({
+      value: {
+        rowCount: ""
+      }
+    });
+    const shareSplitTextNodes = localizedTextNodes.shareSplits;
+    const rowCountNode = createTextNodesFromState(textState, { path: ["rowCount"] });
+    const tbodyNode = tbody();
+    const rowsState = createState({ value: [] });
+    const shareSplits = createStateCollectionEditor(dataState, ["shareSplits"]);
+    mapStateToDomChildren(rowsState, tbodyNode, {
+      render: (row) => {
+        const rowState = createState({ value: { row } });
+        const rowTextNodes = createTextNodesFromState(rowState, { path: ["row"] });
+        const dateInput = finnishDateInput(row.date, (value) => {
+          shareSplits.patch(row.id, { date: value });
+        });
+        const multiplierInput = numberInput(row.multiplier, (value) => {
+          shareSplits.patch(row.id, { multiplier: value });
+        });
+        const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
+          shareSplits.remove(row.id);
+        });
+        return {
+          node: tr(
+            td(div(pageStyles.compactField, dateInput)),
+            td(div(pageStyles.compactField, multiplierInput)),
+            td({ class: "no-print" }, removeButton)
+          ),
+          set(nextRow) {
+            setInputValue(dateInput, nextRow.date);
+            setInputValue(multiplierInput, nextRow.multiplier);
+            rowState.set({ row: nextRow });
+          }
+        };
+      }
+    });
+    const addButton = createActionButton(shareSplitTextNodes.actions.add, "primary", () => {
+      shareSplits.append({
+        date: "",
+        multiplier: ""
+      });
+    });
+    const root = section(
+      { class: "card" },
+      div({ class: "heading" }, h2(shareSplitTextNodes.title), span({ class: "muted" }, rowCountNode)),
+      p({ class: "muted" }, shareSplitTextNodes.help),
+      table(
+        pageStyles.compactTable,
+        thead(
+          tr(
+            th(commonTextNodes.date),
+            th(shareSplitTextNodes.fields.multiplier),
+            th({ class: "no-print" }, "")
+          )
+        ),
+        tbodyNode
+      ),
+      div({ class: "no-print" }, pageStyles.rowButtons, addButton)
+    );
+    return {
+      root,
+      set({ osakkeetCalculation, texts }) {
+        const current = osakkeetCalculation.formData;
+        textState.set({
+          rowCount: `${current.shareSplits.length} ${texts.common.rows}`
+        });
+        rowsState.set(
+          current.shareSplits.map((shareSplit) => ({
+            id: shareSplit.id,
+            date: shareSplit.date,
+            multiplier: shareSplit.multiplier,
             removeLabel: texts.common.remove
           }))
         );
@@ -7976,6 +8196,11 @@
       localizedTextNodes,
       createTextNodesFromState(localizationTexts, { path: ["common"] })
     );
+    const shareSplitsSection = createShareSplitsSection(
+      dataState,
+      localizedTextNodes,
+      createTextNodesFromState(localizationTexts, { path: ["common"] })
+    );
     const taxSummarySectionController = createTaxSummarySection(dataState, localizedTextNodes);
     const ipoSection = createIpoSection(dataState, localizedTextNodes);
     const resultsSection = createResultsSection(dataState, localizedTextNodes);
@@ -7986,6 +8211,7 @@
       toolbarSection.set(pageReadModel);
       subscriptionsSection.set(pageReadModel);
       cashDistributionsSection.set(pageReadModel);
+      shareSplitsSection.set(pageReadModel);
       taxSummarySectionController.set(pageReadModel);
       ipoSection.set(pageReadModel);
       resultsSection.set(pageReadModel);
@@ -8014,6 +8240,7 @@
       toolbarSection.root,
       subscriptionsSection.root,
       cashDistributionsSection.root,
+      shareSplitsSection.root,
       taxSummarySectionController.root,
       ipoSection.root,
       resultsSection.root

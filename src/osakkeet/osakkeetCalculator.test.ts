@@ -27,6 +27,7 @@ function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetForm
       },
     ],
     cashDistributions: [],
+    shareSplits: [],
     mathematicalShareValues: [
       { id: 'm1', year: '2024', valuePerShare: '20' },
       { id: 'm2', year: '2025', valuePerShare: '20' },
@@ -205,6 +206,105 @@ describe(calculateOsakkeet, () => {
     expect(result.subscriptions[0].capitalRepaymentPerShare.toFixed(2)).toBe('0.00')
     expect(result.subscriptions[1].capitalRepaymentPerShare.toFixed(2)).toBe('2.00')
     expect(result.subscriptions[1].remainingCostPerShare.toFixed(2)).toBe('2.00')
+  })
+
+  it('applies share splits to later share counts while keeping total acquisition cost unchanged', () => {
+    const result = calculateOsakkeet(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '4',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        shareSplits: [{ id: 'split1', date: '2024-01-01', multiplier: '2' }],
+        cashDistributions: [],
+        ipo: {
+          ipoDate: '2026-06-01',
+          totalShareCount: '',
+          totalIpoCost: '0',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1200',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.subscriptions[0].amount.toFixed(2)).toBe('200.00')
+    expect(result.subscriptions[0].totalPrice.toFixed(2)).toBe('400.00')
+    expect(result.subscriptions[0].totalPricePerShare.toFixed(2)).toBe('2.00')
+    expect(result.subscriptions[0].remainingCostPerShare.toFixed(2)).toBe('2.00')
+    expect(result.ipo.totalSubscribedShares.toFixed(2)).toBe('200.00')
+    expect(result.vesting.totalShares.toFixed(2)).toBe('200.00')
+  })
+
+  it('uses split-adjusted shares for later cash distributions', () => {
+    const result = calculateOsakkeet(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '4',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        shareSplits: [{ id: 'split1', date: '2024-01-01', multiplier: '2' }],
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-06-01', amountPerShare: '1' }],
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.cashDistributions[0].sharesHeld.toFixed(2)).toBe('200.00')
+    expect(result.cashDistributions[0].grossTotal.toFixed(2)).toBe('200.00')
+    expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('200.00')
+    expect(result.subscriptions[0].capitalRepaymentPerShare.toFixed(2)).toBe('1.00')
+    expect(result.subscriptions[0].remainingCostTotal.toFixed(2)).toBe('200.00')
+  })
+
+  it('uses split-adjusted shares in ipo sell allocation', () => {
+    const result = calculateOsakkeet(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2013',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        shareSplits: [{ id: 'split1', date: '2024-01-01', multiplier: '2' }],
+        ipo: {
+          ipoDate: '2026-06-01',
+          totalShareCount: '',
+          totalIpoCost: '0',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1000',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+        sell: {
+          amount: '150',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.sell.usedSubscriptions).toHaveLength(1)
+    expect(result.sell.usedSubscriptions[0].totalSubscriptionShares.toFixed(2)).toBe('200.00')
+    expect(result.sell.usedSubscriptions[0].soldAmount.toFixed(2)).toBe('150.00')
+    expect(result.sell.usedSubscriptions[0].originalCostBasis.toFixed(2)).toBe('75.00')
+    expect(result.sell.usedSubscriptions[0].realCostBasis.toFixed(2)).toBe('75.00')
+    expect(result.sell.remainingUnsoldShares.toFixed(2)).toBe('50.00')
   })
 
   it('treats cash distributions on or after ipo date as dividends', () => {
@@ -448,6 +548,7 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        shareSplits: [],
         cashDistributions: [
           { id: 'd1', type: 'capital_return', date: '30.06.2023', amountPerShare: '0.10' },
           { id: 'd2', type: 'capital_return', date: '30.06.2024', amountPerShare: '0.15' },
@@ -504,6 +605,7 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        shareSplits: [],
         cashDistributions: [{ id: 'd1', type: 'capital_return', date: '30.06.2024', amountPerShare: '0.18' }],
         mathematicalShareValues: [
           { id: 'm1', year: '2024', valuePerShare: '2.20' },
@@ -546,6 +648,7 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        shareSplits: [],
         cashDistributions: [
           { id: 'd1', type: 'dividend', date: '30.06.2025', amountPerShare: '1.5' },
           { id: 'd2', type: 'capital_return', date: 'bad-date', amountPerShare: '-1' },
