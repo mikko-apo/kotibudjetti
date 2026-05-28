@@ -187,6 +187,21 @@ describe(calculateOsakkeet, () => {
     expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('200.00')
     expect(result.subscriptions[0].cashDistributionGrossTotal.toFixed(2)).toBe('200.00')
     expect(result.subscriptions[1].cashDistributionGrossTotal.toFixed(2)).toBe('100.00')
+    expect(
+      result.subscriptions[1].capitalRepaymentBreakdown.map((entry) => ({
+        distributionDate: entry.distributionDate,
+        shares: entry.shares.toFixed(2),
+        capitalRepaymentPerShare: entry.capitalRepaymentPerShare.toFixed(2),
+        capitalRepaymentTotal: entry.capitalRepaymentTotal.toFixed(2),
+      }))
+    ).toEqual([
+      {
+        distributionDate: '2024-01-01',
+        shares: '50.00',
+        capitalRepaymentPerShare: '2.00',
+        capitalRepaymentTotal: '100.00',
+      },
+    ])
     expect(result.subscriptions[0].capitalRepaymentPerShare.toFixed(2)).toBe('0.00')
     expect(result.subscriptions[1].capitalRepaymentPerShare.toFixed(2)).toBe('2.00')
     expect(result.subscriptions[1].remainingCostPerShare.toFixed(2)).toBe('2.00')

@@ -49,12 +49,19 @@ export const FI = {
     help: 'Syötä kaikki merkintäerät omassa hankintajärjestyksessä. Myynnissä käytetään FIFO-periaatetta, ja IPO-päivän jälkeen päättyvä ansaintajakso estää merkintäerän myynnin.',
     fields: {
       vestingEndsOn: 'Ansaintajakso päättyy',
-      pricePerShare: 'Hinta / osake',
+      vestingEndsOnHelp:
+        'Tässä laskurissa ansaintajakso vaikuttaa kahteen asiaan. 1) Jos ansaintajakso päättyy vasta IPO-päivän jälkeen, merkintäerää ei lasketa myytäväksi IPO:ssa. 2) Jos työsuhde tai muu järjestelyn ehto päättyy ennen ansaintajakson loppua, yhtiöllä tai muilla osakkailla voi käytännössä olla oikeus ostaa tai lunastaa osakkeet takaisin. Oikeudellisesti ansaintajakso ei yksin aiheuta tätä: osake on lähtökohtaisesti vapaasti luovutettava, jollei yhtiöjärjestyksessä ole sallittua lunastus- tai suostumuslauseketta tai jollei takaisinostosta ole sovittu erikseen osakassopimuksessa, merkintäehdoissa tai työsuhdepohjaisessa järjestelyssä. Yhtiön omien osakkeiden hankinta tai lunastus edellyttää lisäksi osakeyhtiölain 15 luvun mukaista menettelyä ja jakokelpoisia varoja.',
+      pricePerShare: 'Alkuperäinen hinta / osake',
       otherTotalAcquisitionCosts: 'Muut hankintamenot yhteensä',
       otherTotalAcquisitionCostsHelp:
         'Syötä tähän esimerkiksi varainsiirtovero, merkintään liittyvät palkkiot ja muut hankinnasta aiheutuneet kulut. Älä syötä tähän tulonhankkimisvelan korkoja, vaan ilmoita ne vuosiverotuksessa kohdassa pääomatuloista tehtävät vähennykset.',
       totalPricePerShare: 'Kokonaishankintameno / osake',
       totalReimbursements: 'Pääomanpalautukset yhteensä',
+      totalReimbursementsHelp:
+        'Tässä laskurissa ennen IPO-päivää tehty SVOP-varojenjako lasketaan pääomanpalautukseksi vain siltä osin kuin se palauttaa saman osakkaan omaa enintään 10 vuotta vanhaa pääomasijoitusta. Pääomanpalautus vähentää jäljellä olevaa todellista hankintamenoa enintään siihen määrään asti. Hankintameno-olettamaa ei käytetä pääomanpalautukseen. IPO-päivänä tai sen jälkeen varojenjako käsitellään tässä laskurissa osinkona.',
+      totalReimbursementsTooltipIntro: 'Muodostuu näistä pääomanpalautuksista:',
+      totalReimbursementsTooltipLine: (date: string, amountPerShare: string, shares: string, total: string) =>
+        `${date}: ${amountPerShare} / osake x ${shares} osaketta = ${total}`,
       capitalRepaymentPerShare: 'Pääomanpalautus / osake',
       remainingCostPerShare: 'Jäljellä oleva hankintameno / osake',
     },
@@ -74,9 +81,19 @@ export const FI = {
       shareCount: 'Osakkeita yhteensä',
       amountPerShare: '€/osake',
       withholding: 'Ennakko verottajalle',
+      withholdingHelp:
+        'Tämä on laskurin arvioima ennakonpidätys, jonka yhtiö pidättää varojenjaosta verottajalle ennen maksua. IPO-päivänä tai sen jälkeen laskuri käsittelee varojenjaon listatun yhtiön osinkona. Ennen IPO:ta ennakonpidätys lasketaan vain siitä osasta, joka verotetaan osinkona eikä pääomanpalautuksena.',
       cashPaid: 'Maksettu käteisenä',
+      cashPaidHelp:
+        'Tämä on osakkaalle maksettava nettokäteinen varojenjaosta sen jälkeen, kun ennakko verottajalle on vähennetty. Laskurissa summa lasketaan kaavalla yhteensä minus ennakko verottajalle.',
       capitalRepayment: 'Pääomanpalautus',
+      capitalRepaymentHelp:
+        'Tätä arvoa käytetään vuositason verolaskennassa erottamaan se osa varojenjaosta, joka käsitellään pääomanpalautuksena eikä osinkona.',
+      capitalRepaymentSharesHelp: (shares: string) => `Tämän rivin pääomanpalautus lasketaan ${shares} osakkeelle.`,
       dividend: 'Osinko',
+      dividendHelp:
+        'Tätä arvoa käytetään vuositason verolaskennassa osingon veronalaisen ja verovapaan osuuden sekä ennakonpidätyksen laskentaan.',
+      dividendSharesHelp: (shares: string) => `Tämän rivin osinko lasketaan ${shares} osakkeelle.`,
     },
     actions: {
       add: 'Lisää varojenjako',
@@ -238,12 +255,24 @@ export const FI = {
   taxReturns: {
     title: 'Yhteenveto veroilmoituksista',
     yearWarningMissingMathValue: 'Osinkoverotuksen jakoa ei voitu laskea ilman vuoden matemaattista arvoa / osake.',
+    sections: {
+      unlisted: 'Listaamaton yhtiö',
+      unlistedHelp:
+        'Tässä osiossa näkyvät ennen IPO-päivää saadut varojenjaot, jotka tämän laskurin mukaan kuuluvat muun kuin julkisesti noteeratun yhtiön tietoihin. Tarkista, että tiedot näkyvät esitäytetyllä veroilmoituksella. Jos tietoja puuttuu tai ne ovat väärin, korjaa ne OmaVerossa.',
+      listed: 'Listattu yhtiö',
+    },
     fields: {
       taxableCapitalIncome: 'Veronalaista pääomatuloa',
       taxFreeCapitalIncome: 'Verotonta pääomatuloa',
       taxableEarnedDividend: 'Veronalaista ansiotulo-osinkoa',
       taxFreeEarnedDividend: 'Verotonta ansiotulo-osinkoa',
       ipoSaleAllocation: 'IPO-myynnin jako',
+      unlistedCapitalRepaymentHelp:
+        'Tämä osa on luovutuksena verotettavaa pääomanpalautusta, ei osinkoa. Tarkista, että se näkyy esitäytetyllä veroilmoituksella pääomanpalautuksena. Jos tieto puuttuu, ilmoita tai korjaa se OmaVerossa arvopaperien luovutuksena.',
+      unlistedDividendHelp:
+        'Tämä osa ilmoitetaan muun kuin julkisesti noteeratun yhtiön osinkona. Tarkista esitäytetty veroilmoitus. Jos tieto puuttuu, lisää OmaVerossa uusi osinkotulo ja valitse listaamaton yhtiö.',
+      listedDividendHelp:
+        'Tämä osa ilmoitetaan listatun yhtiön osinkona. Tarkista esitäytetty veroilmoitus. Jos tieto puuttuu, lisää OmaVerossa uusi osinkotulo ja valitse listattu yhtiö.',
     },
   },
   storage: {
@@ -255,7 +284,9 @@ export const FI = {
       copyShareUrl: 'Kopioi yrityksen tiedot URL:iin',
       saveFile: 'Tallenna',
       loadFile: 'Lataa tiedosto',
-      showExample: 'Näytä esimerkki',
+      showSmallExample: 'Pienomistaja, 2v',
+      showMediumExample: 'Medium, 8v',
+      showLargeExample: 'Large, 16v',
       clearExample: 'Tyhjennä',
     },
     table: {
@@ -312,6 +343,7 @@ export const FI = {
   sources: {
     dividends: 'Verohallinto: Osingot listaamattomasta yhtiöstä',
     listedDividends: 'Verohallinto: Osingot listatusta yhtiöstä',
+    reporting: 'Verohallinto: Esitäytetty veroilmoitus - näin ilmoitat OmaVerossa tai paperilla',
     form9a: 'Verohallinto: 9A täyttöohje',
     sales: 'Verohallinto: Osakkeiden myynti',
   },
@@ -405,12 +437,19 @@ export const EN: typeof FI = {
     help: 'Enter all subscription lots in acquisition order. FIFO is used for sales, and a vesting period ending after the IPO date blocks that lot from being sold.',
     fields: {
       vestingEndsOn: 'Vesting ends',
-      pricePerShare: 'Price / share',
+      vestingEndsOnHelp:
+        'In this calculator, the vesting period affects two things. 1) If vesting ends only after the IPO date, that lot is not treated as sellable in the IPO. 2) If employment or another plan condition ends before vesting is complete, the company or other shareholders may in practice have a right to buy back or redeem the shares. Legally, vesting alone does not create that result: shares are freely transferable by default unless the articles contain a permitted redemption or consent clause, or unless a separate buyback obligation has been agreed in a shareholders agreement, subscription terms, or an employment-based arrangement. In addition, a company buyback or redemption of its own shares must follow Chapter 15 of the Finnish Companies Act and requires distributable funds.',
+      pricePerShare: 'Original price / share',
       otherTotalAcquisitionCosts: 'Other acquisition costs total',
       otherTotalAcquisitionCostsHelp:
         'Enter items such as transfer tax, subscription-related fees, and other acquisition costs. Do not include interest on income-producing debt here; report that in annual taxation under deductions from capital income.',
       totalPricePerShare: 'Total acquisition cost / share',
       totalReimbursements: 'Capital repayments total',
+      totalReimbursementsHelp:
+        'In this calculator, a pre-IPO distribution from the invested unrestricted equity reserve is treated as capital repayment only to the extent it returns the same shareholder’s own capital investment made within the previous 10 years. The capital repayment reduces the remaining actual acquisition cost only up to that amount. The deemed acquisition cost is not used for capital repayments. On the IPO date and after it, distributions are treated as dividends in this calculator.',
+      totalReimbursementsTooltipIntro: 'Built from these applied capital repayments:',
+      totalReimbursementsTooltipLine: (date: string, amountPerShare: string, shares: string, total: string) =>
+        `${date}: ${amountPerShare} / share x ${shares} shares = ${total}`,
       capitalRepaymentPerShare: 'Capital repayment / share',
       remainingCostPerShare: 'Remaining acquisition cost / share',
     },
@@ -430,9 +469,20 @@ export const EN: typeof FI = {
       shareCount: 'Total shares',
       amountPerShare: 'EUR / share',
       withholding: 'To tax office in advance',
+      withholdingHelp:
+        'This is the calculator’s estimate of withholding that the company remits to the tax authority before payment. On and after the IPO date, the calculator treats the distribution as a listed-company dividend. Before the IPO, withholding is calculated only on the part that is taxed as dividend, not as capital repayment.',
       cashPaid: 'Paid in cash',
+      cashPaidHelp:
+        'This is the net cash paid to the shareholder after the withholding amount has been deducted. In the calculator, the value is total amount minus withholding to the tax authority.',
       capitalRepayment: 'Capital repayment',
+      capitalRepaymentHelp:
+        'This value is used in the annual tax calculation to separate the part of the distribution that is treated as capital repayment rather than dividend.',
+      capitalRepaymentSharesHelp: (shares: string) =>
+        `The capital repayment on this row is calculated using ${shares} shares.`,
       dividend: 'Dividend',
+      dividendHelp:
+        'This value is used in the annual tax calculation to determine the taxable and tax-free dividend portions and the withholding amount.',
+      dividendSharesHelp: (shares: string) => `The dividend on this row is calculated using ${shares} shares.`,
     },
     actions: {
       add: 'Add distribution',
@@ -595,12 +645,24 @@ export const EN: typeof FI = {
     title: 'Tax return summary',
     yearWarningMissingMathValue:
       'Dividend tax split could not be calculated without the year-specific mathematical value / share.',
+    sections: {
+      unlisted: 'Unlisted company',
+      unlistedHelp:
+        'This section shows pre-IPO distributions that, in this calculator, belong under non-listed company reporting. Check that the data appears on your pre-completed tax return. If information is missing or incorrect, correct it in MyTax.',
+      listed: 'Listed company',
+    },
     fields: {
       taxableCapitalIncome: 'Taxable capital income',
       taxFreeCapitalIncome: 'Tax-free capital income',
       taxableEarnedDividend: 'Taxable earned-income dividend',
       taxFreeEarnedDividend: 'Tax-free earned-income dividend',
       ipoSaleAllocation: 'IPO sale allocation',
+      unlistedCapitalRepaymentHelp:
+        'This part is a capital repayment taxed as a transfer, not as dividend. Check that it appears on the pre-completed tax return as capital repayment. If it is missing, report or correct it in MyTax as a securities transfer.',
+      unlistedDividendHelp:
+        'This part is reported as dividend from a non-listed company. Check the pre-completed tax return. If it is missing, add a new dividend entry in MyTax and choose non-listed company.',
+      listedDividendHelp:
+        'This part is reported as dividend from a listed company. Check the pre-completed tax return. If it is missing, add a new dividend entry in MyTax and choose listed company.',
     },
   },
   storage: {
@@ -612,7 +674,9 @@ export const EN: typeof FI = {
       copyShareUrl: 'Copy company details to URL',
       saveFile: 'Save file',
       loadFile: 'Load file',
-      showExample: 'Show example',
+      showSmallExample: 'Small holder, 2y',
+      showMediumExample: 'Medium, 8y',
+      showLargeExample: 'Large, 16y',
       clearExample: 'Clear',
     },
     table: {
@@ -669,6 +733,7 @@ export const EN: typeof FI = {
   sources: {
     dividends: 'Tax Admin: Dividends from an unlisted company',
     listedDividends: 'Tax Admin: Dividends from a listed company',
+    reporting: 'Tax Admin: Pre-completed tax return - how to report in MyTax or on paper',
     form9a: 'Tax Admin: Form 9A instructions',
     sales: 'Tax Admin: Sale of shares',
   },

@@ -58,6 +58,14 @@ type WorkingLot = {
   remainingCostTotal: Decimal
   capitalRepaymentTotal: Decimal
   cashDistributionGrossTotal: Decimal
+  capitalRepaymentBreakdown: CapitalRepaymentBreakdown[]
+}
+
+export type CapitalRepaymentBreakdown = {
+  distributionDate: string
+  shares: Decimal
+  capitalRepaymentPerShare: Decimal
+  capitalRepaymentTotal: Decimal
 }
 
 export type SubscriptionSummary = {
@@ -68,6 +76,7 @@ export type SubscriptionSummary = {
   totalPricePerShare: Decimal
   cashDistributionGrossTotal: Decimal
   capitalRepaymentTotal: Decimal
+  capitalRepaymentBreakdown: CapitalRepaymentBreakdown[]
   capitalRepaymentPerShare: Decimal
   remainingCostPerShare: Decimal
   remainingCostTotal: Decimal
@@ -374,6 +383,7 @@ function createLot(input: ShareSubscriptionInput, errors: string[], localization
     remainingCostTotal: effectiveTotalPrice,
     capitalRepaymentTotal: zero,
     cashDistributionGrossTotal: zero,
+    capitalRepaymentBreakdown: [],
   } satisfies WorkingLot
 }
 
@@ -603,6 +613,14 @@ function applyCashDistributions(
         lot.remainingCostTotal = Decimal.max(lot.remainingCostTotal.minus(capitalRepayment), zero)
         lot.capitalRepaymentTotal = lot.capitalRepaymentTotal.add(capitalRepayment)
         lot.cashDistributionGrossTotal = lot.cashDistributionGrossTotal.add(gross)
+        if (capitalRepayment.gt(0)) {
+          lot.capitalRepaymentBreakdown.push({
+            distributionDate: entry.date,
+            shares: lot.amount,
+            capitalRepaymentPerShare,
+            capitalRepaymentTotal: capitalRepayment,
+          })
+        }
         return {
           subscriptionId: lot.id,
           subscriptionDate: lot.date,
@@ -852,6 +870,7 @@ function buildSubscriptionSummaries(lots: WorkingLot[]): SubscriptionSummary[] {
     totalPricePerShare: lot.amount.gt(0) ? lot.totalPrice.div(lot.amount) : zero,
     cashDistributionGrossTotal: lot.cashDistributionGrossTotal,
     capitalRepaymentTotal: lot.capitalRepaymentTotal,
+    capitalRepaymentBreakdown: lot.capitalRepaymentBreakdown,
     capitalRepaymentPerShare: lot.amount.gt(0) ? lot.capitalRepaymentTotal.div(lot.amount) : zero,
     remainingCostPerShare: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
     remainingCostTotal: lot.remainingCostTotal,

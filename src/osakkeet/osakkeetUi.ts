@@ -20,20 +20,28 @@ import {
   table,
   tbody,
   td,
-  text,
   th,
   thead,
   tr,
   ul,
 } from '../../../ki-frame/src/domBuilder'
 import { events } from '../../../ki-frame/src/domBuilderEvents'
-import { styles } from '../../../ki-frame/src/domBuilderStyles'
+import { setStyle, styles } from '../../../ki-frame/src/domBuilderStyles'
 import {
   calculateOsakkeet,
+  type CapitalRepaymentBreakdown,
   type IpoDetailsInput,
   type OsakkeetCalculation,
   type OsakkeetFormData,
 } from './osakkeetCalculator'
+import {
+  createStateCollectionEditor,
+  createTextNodesFromState,
+  mapStatePathToInput,
+  mapStateToDomChildren,
+  persistState,
+  type TextNodesFromValue,
+} from './ki-frame-extensions'
 import { getOsakkeetLocalization, type Language, type OsakkeetLocalization } from './osakkeetLocalizations'
 
 const pageStyles = {
@@ -77,6 +85,26 @@ const pageStyles = {
   }),
   cardMutedText: styles({
     color: 'rgb(75, 85, 99)',
+  }),
+  hoverInfo: styles({
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    cursor: 'help',
+  }),
+  hoverInfoIcon: styles({
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '14px',
+    height: '14px',
+    borderRadius: '999px',
+    border: '1px solid rgba(15, 23, 42, 0.2)',
+    color: 'rgb(75, 85, 99)',
+    fontSize: '10px',
+    fontWeight: '700',
+    lineHeight: '1',
+    flexShrink: '0',
   }),
   inlineCode: styles({
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
@@ -212,104 +240,244 @@ function tryLoadLanguage(): Language {
   return localStorage.getItem(storageKeys.language) === 'en' ? 'en' : 'fi'
 }
 
+type ExamplePreset = 'small2y' | 'medium8y' | 'large16y'
+
 function createOsakkeetFormData(demo: boolean): OsakkeetFormData {
+  if (demo) {
+    return createExampleOsakkeetFormData('medium8y')
+  }
   return {
-    subscriptions: demo
-      ? [
-          {
-            id: createId('sub'),
-            date: '15.03.2009',
-            vestingEndsOn: '',
-            amount: '80000',
-            pricePerShare: '0.14',
-            otherTotalAcquisitionCosts: '450',
-          },
-          {
-            id: createId('sub'),
-            date: '20.09.2013',
-            vestingEndsOn: '',
-            amount: '55000',
-            pricePerShare: '0.32',
-            otherTotalAcquisitionCosts: '300',
-          },
-          {
-            id: createId('sub'),
-            date: '02.05.2018',
-            vestingEndsOn: '',
-            amount: '35000',
-            pricePerShare: '0.48',
-            otherTotalAcquisitionCosts: '220',
-          },
-        ]
-      : [
-          {
-            id: createId('sub'),
-            date: '',
-            vestingEndsOn: '',
-            amount: '',
-            pricePerShare: '',
-            otherTotalAcquisitionCosts: '',
-          },
-        ],
-    cashDistributions: demo
-      ? [
-          {
-            id: createId('distribution'),
-            type: 'capital_return',
-            date: '31.03.2022',
-            amountPerShare: '0.08',
-            shareCount: '',
-          },
-          {
-            id: createId('distribution'),
-            type: 'capital_return',
-            date: '30.09.2022',
-            amountPerShare: '0.06',
-            shareCount: '',
-          },
-          {
-            id: createId('distribution'),
-            type: 'capital_return',
-            date: '30.06.2023',
-            amountPerShare: '0.10',
-            shareCount: '',
-          },
-          {
-            id: createId('distribution'),
-            type: 'capital_return',
-            date: '28.06.2024',
-            amountPerShare: '0.12',
-            shareCount: '',
-          },
-          {
-            id: createId('distribution'),
-            type: 'capital_return',
-            date: '30.06.2025',
-            amountPerShare: '0.15',
-            shareCount: '',
-          },
-        ]
-      : [{ id: createId('distribution'), type: 'capital_return', date: '', amountPerShare: '', shareCount: '' }],
-    mathematicalShareValues: demo
-      ? [
-          { id: createId('math'), year: '2022', valuePerShare: '28.50' },
-          { id: createId('math'), year: '2023', valuePerShare: '33.00' },
-          { id: createId('math'), year: '2024', valuePerShare: '39.00' },
-          { id: createId('math'), year: '2025', valuePerShare: '47.00' },
-          { id: createId('math'), year: '2026', valuePerShare: '54.55' },
-        ]
-      : [{ id: createId('math'), year: '', valuePerShare: '' }],
+    subscriptions: [
+      {
+        id: createId('sub'),
+        date: '',
+        vestingEndsOn: '',
+        amount: '',
+        pricePerShare: '',
+        otherTotalAcquisitionCosts: '',
+      },
+    ],
+    cashDistributions: [
+      { id: createId('distribution'), type: 'capital_return', date: '', amountPerShare: '', shareCount: '' },
+    ],
+    mathematicalShareValues: [{ id: createId('math'), year: '', valuePerShare: '' }],
     ipo: {
-      ipoDate: demo ? '15.09.2026' : '',
-      totalShareCount: demo ? '1100000' : '',
-      totalIpoCost: demo ? '800000' : '',
-      currentShareValue: demo ? '54.55' : '',
-      estimatedPreIpoValue: demo ? '120000000' : '',
-      estimatedSecondaryShareSellPercentage: demo ? '10' : '',
+      ipoDate: '',
+      totalShareCount: '',
+      totalIpoCost: '',
+      currentShareValue: '',
+      estimatedPreIpoValue: '',
+      estimatedSecondaryShareSellPercentage: '',
     },
     sell: {
-      amount: demo ? '60000' : '',
+      amount: '',
       otherAnnualCapitalGainsOrLosses: '',
+    },
+  }
+}
+
+function createExampleOsakkeetFormData(preset: ExamplePreset): OsakkeetFormData {
+  if (preset === 'small2y') {
+    return {
+      subscriptions: [
+        {
+          id: createId('sub'),
+          date: '15.04.2024',
+          vestingEndsOn: '',
+          amount: '1200',
+          pricePerShare: '2.80',
+          otherTotalAcquisitionCosts: '25',
+        },
+        {
+          id: createId('sub'),
+          date: '15.02.2025',
+          vestingEndsOn: '31.12.2026',
+          amount: '800',
+          pricePerShare: '3.20',
+          otherTotalAcquisitionCosts: '20',
+        },
+      ],
+      cashDistributions: [
+        {
+          id: createId('distribution'),
+          type: 'capital_return',
+          date: '30.06.2025',
+          amountPerShare: '0.18',
+          shareCount: '',
+        },
+      ],
+      mathematicalShareValues: [
+        { id: createId('math'), year: '2025', valuePerShare: '7.50' },
+        { id: createId('math'), year: '2026', valuePerShare: '10.20' },
+      ],
+      ipo: {
+        ipoDate: '15.09.2026',
+        totalShareCount: '850000',
+        totalIpoCost: '95000',
+        currentShareValue: '10.20',
+        estimatedPreIpoValue: '9000000',
+        estimatedSecondaryShareSellPercentage: '3',
+      },
+      sell: {
+        amount: '900',
+        otherAnnualCapitalGainsOrLosses: '',
+      },
+    }
+  }
+
+  if (preset === 'medium8y') {
+    return {
+      subscriptions: [
+        {
+          id: createId('sub'),
+          date: '20.05.2018',
+          vestingEndsOn: '',
+          amount: '12000',
+          pricePerShare: '0.85',
+          otherTotalAcquisitionCosts: '120',
+        },
+        {
+          id: createId('sub'),
+          date: '10.02.2021',
+          vestingEndsOn: '',
+          amount: '12000',
+          pricePerShare: '8.50',
+          otherTotalAcquisitionCosts: '300',
+        },
+      ],
+      cashDistributions: [
+        {
+          id: createId('distribution'),
+          type: 'capital_return',
+          date: '28.06.2022',
+          amountPerShare: '0.12',
+          shareCount: '',
+        },
+        {
+          id: createId('distribution'),
+          type: 'capital_return',
+          date: '30.06.2023',
+          amountPerShare: '0.16',
+          shareCount: '',
+        },
+        {
+          id: createId('distribution'),
+          type: 'capital_return',
+          date: '28.06.2024',
+          amountPerShare: '0.22',
+          shareCount: '',
+        },
+        {
+          id: createId('distribution'),
+          type: 'capital_return',
+          date: '30.06.2025',
+          amountPerShare: '0.28',
+          shareCount: '',
+        },
+      ],
+      mathematicalShareValues: [
+        { id: createId('math'), year: '2022', valuePerShare: '18.00' },
+        { id: createId('math'), year: '2023', valuePerShare: '21.50' },
+        { id: createId('math'), year: '2024', valuePerShare: '27.00' },
+        { id: createId('math'), year: '2025', valuePerShare: '33.00' },
+        { id: createId('math'), year: '2026', valuePerShare: '41.00' },
+      ],
+      ipo: {
+        ipoDate: '15.09.2026',
+        totalShareCount: '980000',
+        totalIpoCost: '320000',
+        currentShareValue: '41.00',
+        estimatedPreIpoValue: '40000000',
+        estimatedSecondaryShareSellPercentage: '10',
+      },
+      sell: {
+        amount: '18000',
+        otherAnnualCapitalGainsOrLosses: '-12000',
+      },
+    }
+  }
+
+  return {
+    subscriptions: [
+      {
+        id: createId('sub'),
+        date: '15.03.2010',
+        vestingEndsOn: '',
+        amount: '85000',
+        pricePerShare: '0.18',
+        otherTotalAcquisitionCosts: '550',
+      },
+      {
+        id: createId('sub'),
+        date: '01.06.2021',
+        vestingEndsOn: '',
+        amount: '20000',
+        pricePerShare: '18.00',
+        otherTotalAcquisitionCosts: '800',
+      },
+    ],
+    cashDistributions: [
+      {
+        id: createId('distribution'),
+        type: 'capital_return',
+        date: '31.03.2022',
+        amountPerShare: '0.10',
+        shareCount: '',
+      },
+      {
+        id: createId('distribution'),
+        type: 'capital_return',
+        date: '30.06.2023',
+        amountPerShare: '0.14',
+        shareCount: '',
+      },
+      {
+        id: createId('distribution'),
+        type: 'capital_return',
+        date: '28.06.2024',
+        amountPerShare: '0.18',
+        shareCount: '',
+      },
+      {
+        id: createId('distribution'),
+        type: 'capital_return',
+        date: '30.06.2025',
+        amountPerShare: '0.24',
+        shareCount: '',
+      },
+      {
+        id: createId('distribution'),
+        type: 'capital_return',
+        date: '30.06.2026',
+        amountPerShare: '0.28',
+        shareCount: '',
+      },
+      {
+        id: createId('distribution'),
+        type: 'dividend',
+        date: '30.09.2026',
+        amountPerShare: '0.42',
+        shareCount: '',
+      },
+    ],
+    mathematicalShareValues: [
+      { id: createId('math'), year: '2022', valuePerShare: '24.00' },
+      { id: createId('math'), year: '2023', valuePerShare: '31.00' },
+      { id: createId('math'), year: '2024', valuePerShare: '39.50' },
+      { id: createId('math'), year: '2025', valuePerShare: '49.00' },
+      { id: createId('math'), year: '2026', valuePerShare: '63.00' },
+    ],
+    ipo: {
+      ipoDate: '15.09.2026',
+      totalShareCount: '1050000',
+      totalIpoCost: '720000',
+      currentShareValue: '63.00',
+      estimatedPreIpoValue: '66000000',
+      estimatedSecondaryShareSellPercentage: '12',
+    },
+    sell: {
+      amount: '90000',
+      otherAnnualCapitalGainsOrLosses: '25000',
     },
   }
 }
@@ -497,52 +665,11 @@ async function copyTextToClipboard(value: string) {
   return copied
 }
 
-function updateArrayItem<T extends { id: string }>(items: T[], id: string, patch: Partial<T>) {
-  return items.map((item) => (item.id === id ? { ...item, ...patch } : item))
-}
-
-function removeArrayItem<T extends { id: string }>(items: T[], id: string) {
-  return items.filter((item) => item.id !== id)
-}
-
-type FormArrayKey = 'subscriptions' | 'cashDistributions' | 'mathematicalShareValues'
-type FormArrayItem<Key extends FormArrayKey> = OsakkeetFormData[Key][number]
-
-function updateFormArrayItem<Key extends FormArrayKey>(
-  dataState: State<OsakkeetFormData>,
-  key: Key,
-  id: string,
-  patch: Partial<FormArrayItem<Key>>
-) {
-  const items = dataState.get()[key] as FormArrayItem<Key>[]
-  dataState.update({
-    [key]: updateArrayItem(items, id, patch),
-  } as Pick<OsakkeetFormData, Key>)
-}
-
-function removeFormArrayItem<Key extends FormArrayKey>(dataState: State<OsakkeetFormData>, key: Key, id: string) {
-  const items = dataState.get()[key] as FormArrayItem<Key>[]
-  dataState.update({
-    [key]: removeArrayItem(items, id),
-  } as Pick<OsakkeetFormData, Key>)
-}
-
-function appendFormArrayItem<Key extends FormArrayKey>(
-  dataState: State<OsakkeetFormData>,
-  key: Key,
-  item: FormArrayItem<Key>
-) {
-  const items = dataState.get()[key] as FormArrayItem<Key>[]
-  dataState.update({
-    [key]: [...items, item],
-  } as Pick<OsakkeetFormData, Key>)
-}
-
-function numberInput(value: string, options: { step: string; min: string }, onInput: (value: string) => void) {
+function numberInput(value: string, onInput: (value: string) => void = () => {}, numeric: boolean = true) {
   return inputs.text(
     {
       value,
-      inputMode: options.step.includes('.') ? 'decimal' : 'numeric',
+      ...(numeric ? { inputMode: 'decimal' as const } : {}),
     },
     pageStyles.input,
     events({
@@ -553,7 +680,7 @@ function numberInput(value: string, options: { step: string; min: string }, onIn
   )
 }
 
-function finnishDateInput(value: string, onInput: (value: string) => void) {
+function finnishDateInput(value: string, onInput: (value: string) => void = () => {}) {
   return inputs.text(
     {
       value,
@@ -572,7 +699,7 @@ function finnishDateInput(value: string, onInput: (value: string) => void) {
 function enumSelectInput<Value extends string>(
   value: Value,
   options: Array<{ label: string; value: Value }>,
-  onChange: (value: Value) => void
+  onChange: (value: Value) => void = () => {}
 ) {
   return select(
     pageStyles.input,
@@ -595,19 +722,17 @@ function infoCard(title: string, value: string, help?: string) {
   )
 }
 
+function withHoverInfo(content: string | Text | Node, tooltip: string) {
+  return span({ title: tooltip }, pageStyles.hoverInfo, content, span(pageStyles.hoverInfoIcon, 'i'))
+}
+
 function hoverValue(value: string, tooltip: string, emphasized = false) {
-  const node = span({ title: tooltip }, value)
+  const node = withHoverInfo(value, tooltip)
   return emphasized ? b(node) : node
 }
 
 function linkToSource(textValue: string, href: string) {
   return a(textValue, { href, target: '_blank', rel: 'noreferrer' })
-}
-
-function setTextValue(node: Node, value: string) {
-  if (node.textContent !== value) {
-    node.textContent = value
-  }
 }
 
 function setInputValue(node: HTMLInputElement, value: string) {
@@ -622,30 +747,44 @@ function setSelectValue(node: HTMLSelectElement, value: string) {
   }
 }
 
+function applyButtonStyle(
+  node: HTMLButtonElement,
+  style: (typeof pageStyles)[keyof typeof pageStyles],
+  className = ''
+) {
+  node.removeAttribute('style')
+  node.className = className
+  setStyle(node, style.styles)
+}
+
 function setButtonVariant(node: HTMLButtonElement, primary: boolean) {
-  node.className = primary ? 'blueButton' : String(pageStyles.smallButton)
+  if (primary) {
+    node.removeAttribute('style')
+    node.className = 'blueButton'
+    return
+  }
+  applyButtonStyle(node, pageStyles.smallButton)
 }
 
 function setButtonAttention(node: HTMLButtonElement, needsAttention: boolean) {
   if (node.disabled) {
-    node.className = String(pageStyles.disabledButton)
+    applyButtonStyle(node, pageStyles.disabledButton)
     return
   }
   if (needsAttention) {
-    node.className = String(pageStyles.attentionButton)
-  } else if (!node.classList.contains('active')) {
-    node.className = String(pageStyles.smallButton)
+    applyButtonStyle(node, pageStyles.attentionButton)
+    return
   }
+  applyButtonStyle(node, pageStyles.smallButton)
 }
 
 function setButtonDisabled(node: HTMLButtonElement, disabled: boolean) {
   node.disabled = disabled
-  node.className = disabled ? String(pageStyles.disabledButton) : String(pageStyles.smallButton)
+  applyButtonStyle(node, disabled ? pageStyles.disabledButton : pageStyles.smallButton)
 }
 
-function createRemoveButton(dataState: State<OsakkeetFormData>, remove: () => void) {
-  const labelNode = text()
-  const buttonNode = button(
+function createRemoveButton(labelNode: Text, remove: () => void) {
+  return button(
     labelNode,
     pageStyles.smallButton,
     events({
@@ -654,12 +793,6 @@ function createRemoveButton(dataState: State<OsakkeetFormData>, remove: () => vo
       },
     })
   ) as HTMLButtonElement
-  return {
-    buttonNode,
-    setLabel({ texts }: Pick<OsakkeetPageReadModel, 'texts'>) {
-      setTextValue(labelNode, texts.common.remove)
-    },
-  }
 }
 
 function createActionButton(labelNode: Text, variant: 'primary' | 'secondary', onClick: () => void) {
@@ -674,44 +807,8 @@ function createActionButton(labelNode: Text, variant: 'primary' | 'secondary', o
   ) as HTMLButtonElement
 }
 
-type RowController<T extends { id: string }> = {
-  id: string
-  node: HTMLTableRowElement
-  set: (value: T, pageReadModel: OsakkeetPageReadModel) => void
-}
-
-function syncRowControllers<T extends { id: string }>(
-  tbodyNode: HTMLElement,
-  rowControllers: Map<string, RowController<T>>,
-  values: T[],
-  pageReadModel: OsakkeetPageReadModel,
-  createRowController: (value: T) => RowController<T>
-) {
-  const nextControllers = new Map<string, RowController<T>>()
-  const desiredIds = values.map((value) => value.id)
-  for (const value of values) {
-    const rowController = rowControllers.get(value.id) || createRowController(value)
-    rowController.set(value, pageReadModel)
-    nextControllers.set(value.id, rowController)
-  }
-  for (const [id, rowController] of rowControllers) {
-    if (!nextControllers.has(id)) {
-      rowController.node.remove()
-    }
-  }
-  values.forEach((value, index) => {
-    const rowController = nextControllers.get(value.id)!
-    const existingNode = tbodyNode.children[index]
-    if (existingNode !== rowController.node) {
-      tbodyNode.insertBefore(rowController.node, existingNode || null)
-    }
-  })
-  while (tbodyNode.children.length > desiredIds.length) {
-    tbodyNode.lastElementChild?.remove()
-  }
-  rowControllers.clear()
-  nextControllers.forEach((rowController, id) => rowControllers.set(id, rowController))
-}
+type LocalizedTextNodes = TextNodesFromValue<OsakkeetLocalization>
+type CommonLocalizedTextNodes = TextNodesFromValue<OsakkeetLocalization['common']>
 
 function assumptionsContent(t: OsakkeetLocalization) {
   return div(
@@ -735,6 +832,11 @@ function assumptionsContent(t: OsakkeetLocalization) {
       ),
       ', ',
       linkToSource(
+        t.sources.reporting,
+        'https://www.vero.fi/henkiloasiakkaat/verokortti-ja-veroilmoitus/veroilmoitus_ja_verotuspaato/ilmoittamisen-ohje/'
+      ),
+      ', ',
+      linkToSource(
         t.sources.form9a,
         'https://www.vero.fi/tietoa-verohallinnosta/yhteystiedot-ja-asiointi/lomakkeet/tayttoohjeet/9a-arvopapereiden-luovutusvoitot-ja--tappiot-t%C3%A4ytt%C3%B6ohje/'
       ),
@@ -744,75 +846,68 @@ function assumptionsContent(t: OsakkeetLocalization) {
   )
 }
 
-function createIpoNumberUpdater(
+function createMathematicalShareValuesEditor(
   dataState: State<OsakkeetFormData>,
-  key: keyof Pick<
-    IpoDetailsInput,
-    | 'currentShareValue'
-    | 'totalShareCount'
-    | 'estimatedPreIpoValue'
-    | 'totalIpoCost'
-    | 'estimatedSecondaryShareSellPercentage'
-  >
+  localizedTextNodes: LocalizedTextNodes
 ) {
-  return (value: string) => {
-    dataState.update({ ipo: { ...dataState.get().ipo, [key]: value } })
-  }
-}
-
-function createIpoTextUpdater(dataState: State<OsakkeetFormData>, key: keyof Pick<IpoDetailsInput, 'ipoDate'>) {
-  return (value: string) => {
-    dataState.update({ ipo: { ...dataState.get().ipo, [key]: value } })
-  }
-}
-
-function createMathematicalShareValuesEditor(dataState: State<OsakkeetFormData>) {
-  const titleNode = text()
-  const yearHeaderNode = text()
-  const valueHeaderNode = text()
-  const addButtonLabelNode = text()
+  const mathematicalShareValuesTextNodes = localizedTextNodes.mathematicalShareValues
   const tbodyNode = tbody()
-  const rowControllers = new Map<string, RowController<{ id: string; year: string; valuePerShare: string }>>()
+  const rowsState = createState<{ id: string; year: string; valuePerShare: string; removeLabel: string }[]>({
+    value: [],
+  })
+  const mathematicalShareValues = createStateCollectionEditor(dataState, ['mathematicalShareValues'])
 
-  const createRowController = (row: { id: string; year: string; valuePerShare: string }) => {
-    const yearInput = numberInput(row.year, { step: '1', min: '0' }, (value) => {
-      updateFormArrayItem(dataState, 'mathematicalShareValues', row.id, { year: value })
-    })
-    const valuePerShareInput = numberInput(row.valuePerShare, { step: '0.0001', min: '0' }, (value) => {
-      updateFormArrayItem(dataState, 'mathematicalShareValues', row.id, { valuePerShare: value })
-    })
-    const removeButton = createRemoveButton(dataState, () => {
-      removeFormArrayItem(dataState, 'mathematicalShareValues', row.id)
-    })
+  mapStateToDomChildren(rowsState, tbodyNode, {
+    render: (row) => {
+      const rowState = createState({
+        value: {
+          row,
+        },
+      })
+      const rowTextNodes = createTextNodesFromState(rowState, { path: ['row'] })
+      const yearInput = numberInput(row.year, (value) => {
+        mathematicalShareValues.patch(row.id, { year: value })
+      })
+      const valuePerShareInput = numberInput(row.valuePerShare, (value) => {
+        mathematicalShareValues.patch(row.id, { valuePerShare: value })
+      })
+      const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
+        mathematicalShareValues.remove(row.id)
+      })
 
-    return {
-      id: row.id,
-      node: tr(
-        td(div(pageStyles.compactField, yearInput)),
-        td(div(pageStyles.compactField, valuePerShareInput)),
-        td({ class: 'no-print' }, removeButton.buttonNode)
-      ),
-      set(nextRow, pageReadModel) {
-        setInputValue(yearInput, nextRow.year)
-        setInputValue(valuePerShareInput, nextRow.valuePerShare)
-        removeButton.setLabel(pageReadModel)
-      },
-    } satisfies RowController<{ id: string; year: string; valuePerShare: string }>
-  }
+      return {
+        node: tr(
+          td(div(pageStyles.compactField, yearInput)),
+          td(div(pageStyles.compactField, valuePerShareInput)),
+          td({ class: 'no-print' }, removeButton)
+        ),
+        set(nextRow) {
+          setInputValue(yearInput, nextRow.year)
+          setInputValue(valuePerShareInput, nextRow.valuePerShare)
+          rowState.set({ row: nextRow })
+        },
+      }
+    },
+  })
 
-  const addButton = createActionButton(addButtonLabelNode, 'primary', () => {
-    appendFormArrayItem(dataState, 'mathematicalShareValues', {
-      id: createId('math'),
+  const addButton = createActionButton(mathematicalShareValuesTextNodes.actions.add, 'primary', () => {
+    mathematicalShareValues.append({
       year: '',
       valuePerShare: '',
     })
   })
 
   const root = div(
-    h3(titleNode),
+    h3(mathematicalShareValuesTextNodes.title),
     table(
       pageStyles.compactTable,
-      thead(tr(th(yearHeaderNode), th(valueHeaderNode), th({ class: 'no-print' }, ''))),
+      thead(
+        tr(
+          th(mathematicalShareValuesTextNodes.fields.year),
+          th(mathematicalShareValuesTextNodes.fields.valuePerShare),
+          th({ class: 'no-print' }, '')
+        )
+      ),
       tbodyNode
     ),
     div({ class: 'no-print' }, pageStyles.rowButtons, addButton)
@@ -820,17 +915,15 @@ function createMathematicalShareValuesEditor(dataState: State<OsakkeetFormData>)
 
   return {
     root,
-    set({ texts, osakkeetCalculation, ...rest }: OsakkeetPageReadModel) {
-      setTextValue(titleNode, texts.mathematicalShareValues.title)
-      setTextValue(yearHeaderNode, texts.mathematicalShareValues.fields.year)
-      setTextValue(valueHeaderNode, texts.mathematicalShareValues.fields.valuePerShare)
-      setTextValue(addButtonLabelNode, texts.mathematicalShareValues.actions.add)
-      syncRowControllers(
-        tbodyNode,
-        rowControllers,
-        osakkeetCalculation.formData.mathematicalShareValues,
-        { texts, osakkeetCalculation, ...rest },
-        createRowController
+    set({ texts, osakkeetCalculation }: Pick<OsakkeetPageReadModel, 'texts' | 'osakkeetCalculation'>) {
+      void texts
+      rowsState.set(
+        osakkeetCalculation.formData.mathematicalShareValues.map((row) => ({
+          id: row.id,
+          year: row.year,
+          valuePerShare: row.valuePerShare,
+          removeLabel: texts.common.remove,
+        }))
       )
     },
   }
@@ -851,24 +944,80 @@ function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocaliza
 
   if (years.length === 0) return false
 
+  const renderTaxTable = (entries: OsakkeetCalculation['cashDistributions'], mode: 'unlisted' | 'listed') => {
+    const totalCapitalRepayment = entries.reduce((acc, row) => acc.add(row.capitalRepaymentTotal), zeroMoney)
+    const totalDividend = entries.reduce((acc, row) => acc.add(row.dividendTotal), zeroMoney)
+    const totalTaxableCapitalIncome = entries.reduce((acc, row) => acc.add(row.taxableCapitalIncome), zeroMoney)
+    const totalTaxFreeCapitalIncome = entries.reduce((acc, row) => acc.add(row.taxFreeCapitalIncomePortion), zeroMoney)
+    const totalTaxableEarnedDividend = entries.reduce((acc, row) => acc.add(row.taxableEarnedDividend), zeroMoney)
+    const totalTaxFreeEarnedDividend = entries.reduce((acc, row) => acc.add(row.taxFreeEarnedDividend), zeroMoney)
+    const totalWithholding = entries.reduce((acc, row) => acc.add(row.withholdingToTaxOffice), zeroMoney)
+    const totalCash = entries.reduce((acc, row) => acc.add(row.paidInCash), zeroMoney)
+    const capitalRepaymentHeaderNode =
+      mode === 'unlisted'
+        ? withHoverInfo(t.cashDistributions.fields.capitalRepayment, t.taxReturns.fields.unlistedCapitalRepaymentHelp)
+        : t.cashDistributions.fields.capitalRepayment
+    const dividendHeaderNode = withHoverInfo(
+      t.cashDistributions.fields.dividend,
+      mode === 'unlisted' ? t.taxReturns.fields.unlistedDividendHelp : t.taxReturns.fields.listedDividendHelp
+    )
+
+    return table(
+      thead(
+        tr(
+          th(t.common.date),
+          th(t.common.type),
+          th(t.cashDistributions.fields.cashPaid),
+          th(t.cashDistributions.fields.withholding),
+          mode === 'unlisted' && th(capitalRepaymentHeaderNode),
+          th(dividendHeaderNode),
+          th(t.taxReturns.fields.taxableCapitalIncome),
+          th(t.taxReturns.fields.taxFreeCapitalIncome),
+          mode === 'unlisted' && th(t.taxReturns.fields.taxableEarnedDividend),
+          mode === 'unlisted' && th(t.taxReturns.fields.taxFreeEarnedDividend),
+        )
+      ),
+      tbody(
+        entries.map((row) =>
+          tr(
+            td(row.date),
+            td(row.type === 'dividend' ? t.cashDistributions.types.dividend : t.cashDistributions.types.capitalReturn),
+            td(euro(row.paidInCash)),
+            td(euro(row.withholdingToTaxOffice)),
+            mode === 'unlisted' && td(euro(row.capitalRepaymentTotal)),
+            td(euro(row.dividendTotal)),
+            td(euro(row.taxableCapitalIncome)),
+            td(euro(row.taxFreeCapitalIncomePortion)),
+            mode === 'unlisted' && td(euro(row.taxableEarnedDividend)),
+            mode === 'unlisted' && td(euro(row.taxFreeEarnedDividend))
+          )
+        ),
+        tr(
+          td(b(t.summary.totalRow)),
+          td(),
+          td(euro(totalCash)),
+          td(euro(totalWithholding)),
+          mode === 'unlisted' && td(euro(totalCapitalRepayment)),
+          td(euro(totalDividend)),
+          td(euro(totalTaxableCapitalIncome)),
+          td(euro(totalTaxFreeCapitalIncome)),
+          mode === 'unlisted' && td(euro(totalTaxableEarnedDividend)),
+          mode === 'unlisted' && td(euro(totalTaxFreeEarnedDividend))
+        )
+      )
+    )
+  }
+
   return div(
     years.map((year) => {
       const yearEntries = calculation.cashDistributions.filter((cashDistribution) =>
         cashDistribution.date.endsWith(String(year))
       )
-      const yearMathWarnings = yearEntries.filter(
+      const unlistedEntries = yearEntries.filter((row) => !row.treatedAsListedDividend)
+      const listedEntries = yearEntries.filter((row) => row.treatedAsListedDividend)
+      const yearMathWarnings = unlistedEntries.filter(
         (row) => row.dividendTotal.gt(0) && !row.treatedAsListedDividend && row.shareholderMathematicalValue.eq(0)
       )
-      const totalCapitalRepayment = yearEntries.reduce((acc, row) => acc.add(row.capitalRepaymentTotal), zeroMoney)
-      const totalTaxableCapitalIncome = yearEntries.reduce((acc, row) => acc.add(row.taxableCapitalIncome), zeroMoney)
-      const totalTaxFreeCapitalIncome = yearEntries.reduce(
-        (acc, row) => acc.add(row.taxFreeCapitalIncomePortion),
-        zeroMoney
-      )
-      const totalTaxableEarnedDividend = yearEntries.reduce((acc, row) => acc.add(row.taxableEarnedDividend), zeroMoney)
-      const totalTaxFreeEarnedDividend = yearEntries.reduce((acc, row) => acc.add(row.taxFreeEarnedDividend), zeroMoney)
-      const totalWithholding = yearEntries.reduce((acc, row) => acc.add(row.withholdingToTaxOffice), zeroMoney)
-      const totalCash = yearEntries.reduce((acc, row) => acc.add(row.paidInCash), zeroMoney)
       return div(
         pageStyles.denseStack,
         h3(String(year)),
@@ -877,52 +1026,14 @@ function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocaliza
             pageStyles.warningBox,
             ul(yearMathWarnings.map((row) => li(`${row.date}: ${t.taxReturns.yearWarningMissingMathValue}`)))
           ),
-        yearEntries.length > 0 &&
-          table(
-            thead(
-              tr(
-                th(t.common.date),
-                th(t.common.type),
-                th(t.cashDistributions.fields.capitalRepayment),
-                th(t.taxReturns.fields.taxableCapitalIncome),
-                th(t.taxReturns.fields.taxFreeCapitalIncome),
-                th(t.taxReturns.fields.taxableEarnedDividend),
-                th(t.taxReturns.fields.taxFreeEarnedDividend),
-                th(t.cashDistributions.fields.withholding),
-                th(t.cashDistributions.fields.cashPaid)
-              )
-            ),
-            tbody(
-              yearEntries.map((row) =>
-                tr(
-                  td(row.date),
-                  td(
-                    row.type === 'dividend'
-                      ? t.cashDistributions.types.dividend
-                      : t.cashDistributions.types.capitalReturn
-                  ),
-                  td(euro(row.capitalRepaymentTotal)),
-                  td(euro(row.taxableCapitalIncome)),
-                  td(euro(row.taxFreeCapitalIncomePortion)),
-                  td(euro(row.taxableEarnedDividend)),
-                  td(euro(row.taxFreeEarnedDividend)),
-                  td(euro(row.withholdingToTaxOffice)),
-                  td(euro(row.paidInCash))
-                )
-              ),
-              tr(
-                td(b(t.summary.totalRow)),
-                td(),
-                td(euro(totalCapitalRepayment)),
-                td(euro(totalTaxableCapitalIncome)),
-                td(euro(totalTaxFreeCapitalIncome)),
-                td(euro(totalTaxableEarnedDividend)),
-                td(euro(totalTaxFreeEarnedDividend)),
-                td(euro(totalWithholding)),
-                td(euro(totalCash))
-              )
-            )
+        unlistedEntries.length > 0 &&
+          div(
+            pageStyles.denseStack,
+            h3(withHoverInfo(t.taxReturns.sections.unlisted, t.taxReturns.sections.unlistedHelp)),
+            renderTaxTable(unlistedEntries, 'unlisted')
           ),
+        listedEntries.length > 0 &&
+          div(pageStyles.denseStack, h3(t.taxReturns.sections.listed), renderTaxTable(listedEntries, 'listed')),
         ipoYear === year &&
           calculation.sell.grossTotal.gt(0) &&
           div(
@@ -942,121 +1053,124 @@ function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocaliza
   )
 }
 
-function createSubscriptionsSection(dataState: State<OsakkeetFormData>) {
-  const titleNode = text()
-  const countNode = text()
-  const helpNode = text()
+type SubscriptionRowViewModel = {
+  id: string
+  date: string
+  vestingEndsOn: string
+  amount: string
+  pricePerShare: string
+  otherTotalAcquisitionCosts: string
+  totalPricePerShare: string
+  capitalRepaymentTotal: string
+  capitalRepaymentTotalTooltip: string
+  capitalRepaymentPerShare: string
+  remainingCostPerShare: string
+  removeLabel: string
+}
+
+function createCapitalRepaymentTooltip(breakdown: CapitalRepaymentBreakdown[], texts: OsakkeetLocalization) {
+  if (!breakdown.length) return ''
+  return [
+    texts.subscriptions.fields.totalReimbursementsTooltipIntro,
+    ...breakdown.map((entry) =>
+      texts.subscriptions.fields.totalReimbursementsTooltipLine(
+        entry.distributionDate,
+        euro(entry.capitalRepaymentPerShare),
+        amount(entry.shares),
+        euro(entry.capitalRepaymentTotal)
+      )
+    ),
+  ].join('\n')
+}
+
+function createSubscriptionsSection(
+  dataState: State<OsakkeetFormData>,
+  localizedTextNodes: LocalizedTextNodes,
+  commonTextNodes: CommonLocalizedTextNodes
+) {
+  const textState = createState({
+    value: {
+      rowCount: '',
+    },
+  })
+  const subscriptionTextNodes = localizedTextNodes.subscriptions
+  const rowCountNode = createTextNodesFromState(textState, { path: ['rowCount'] })
   const summaryRoot = div(pageStyles.summaryGrid)
-  const dateHeaderNode = text()
-  const vestingEndsOnHeaderNode = text()
-  const amountHeaderNode = text()
-  const pricePerShareHeaderNode = text()
-  const otherTotalAcquisitionCostsHeaderLabelNode = text()
-  const otherTotalAcquisitionCostsHeaderNode = span({ title: '' }, otherTotalAcquisitionCostsHeaderLabelNode)
-  const totalPricePerShareHeaderNode = text()
-  const capitalRepaymentTotalHeaderNode = text()
-  const capitalRepaymentHeaderNode = text()
-  const remainingCostHeaderNode = text()
-  const addButtonLabelNode = text()
+  const vestingEndsOnHeaderNode = withHoverInfo(subscriptionTextNodes.fields.vestingEndsOn, '')
+  const otherTotalAcquisitionCostsHeaderNode = withHoverInfo(
+    subscriptionTextNodes.fields.otherTotalAcquisitionCosts,
+    ''
+  )
+  const totalReimbursementsHeaderNode = withHoverInfo(subscriptionTextNodes.fields.totalReimbursements, '')
   const tbodyNode = tbody()
-  const rowControllers = new Map<
-    string,
-    RowController<{
-      id: string
-      date: string
-      vestingEndsOn: string
-      amount: string
-      pricePerShare: string
-      otherTotalAcquisitionCosts: string
-      totalPricePerShare: string
-      capitalRepaymentTotal: string
-      capitalRepaymentPerShare: string
-      remainingCostPerShare: string
-    }>
-  >()
+  const rowsState = createState<SubscriptionRowViewModel[]>({ value: [] })
+  const subscriptions = createStateCollectionEditor(dataState, ['subscriptions'])
 
-  const createRowController = (row: {
-    id: string
-    date: string
-    vestingEndsOn: string
-    amount: string
-    pricePerShare: string
-    otherTotalAcquisitionCosts: string
-    totalPricePerShare: string
-    capitalRepaymentTotal: string
-    capitalRepaymentPerShare: string
-    remainingCostPerShare: string
-  }) => {
-    const dateInput = finnishDateInput(row.date, (value) => {
-      updateFormArrayItem(dataState, 'subscriptions', row.id, { date: value })
-    })
-    const vestingEndsOnInput = finnishDateInput(row.vestingEndsOn, (value) => {
-      updateFormArrayItem(dataState, 'subscriptions', row.id, { vestingEndsOn: value })
-    })
-    const amountInput = numberInput(row.amount, { step: '1', min: '0' }, (value) => {
-      updateFormArrayItem(dataState, 'subscriptions', row.id, { amount: value })
-    })
-    const pricePerShareInput = numberInput(row.pricePerShare, { step: '0.0001', min: '0' }, (value) => {
-      updateFormArrayItem(dataState, 'subscriptions', row.id, { pricePerShare: value })
-    })
-    const otherTotalAcquisitionCostsInput = numberInput(
-      row.otherTotalAcquisitionCosts,
-      { step: '0.01', min: '0' },
-      (value) => {
-        updateFormArrayItem(dataState, 'subscriptions', row.id, { otherTotalAcquisitionCosts: value })
+  mapStateToDomChildren(rowsState, tbodyNode, {
+    render: (row) => {
+      const rowState = createState({
+        value: {
+          row,
+        },
+      })
+      const rowTextNodes = createTextNodesFromState(rowState, { path: ['row'] })
+      const dateInput = finnishDateInput(row.date, (value) => {
+        subscriptions.patch(row.id, { date: value })
+      })
+      const vestingEndsOnInput = finnishDateInput(row.vestingEndsOn, (value) => {
+        subscriptions.patch(row.id, { vestingEndsOn: value })
+      })
+      const amountInput = numberInput(row.amount, (value) => {
+        subscriptions.patch(row.id, { amount: value })
+      })
+      const pricePerShareInput = numberInput(row.pricePerShare, (value) => {
+        subscriptions.patch(row.id, { pricePerShare: value })
+      })
+      const otherTotalAcquisitionCostsInput = numberInput(row.otherTotalAcquisitionCosts, (value) => {
+        subscriptions.patch(row.id, { otherTotalAcquisitionCosts: value })
+      })
+      const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
+        subscriptions.remove(row.id)
+      })
+      const capitalRepaymentTotalCell = td(
+        row.capitalRepaymentTotalTooltip
+          ? hoverValue(row.capitalRepaymentTotal, row.capitalRepaymentTotalTooltip)
+          : row.capitalRepaymentTotal
+      )
+
+      return {
+        node: tr(
+          td(dateInput),
+          td(vestingEndsOnInput),
+          td(amountInput),
+          td(pricePerShareInput),
+          td(otherTotalAcquisitionCostsInput),
+          td(rowTextNodes.totalPricePerShare),
+          td(rowTextNodes.capitalRepaymentPerShare),
+          td(rowTextNodes.remainingCostPerShare),
+          capitalRepaymentTotalCell,
+          td({ class: 'no-print' }, removeButton)
+        ),
+        set(nextRow) {
+          setInputValue(dateInput, nextRow.date)
+          setInputValue(vestingEndsOnInput, nextRow.vestingEndsOn)
+          setInputValue(amountInput, nextRow.amount)
+          setInputValue(pricePerShareInput, nextRow.pricePerShare)
+          setInputValue(otherTotalAcquisitionCostsInput, nextRow.otherTotalAcquisitionCosts)
+          rowState.set({ row: nextRow })
+          replaceChildren(
+            capitalRepaymentTotalCell,
+            nextRow.capitalRepaymentTotalTooltip
+              ? hoverValue(nextRow.capitalRepaymentTotal, nextRow.capitalRepaymentTotalTooltip)
+              : nextRow.capitalRepaymentTotal
+          )
+        },
       }
-    )
-    const totalPricePerShareNode = text('-')
-    const capitalRepaymentTotalNode = text('-')
-    const capitalRepaymentNode = text('-')
-    const remainingCostNode = text('-')
-    const removeButton = createRemoveButton(dataState, () => {
-      removeFormArrayItem(dataState, 'subscriptions', row.id)
-    })
+    },
+  })
 
-    return {
-      id: row.id,
-      node: tr(
-        td(dateInput),
-        td(vestingEndsOnInput),
-        td(amountInput),
-        td(pricePerShareInput),
-        td(otherTotalAcquisitionCostsInput),
-        td(totalPricePerShareNode),
-        td(capitalRepaymentTotalNode),
-        td(capitalRepaymentNode),
-        td(remainingCostNode),
-        td({ class: 'no-print' }, removeButton.buttonNode)
-      ),
-      set(nextRow, pageReadModel) {
-        setInputValue(dateInput, nextRow.date)
-        setInputValue(vestingEndsOnInput, nextRow.vestingEndsOn)
-        setInputValue(amountInput, nextRow.amount)
-        setInputValue(pricePerShareInput, nextRow.pricePerShare)
-        setInputValue(otherTotalAcquisitionCostsInput, nextRow.otherTotalAcquisitionCosts)
-        setTextValue(totalPricePerShareNode, nextRow.totalPricePerShare)
-        setTextValue(capitalRepaymentTotalNode, nextRow.capitalRepaymentTotal)
-        setTextValue(capitalRepaymentNode, nextRow.capitalRepaymentPerShare)
-        setTextValue(remainingCostNode, nextRow.remainingCostPerShare)
-        removeButton.setLabel(pageReadModel)
-      },
-    } satisfies RowController<{
-      id: string
-      date: string
-      vestingEndsOn: string
-      amount: string
-      pricePerShare: string
-      otherTotalAcquisitionCosts: string
-      totalPricePerShare: string
-      capitalRepaymentTotal: string
-      capitalRepaymentPerShare: string
-      remainingCostPerShare: string
-    }>
-  }
-
-  const addButton = createActionButton(addButtonLabelNode, 'primary', () => {
-    appendFormArrayItem(dataState, 'subscriptions', {
-      id: createId('sub'),
+  const addButton = createActionButton(subscriptionTextNodes.actions.add, 'primary', () => {
+    subscriptions.append({
       date: '',
       vestingEndsOn: '',
       amount: '',
@@ -1067,21 +1181,21 @@ function createSubscriptionsSection(dataState: State<OsakkeetFormData>) {
 
   const root = section(
     { class: 'card' },
-    div({ class: 'heading' }, h2(titleNode), span({ class: 'muted' }, countNode)),
-    p({ class: 'muted' }, helpNode),
+    div({ class: 'heading' }, h2(subscriptionTextNodes.title), span({ class: 'muted' }, rowCountNode)),
+    p({ class: 'muted' }, subscriptionTextNodes.help),
     summaryRoot,
     table(
       thead(
         tr(
-          th(dateHeaderNode),
+          th(commonTextNodes.date),
           th(vestingEndsOnHeaderNode),
-          th(amountHeaderNode),
-          th(pricePerShareHeaderNode),
+          th(commonTextNodes.amount),
+          th(subscriptionTextNodes.fields.pricePerShare),
           th(otherTotalAcquisitionCostsHeaderNode),
-          th(totalPricePerShareHeaderNode),
-          th(capitalRepaymentTotalHeaderNode),
-          th(capitalRepaymentHeaderNode),
-          th(remainingCostHeaderNode),
+          th(subscriptionTextNodes.fields.totalPricePerShare),
+          th(subscriptionTextNodes.fields.capitalRepaymentPerShare),
+          th(subscriptionTextNodes.fields.remainingCostPerShare),
+          th(totalReimbursementsHeaderNode),
           th({ class: 'no-print' }, '')
         )
       ),
@@ -1092,7 +1206,7 @@ function createSubscriptionsSection(dataState: State<OsakkeetFormData>) {
 
   return {
     root,
-    set({ osakkeetCalculation, texts, ...rest }: OsakkeetPageReadModel) {
+    set({ osakkeetCalculation, texts }: OsakkeetPageReadModel) {
       const current = osakkeetCalculation.formData
       const totalShares = osakkeetCalculation.vesting.totalShares
       const vestedShares = osakkeetCalculation.vesting.vestedShares
@@ -1104,29 +1218,19 @@ function createSubscriptionsSection(dataState: State<OsakkeetFormData>) {
       const summariesById = Object.fromEntries(
         osakkeetCalculation.subscriptions.map((subscription) => [subscription.id, subscription])
       )
-      setTextValue(titleNode, texts.subscriptions.title)
-      setTextValue(countNode, `${current.subscriptions.length} ${texts.common.rows}`)
-      setTextValue(helpNode, texts.subscriptions.help)
-      setTextValue(dateHeaderNode, texts.common.date)
-      setTextValue(vestingEndsOnHeaderNode, texts.subscriptions.fields.vestingEndsOn)
-      setTextValue(amountHeaderNode, texts.common.amount)
-      setTextValue(pricePerShareHeaderNode, texts.subscriptions.fields.pricePerShare)
-      setTextValue(otherTotalAcquisitionCostsHeaderLabelNode, texts.subscriptions.fields.otherTotalAcquisitionCosts)
+      textState.set({
+        rowCount: `${current.subscriptions.length} ${texts.common.rows}`,
+      })
+      vestingEndsOnHeaderNode.title = texts.subscriptions.fields.vestingEndsOnHelp
       otherTotalAcquisitionCostsHeaderNode.title = texts.subscriptions.fields.otherTotalAcquisitionCostsHelp
-      setTextValue(totalPricePerShareHeaderNode, texts.subscriptions.fields.totalPricePerShare)
-      setTextValue(capitalRepaymentTotalHeaderNode, texts.subscriptions.fields.totalReimbursements)
-      setTextValue(capitalRepaymentHeaderNode, texts.subscriptions.fields.capitalRepaymentPerShare)
-      setTextValue(remainingCostHeaderNode, texts.subscriptions.fields.remainingCostPerShare)
-      setTextValue(addButtonLabelNode, texts.subscriptions.actions.add)
+      totalReimbursementsHeaderNode.title = texts.subscriptions.fields.totalReimbursementsHelp
       replaceChildren(
         summaryRoot,
         infoCard(texts.subscriptions.summary.totalShares, amount(totalShares)),
         infoCard(texts.subscriptions.summary.vestedShares, sharePercent(vestedShares)),
         infoCard(texts.subscriptions.summary.unvestedShares, sharePercent(unvestedShares))
       )
-      syncRowControllers(
-        tbodyNode,
-        rowControllers,
+      rowsState.set(
         current.subscriptions.map((subscription) => ({
           id: subscription.id,
           date: subscription.date,
@@ -1140,147 +1244,146 @@ function createSubscriptionsSection(dataState: State<OsakkeetFormData>) {
           capitalRepaymentTotal: summariesById[subscription.id]
             ? euro(summariesById[subscription.id].capitalRepaymentTotal)
             : '-',
+          capitalRepaymentTotalTooltip: summariesById[subscription.id]
+            ? createCapitalRepaymentTooltip(summariesById[subscription.id].capitalRepaymentBreakdown, texts)
+            : '',
           capitalRepaymentPerShare: summariesById[subscription.id]
             ? euro(summariesById[subscription.id].capitalRepaymentPerShare)
             : '-',
           remainingCostPerShare: summariesById[subscription.id]
             ? euro(summariesById[subscription.id].remainingCostPerShare)
             : '-',
-        })),
-        { osakkeetCalculation, texts, ...rest },
-        createRowController
+          removeLabel: texts.common.remove,
+        }))
       )
     },
   }
 }
 
-function createCashDistributionsSection(dataState: State<OsakkeetFormData>) {
-  const titleNode = text()
-  const countNode = text()
-  const helpNode = text()
-  const dateHeaderNode = text()
-  const typeHeaderNode = text()
-  const shareCountHeaderNode = text()
-  const amountPerShareHeaderNode = text()
-  const totalHeaderNode = text()
-  const withholdingHeaderNode = text()
-  const cashPaidHeaderNode = text()
-  const capitalRepaymentHeaderNode = text()
-  const dividendHeaderNode = text()
-  const addButtonLabelNode = text()
+type CashDistributionRowViewModel = {
+  id: string
+  date: string
+  type: 'capital_return' | 'dividend'
+  shareCount: string
+  amountPerShare: string
+  grossTotal: string
+  withholdingToTaxOffice: string
+  paidInCash: string
+  capitalRepaymentTotal: string
+  capitalRepaymentTotalTooltip: string
+  dividendTotal: string
+  dividendTotalTooltip: string
+  shareCountMismatch: string
+  removeLabel: string
+  capitalReturnLabel: string
+  dividendLabel: string
+}
+
+function createCashDistributionsSection(
+  dataState: State<OsakkeetFormData>,
+  localizedTextNodes: LocalizedTextNodes,
+  commonTextNodes: CommonLocalizedTextNodes
+) {
+  const textState = createState({
+    value: {
+      rowCount: '',
+    },
+  })
+  const cashDistributionTextNodes = localizedTextNodes.cashDistributions
+  const rowCountNode = createTextNodesFromState(textState, { path: ['rowCount'] })
+  const withholdingHeaderNode = withHoverInfo(cashDistributionTextNodes.fields.withholding, '')
+  const cashPaidHeaderNode = withHoverInfo(cashDistributionTextNodes.fields.cashPaid, '')
+  const capitalRepaymentHeaderNode = withHoverInfo(cashDistributionTextNodes.fields.capitalRepayment, '')
+  const dividendHeaderNode = withHoverInfo(cashDistributionTextNodes.fields.dividend, '')
   const tbodyNode = tbody()
-  const rowControllers = new Map<
-    string,
-    RowController<{
-      id: string
-      date: string
-      type: 'capital_return' | 'dividend'
-      shareCount: string
-      amountPerShare: string
-      grossTotal: string
-      withholdingToTaxOffice: string
-      paidInCash: string
-      capitalRepaymentTotal: string
-      dividendTotal: string
-      shareCountMismatch?: string
-    }>
-  >()
+  const rowsState = createState<CashDistributionRowViewModel[]>({ value: [] })
+  const cashDistributions = createStateCollectionEditor(dataState, ['cashDistributions'])
 
-  const createRowController = (row: {
-    id: string
-    date: string
-    type: 'capital_return' | 'dividend'
-    shareCount: string
-    amountPerShare: string
-    grossTotal: string
-    withholdingToTaxOffice: string
-    paidInCash: string
-    capitalRepaymentTotal: string
-    dividendTotal: string
-    shareCountMismatch?: string
-  }) => {
-    const dateInput = finnishDateInput(row.date, (value) => {
-      updateFormArrayItem(dataState, 'cashDistributions', row.id, { date: value })
-    })
-    const typeInput = enumSelectInput(
-      row.type,
-      [
-        { label: '', value: 'capital_return' },
-        { label: '', value: 'dividend' },
-      ],
-      (value) => {
-        updateFormArrayItem(dataState, 'cashDistributions', row.id, { type: value })
+  mapStateToDomChildren(rowsState, tbodyNode, {
+    render: (row) => {
+      const rowState = createState({
+        value: {
+          row,
+        },
+      })
+      const rowTextNodes = createTextNodesFromState(rowState, { path: ['row'] })
+      const dateInput = finnishDateInput(row.date, (value) => {
+        cashDistributions.patch(row.id, { date: value })
+      })
+      const typeInput = enumSelectInput(
+        row.type,
+        [
+          { label: row.capitalReturnLabel, value: 'capital_return' },
+          { label: row.dividendLabel, value: 'dividend' },
+        ],
+        (value) => {
+          cashDistributions.patch(row.id, { type: value })
+        }
+      )
+      const shareCountInput = numberInput(row.shareCount, (value) => {
+        cashDistributions.patch(row.id, { shareCount: value })
+      })
+      const amountPerShareInput = numberInput(row.amountPerShare, (value) => {
+        cashDistributions.patch(row.id, { amountPerShare: value })
+      })
+      const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
+        cashDistributions.remove(row.id)
+      })
+      const shareCountCell = td(
+        div(pageStyles.denseStack, shareCountInput, span(pageStyles.rowErrorText, rowTextNodes.shareCountMismatch))
+      )
+      const capitalRepaymentTotalCell = td(
+        row.capitalRepaymentTotalTooltip
+          ? hoverValue(row.capitalRepaymentTotal, row.capitalRepaymentTotalTooltip)
+          : row.capitalRepaymentTotal
+      )
+      const dividendTotalCell = td(
+        row.dividendTotalTooltip ? hoverValue(row.dividendTotal, row.dividendTotalTooltip) : row.dividendTotal
+      )
+      const rowNode = tr(
+        td(dateInput),
+        td(typeInput),
+        shareCountCell,
+        td(amountPerShareInput),
+        td(rowTextNodes.grossTotal),
+        td(rowTextNodes.paidInCash),
+        td(rowTextNodes.withholdingToTaxOffice),
+        capitalRepaymentTotalCell,
+        dividendTotalCell,
+        td({ class: 'no-print' }, removeButton)
+      ) as HTMLTableRowElement
+
+      return {
+        node: rowNode,
+        set(nextRow) {
+          setInputValue(dateInput, nextRow.date)
+          setSelectValue(typeInput, nextRow.type)
+          typeInput.options[0]!.textContent = nextRow.capitalReturnLabel
+          typeInput.options[1]!.textContent = nextRow.dividendLabel
+          setInputValue(shareCountInput, nextRow.shareCount)
+          setInputValue(amountPerShareInput, nextRow.amountPerShare)
+          rowState.set({ row: nextRow })
+          replaceChildren(
+            capitalRepaymentTotalCell,
+            nextRow.capitalRepaymentTotalTooltip
+              ? hoverValue(nextRow.capitalRepaymentTotal, nextRow.capitalRepaymentTotalTooltip)
+              : nextRow.capitalRepaymentTotal
+          )
+          replaceChildren(
+            dividendTotalCell,
+            nextRow.dividendTotalTooltip
+              ? hoverValue(nextRow.dividendTotal, nextRow.dividendTotalTooltip)
+              : nextRow.dividendTotal
+          )
+          rowTextNodes.shareCountMismatch.parentElement!.style.display = nextRow.shareCountMismatch ? '' : 'none'
+          rowNode.className = nextRow.shareCountMismatch ? String(pageStyles.mismatchRow) : ''
+        },
       }
-    )
-    const shareCountInput = numberInput(row.shareCount, { step: '1', min: '0' }, (value) => {
-      updateFormArrayItem(dataState, 'cashDistributions', row.id, { shareCount: value })
-    })
-    const amountPerShareInput = numberInput(row.amountPerShare, { step: '0.0001', min: '0' }, (value) => {
-      updateFormArrayItem(dataState, 'cashDistributions', row.id, { amountPerShare: value })
-    })
-    const grossTotalNode = text('-')
-    const withholdingNode = text('-')
-    const paidInCashNode = text('-')
-    const capitalRepaymentNode = text('-')
-    const dividendNode = text('-')
-    const shareCountMismatchNode = text()
-    const removeButton = createRemoveButton(dataState, () => {
-      removeFormArrayItem(dataState, 'cashDistributions', row.id)
-    })
-    const shareCountCell = td(
-      div(pageStyles.denseStack, shareCountInput, span(pageStyles.rowErrorText, shareCountMismatchNode))
-    )
-    const rowNode = tr(
-      td(dateInput),
-      td(typeInput),
-      shareCountCell,
-      td(amountPerShareInput),
-      td(grossTotalNode),
-      td(withholdingNode),
-      td(paidInCashNode),
-      td(capitalRepaymentNode),
-      td(dividendNode),
-      td({ class: 'no-print' }, removeButton.buttonNode)
-    ) as HTMLTableRowElement
+    },
+  })
 
-    return {
-      id: row.id,
-      node: rowNode,
-      set(nextRow, pageReadModel) {
-        setInputValue(dateInput, nextRow.date)
-        setSelectValue(typeInput, nextRow.type)
-        typeInput.options[0]!.textContent = pageReadModel.texts.cashDistributions.types.capitalReturn
-        typeInput.options[1]!.textContent = pageReadModel.texts.cashDistributions.types.dividend
-        setInputValue(shareCountInput, nextRow.shareCount)
-        setInputValue(amountPerShareInput, nextRow.amountPerShare)
-        setTextValue(grossTotalNode, nextRow.grossTotal)
-        setTextValue(withholdingNode, nextRow.withholdingToTaxOffice)
-        setTextValue(paidInCashNode, nextRow.paidInCash)
-        setTextValue(capitalRepaymentNode, nextRow.capitalRepaymentTotal)
-        setTextValue(dividendNode, nextRow.dividendTotal)
-        setTextValue(shareCountMismatchNode, nextRow.shareCountMismatch || '')
-        shareCountMismatchNode.parentElement!.style.display = nextRow.shareCountMismatch ? '' : 'none'
-        rowNode.className = nextRow.shareCountMismatch ? String(pageStyles.mismatchRow) : ''
-        removeButton.setLabel(pageReadModel)
-      },
-    } satisfies RowController<{
-      id: string
-      date: string
-      type: 'capital_return' | 'dividend'
-      shareCount: string
-      amountPerShare: string
-      grossTotal: string
-      withholdingToTaxOffice: string
-      paidInCash: string
-      capitalRepaymentTotal: string
-      dividendTotal: string
-      shareCountMismatch?: string
-    }>
-  }
-
-  const addButton = createActionButton(addButtonLabelNode, 'primary', () => {
-    appendFormArrayItem(dataState, 'cashDistributions', {
-      id: createId('distribution'),
+  const addButton = createActionButton(cashDistributionTextNodes.actions.add, 'primary', () => {
+    cashDistributions.append({
       type: 'capital_return',
       date: '',
       amountPerShare: '',
@@ -1290,18 +1393,18 @@ function createCashDistributionsSection(dataState: State<OsakkeetFormData>) {
 
   const root = section(
     { class: 'card' },
-    div({ class: 'heading' }, h2(titleNode), span({ class: 'muted' }, countNode)),
-    p({ class: 'muted' }, helpNode),
+    div({ class: 'heading' }, h2(cashDistributionTextNodes.title), span({ class: 'muted' }, rowCountNode)),
+    p({ class: 'muted' }, cashDistributionTextNodes.help),
     table(
       thead(
         tr(
-          th(dateHeaderNode),
-          th(typeHeaderNode),
-          th(shareCountHeaderNode),
-          th(amountPerShareHeaderNode),
-          th(totalHeaderNode),
-          th(withholdingHeaderNode),
+          th(commonTextNodes.date),
+          th(commonTextNodes.type),
+          th(cashDistributionTextNodes.fields.shareCount),
+          th(cashDistributionTextNodes.fields.amountPerShare),
+          th(commonTextNodes.total),
           th(cashPaidHeaderNode),
+          th(withholdingHeaderNode),
           th(capitalRepaymentHeaderNode),
           th(dividendHeaderNode),
           th({ class: 'no-print' }, '')
@@ -1314,29 +1417,33 @@ function createCashDistributionsSection(dataState: State<OsakkeetFormData>) {
 
   return {
     root,
-    set({ osakkeetCalculation, texts, ...rest }: OsakkeetPageReadModel) {
+    set({ osakkeetCalculation, texts }: OsakkeetPageReadModel) {
       const current = osakkeetCalculation.formData
       const summariesById = Object.fromEntries(
         osakkeetCalculation.cashDistributions.map((cashDistribution) => [cashDistribution.id, cashDistribution])
       )
-      setTextValue(titleNode, texts.cashDistributions.title)
-      setTextValue(countNode, `${current.cashDistributions.length} ${texts.common.rows}`)
-      setTextValue(helpNode, texts.cashDistributions.help)
-      setTextValue(dateHeaderNode, texts.common.date)
-      setTextValue(typeHeaderNode, texts.common.type)
-      setTextValue(shareCountHeaderNode, texts.cashDistributions.fields.shareCount)
-      setTextValue(amountPerShareHeaderNode, texts.cashDistributions.fields.amountPerShare)
-      setTextValue(totalHeaderNode, texts.common.total)
-      setTextValue(withholdingHeaderNode, texts.cashDistributions.fields.withholding)
-      setTextValue(cashPaidHeaderNode, texts.cashDistributions.fields.cashPaid)
-      setTextValue(capitalRepaymentHeaderNode, texts.cashDistributions.fields.capitalRepayment)
-      setTextValue(dividendHeaderNode, texts.cashDistributions.fields.dividend)
-      setTextValue(addButtonLabelNode, texts.cashDistributions.actions.add)
-      syncRowControllers(
-        tbodyNode,
-        rowControllers,
+      textState.set({
+        rowCount: `${current.cashDistributions.length} ${texts.common.rows}`,
+      })
+      withholdingHeaderNode.title = texts.cashDistributions.fields.withholdingHelp
+      cashPaidHeaderNode.title = texts.cashDistributions.fields.cashPaidHelp
+      capitalRepaymentHeaderNode.title = texts.cashDistributions.fields.capitalRepaymentHelp
+      dividendHeaderNode.title = texts.cashDistributions.fields.dividendHelp
+      rowsState.set(
         current.cashDistributions.map((cashDistribution) => {
           const summary = summariesById[cashDistribution.id]
+          const capitalRepaymentShares = summary
+            ? summary.allocations.reduce(
+                (total, allocation) => (allocation.capitalRepayment.gt(0) ? total.add(allocation.shares) : total),
+                new Decimal(0)
+              )
+            : new Decimal(0)
+          const dividendShares = summary
+            ? summary.allocations.reduce(
+                (total, allocation) => (allocation.dividend.gt(0) ? total.add(allocation.shares) : total),
+                new Decimal(0)
+              )
+            : new Decimal(0)
           const expectedShareCount = summary ? amount(summary.sharesHeld) : ''
           const givenShareCount = cashDistribution.shareCount || ''
           const hasShareCountMismatch =
@@ -1353,103 +1460,99 @@ function createCashDistributionsSection(dataState: State<OsakkeetFormData>) {
             withholdingToTaxOffice: summary ? euro(summary.withholdingToTaxOffice) : '-',
             paidInCash: summary ? euro(summary.paidInCash) : '-',
             capitalRepaymentTotal: summary ? euro(summary.capitalRepaymentTotal) : '-',
+            capitalRepaymentTotalTooltip: summary
+              ? texts.cashDistributions.fields.capitalRepaymentSharesHelp(amount(capitalRepaymentShares))
+              : '',
             dividendTotal: summary ? euro(summary.dividendTotal) : '-',
+            dividendTotalTooltip: summary
+              ? texts.cashDistributions.fields.dividendSharesHelp(amount(dividendShares))
+              : '',
             shareCountMismatch: hasShareCountMismatch
               ? texts.cashDistributions.messages.shareCountMismatch(expectedShareCount, givenShareCount)
-              : undefined,
+              : '',
+            removeLabel: texts.common.remove,
+            capitalReturnLabel: texts.cashDistributions.types.capitalReturn,
+            dividendLabel: texts.cashDistributions.types.dividend,
           }
-        }),
-        { osakkeetCalculation, texts, ...rest },
-        createRowController
+        })
       )
     },
   }
 }
 
-function createIpoSection(dataState: State<OsakkeetFormData>) {
-  const titleNode = text()
-  const currentShareValueLabelNode = text()
-  const totalShareCountLabelNode = text()
-  const currentTotalValueLabelNode = text()
-  const subscribedSharesLabelNode = text()
-  const estimatedPreIpoValueLabelNode = text()
-  const ipoSharePriceLabelNode = text()
-  const increasePercentLabelNode = text()
-  const increaseMultiplierLabelNode = text()
-  const totalIpoCostLabelNode = text()
-  const secondarySellPercentLabelNode = text()
-  const ipoCostPerSecondaryShareLabelNode = text()
-  const secondarySharesTotalLabelNode = text()
-  const ipoDateLabelNode = text()
-  const secondarySellHelpNode = text()
-  const ipoDateHelpNode = text()
-  const currentTotalValueNode = text()
-  const subscribedSharesNode = text()
-  const ipoSharePriceNode = text()
-  const increasePercentNode = text()
-  const increaseMultiplierNode = text()
-  const ipoCostPerSecondaryShareNode = text()
-  const secondarySharesTotalNode = text()
+function createIpoSection(dataState: State<OsakkeetFormData>, localizedTextNodes: LocalizedTextNodes) {
+  const viewState = createState({
+    value: {
+      values: {
+        currentTotalValue: '',
+        subscribedShares: '',
+        ipoSharePrice: '',
+        increasePercent: '',
+        increaseMultiplier: '',
+        ipoCostPerSecondaryShare: '',
+        secondarySharesTotal: '',
+      },
+    },
+  })
+  const ipoTextNodes = localizedTextNodes.ipo
+  const summaryCardTextNodes = localizedTextNodes.summary.cards
+  const valueNodes = createTextNodesFromState(viewState, { path: ['values'] })
 
-  const currentShareValueInput = numberInput(
-    '',
-    { step: '0.01', min: '0' },
-    createIpoNumberUpdater(dataState, 'currentShareValue')
-  )
-  const totalShareCountInput = numberInput(
-    '',
-    { step: '1', min: '0' },
-    createIpoNumberUpdater(dataState, 'totalShareCount')
-  )
-  const estimatedPreIpoValueInput = numberInput(
-    '',
-    { step: '0.01', min: '0' },
-    createIpoNumberUpdater(dataState, 'estimatedPreIpoValue')
-  )
-  const totalIpoCostInput = numberInput(
-    '',
-    { step: '0.01', min: '0' },
-    createIpoNumberUpdater(dataState, 'totalIpoCost')
-  )
-  const secondarySellPercentInput = numberInput(
-    '',
-    { step: '0.01', min: '0' },
-    createIpoNumberUpdater(dataState, 'estimatedSecondaryShareSellPercentage')
-  )
-  const ipoDateInput = finnishDateInput('', createIpoTextUpdater(dataState, 'ipoDate'))
+  const currentShareValueInput = numberInput('')
+  const totalShareCountInput = numberInput('')
+  const estimatedPreIpoValueInput = numberInput('')
+  const totalIpoCostInput = numberInput('')
+  const secondarySellPercentInput = numberInput('')
+  const ipoDateInput = finnishDateInput('')
+
+  mapStatePathToInput(dataState, ['ipo', 'currentShareValue'], currentShareValueInput)
+  mapStatePathToInput(dataState, ['ipo', 'totalShareCount'], totalShareCountInput)
+  mapStatePathToInput(dataState, ['ipo', 'estimatedPreIpoValue'], estimatedPreIpoValueInput)
+  mapStatePathToInput(dataState, ['ipo', 'totalIpoCost'], totalIpoCostInput)
+  mapStatePathToInput(dataState, ['ipo', 'estimatedSecondaryShareSellPercentage'], secondarySellPercentInput)
+  mapStatePathToInput(dataState, ['ipo', 'ipoDate'], ipoDateInput)
 
   const root = section(
     { class: 'card' },
-    h2(titleNode),
+    h2(ipoTextNodes.title),
     div(
       pageStyles.gridTwo,
-      div(pageStyles.field, label(currentShareValueLabelNode), currentShareValueInput),
-      div(pageStyles.field, label(totalShareCountLabelNode), totalShareCountInput),
-      div(pageStyles.field, label(currentTotalValueLabelNode), b(currentTotalValueNode)),
-      div(pageStyles.field, label(subscribedSharesLabelNode), b(subscribedSharesNode))
+      div(pageStyles.field, label(ipoTextNodes.fields.currentShareValue), currentShareValueInput),
+      div(pageStyles.field, label(ipoTextNodes.fields.totalShareCount), totalShareCountInput),
+      div(pageStyles.field, label(ipoTextNodes.fields.currentTotalValue), b(valueNodes.currentTotalValue)),
+      div(pageStyles.field, label(summaryCardTextNodes.subscribedShares), b(valueNodes.subscribedShares))
     ),
     div(
       pageStyles.gridTwo,
-      div(pageStyles.field, label(estimatedPreIpoValueLabelNode), estimatedPreIpoValueInput),
-      div(pageStyles.field, label(ipoSharePriceLabelNode), b(ipoSharePriceNode)),
-      div(pageStyles.field, label(increasePercentLabelNode), b(increasePercentNode)),
-      div(pageStyles.field, label(increaseMultiplierLabelNode), b(increaseMultiplierNode))
+      div(pageStyles.field, label(ipoTextNodes.fields.estimatedPreIpoValue), estimatedPreIpoValueInput),
+      div(pageStyles.field, label(ipoTextNodes.fields.ipoSharePrice), b(valueNodes.ipoSharePrice)),
+      div(pageStyles.field, label(ipoTextNodes.fields.increasePercent), b(valueNodes.increasePercent)),
+      div(pageStyles.field, label(ipoTextNodes.fields.increaseMultiplier), b(valueNodes.increaseMultiplier))
     ),
     div(
       pageStyles.gridTwo,
-      div(pageStyles.field, label(totalIpoCostLabelNode), totalIpoCostInput),
+      div(pageStyles.field, label(ipoTextNodes.fields.totalIpoCost), totalIpoCostInput),
       div(
         pageStyles.field,
-        label(secondarySellPercentLabelNode),
+        label(ipoTextNodes.fields.secondarySellPercent),
         secondarySellPercentInput,
-        span({ class: 'muted' }, secondarySellHelpNode)
+        span({ class: 'muted' }, ipoTextNodes.help.secondary)
       ),
-      div(pageStyles.field, label(ipoCostPerSecondaryShareLabelNode), b(ipoCostPerSecondaryShareNode)),
-      div(pageStyles.field, label(secondarySharesTotalLabelNode), b(secondarySharesTotalNode))
+      div(
+        pageStyles.field,
+        label(summaryCardTextNodes.ipoCostPerSecondaryShare),
+        b(valueNodes.ipoCostPerSecondaryShare)
+      ),
+      div(pageStyles.field, label(summaryCardTextNodes.secondarySharesTotal), b(valueNodes.secondarySharesTotal))
     ),
     div(
       pageStyles.gridTwo,
-      div(pageStyles.field, label(ipoDateLabelNode), ipoDateInput, span({ class: 'muted' }, ipoDateHelpNode)),
+      div(
+        pageStyles.field,
+        label(ipoTextNodes.fields.ipoDate),
+        ipoDateInput,
+        span({ class: 'muted' }, ipoTextNodes.help.dateFormat)
+      ),
       div(),
       div()
     )
@@ -1458,65 +1561,45 @@ function createIpoSection(dataState: State<OsakkeetFormData>) {
   return {
     root,
     set({ texts, osakkeetCalculation }: OsakkeetPageReadModel) {
-      const { ipo } = osakkeetCalculation.formData
-      setTextValue(titleNode, texts.ipo.title)
-      setTextValue(currentShareValueLabelNode, texts.ipo.fields.currentShareValue)
-      setTextValue(totalShareCountLabelNode, texts.ipo.fields.totalShareCount)
-      setTextValue(currentTotalValueLabelNode, texts.ipo.fields.currentTotalValue)
-      setTextValue(subscribedSharesLabelNode, texts.summary.cards.subscribedShares)
-      setTextValue(estimatedPreIpoValueLabelNode, texts.ipo.fields.estimatedPreIpoValue)
-      setTextValue(ipoSharePriceLabelNode, texts.ipo.fields.ipoSharePrice)
-      setTextValue(increasePercentLabelNode, texts.ipo.fields.increasePercent)
-      setTextValue(increaseMultiplierLabelNode, texts.ipo.fields.increaseMultiplier)
-      setTextValue(totalIpoCostLabelNode, texts.ipo.fields.totalIpoCost)
-      setTextValue(secondarySellPercentLabelNode, texts.ipo.fields.secondarySellPercent)
-      setTextValue(ipoCostPerSecondaryShareLabelNode, texts.summary.cards.ipoCostPerSecondaryShare)
-      setTextValue(secondarySharesTotalLabelNode, texts.summary.cards.secondarySharesTotal)
-      setTextValue(ipoDateLabelNode, texts.ipo.fields.ipoDate)
-      setTextValue(secondarySellHelpNode, texts.ipo.help.secondary)
-      setTextValue(ipoDateHelpNode, texts.ipo.help.dateFormat)
-      setInputValue(currentShareValueInput, ipo.currentShareValue)
-      setInputValue(totalShareCountInput, ipo.totalShareCount)
-      setInputValue(estimatedPreIpoValueInput, ipo.estimatedPreIpoValue)
-      setInputValue(totalIpoCostInput, ipo.totalIpoCost)
-      setInputValue(secondarySellPercentInput, ipo.estimatedSecondaryShareSellPercentage)
-      setInputValue(ipoDateInput, ipo.ipoDate)
-      setTextValue(currentTotalValueNode, euro(osakkeetCalculation.ipo.currentTotalValue))
-      setTextValue(subscribedSharesNode, amount(osakkeetCalculation.ipo.totalSubscribedShares))
-      setTextValue(ipoSharePriceNode, euro(osakkeetCalculation.ipo.ipoPricePerShare))
-      setTextValue(increasePercentNode, percentage(osakkeetCalculation.ipo.increasePercentage))
-      setTextValue(increaseMultiplierNode, multiplier(osakkeetCalculation.ipo.increaseMultiplier))
-      setTextValue(ipoCostPerSecondaryShareNode, euro(osakkeetCalculation.ipo.ipoCostPerShare))
-      setTextValue(secondarySharesTotalNode, amount(osakkeetCalculation.ipo.estimatedSecondaryShareCount))
+      void texts
+      viewState.set({
+        values: {
+          currentTotalValue: euro(osakkeetCalculation.ipo.currentTotalValue),
+          subscribedShares: amount(osakkeetCalculation.ipo.totalSubscribedShares),
+          ipoSharePrice: euro(osakkeetCalculation.ipo.ipoPricePerShare),
+          increasePercent: percentage(osakkeetCalculation.ipo.increasePercentage),
+          increaseMultiplier: multiplier(osakkeetCalculation.ipo.increaseMultiplier),
+          ipoCostPerSecondaryShare: euro(osakkeetCalculation.ipo.ipoCostPerShare),
+          secondarySharesTotal: amount(osakkeetCalculation.ipo.estimatedSecondaryShareCount),
+        },
+      })
     },
   }
 }
 
-function createResultsSection(dataState: State<OsakkeetFormData>) {
+function createResultsSection(dataState: State<OsakkeetFormData>, localizedTextNodes: LocalizedTextNodes) {
   const warningRoot = div()
   const ipoSellContentRoot = div(pageStyles.denseStack)
-  const annualAdjustmentTitleNode = text()
-  const annualAdjustmentInputTitleNode = text()
-  const annualAdjustmentInputHelpNode = text()
+  const summaryTextNodes = localizedTextNodes.summary
   const annualAdjustmentTaxEffectRoot = div()
   const annualAdjustmentReserveRoot = div()
   const annualAdjustmentKeepRoot = div()
-  const sellInputLabelNode = text()
-  const sellInput = numberInput('', { step: '1', min: '0' }, (value) => {
-    dataState.update({ sell: { ...dataState.get().sell, amount: value } })
-  })
-  const otherAnnualCapitalInput = numberInput('', { step: '0.01', min: '' }, (value) => {
-    dataState.update({ sell: { ...dataState.get().sell, otherAnnualCapitalGainsOrLosses: value } })
-  })
-  const ipoSellSectionTitleNode = text()
+  const sellInput = numberInput('')
+  const otherAnnualCapitalInput = numberInput('')
+  mapStatePathToInput(dataState, ['sell', 'amount'], sellInput)
+  mapStatePathToInput(dataState, ['sell', 'otherAnnualCapitalGainsOrLosses'], otherAnnualCapitalInput)
   const annualAdjustmentInputCard = div(
     pageStyles.summaryItem,
-    h3(annualAdjustmentInputTitleNode),
-    div(pageStyles.field, otherAnnualCapitalInput, span({ class: 'muted' }, annualAdjustmentInputHelpNode))
+    h3(summaryTextNodes.ipoSell.cashReserve.otherAnnualCapitalGainsOrLosses),
+    div(
+      pageStyles.field,
+      otherAnnualCapitalInput,
+      span({ class: 'muted' }, summaryTextNodes.ipoSell.cashReserve.otherAnnualCapitalGainsOrLossesHelp)
+    )
   )
   const annualAdjustmentRoot = div(
     pageStyles.denseStack,
-    h3(annualAdjustmentTitleNode),
+    h3(summaryTextNodes.ipoSell.cashReserve.annualAdjustmentTitle),
     div(
       pageStyles.summaryGrid,
       annualAdjustmentInputCard,
@@ -1530,10 +1613,13 @@ function createResultsSection(dataState: State<OsakkeetFormData>) {
     pageStyles.stack,
     section(
       { class: 'card' },
-      h2(ipoSellSectionTitleNode),
+      h2(summaryTextNodes.ipoSell.title),
       div(
         pageStyles.gridTwo,
-        div(pageStyles.compactField, div(pageStyles.field, label(sellInputLabelNode), sellInput))
+        div(
+          pageStyles.compactField,
+          div(pageStyles.field, label(summaryTextNodes.ipoSell.fields.sharesToSell), sellInput)
+        )
       ),
       warningRoot,
       ipoSellContentRoot,
@@ -1567,13 +1653,7 @@ function createResultsSection(dataState: State<OsakkeetFormData>) {
         osakkeetCalculation.sell.selectedHmo40DeductionTotal
       )
 
-      setTextValue(ipoSellSectionTitleNode, texts.summary.ipoSell.title)
-      setTextValue(sellInputLabelNode, texts.summary.ipoSell.fields.sharesToSell)
-      setInputValue(sellInput, osakkeetCalculation.formData.sell.amount)
-      setInputValue(otherAnnualCapitalInput, osakkeetCalculation.formData.sell.otherAnnualCapitalGainsOrLosses || '')
-      setTextValue(annualAdjustmentTitleNode, texts.summary.ipoSell.cashReserve.annualAdjustmentTitle)
-      setTextValue(annualAdjustmentInputTitleNode, texts.summary.ipoSell.cashReserve.otherAnnualCapitalGainsOrLosses)
-      setTextValue(annualAdjustmentInputHelpNode, texts.summary.ipoSell.cashReserve.otherAnnualCapitalGainsOrLossesHelp)
+      void texts
 
       replaceChildren(
         warningRoot,
@@ -1814,16 +1894,9 @@ function createResultsSection(dataState: State<OsakkeetFormData>) {
   }
 }
 
-function createIntroSection(languageSelectionState: State<Language>) {
-  const titleNode = text()
-  const languageSwitchLabelNode = text()
-  const descriptionNode = text()
-  const unlistedDescriptionNode = text()
-  const securityTitleNode = text()
-  const securityTextNode = text()
-  const securityAdditionalTextNode = text()
-  const securityNoteNode = text()
-  const securityIssuesNode = text()
+function createIntroSection(languageSelectionState: State<Language>, localizedTextNodes: LocalizedTextNodes) {
+  const introTextNodes = localizedTextNodes.intro
+  const languageSwitchTextNodes = localizedTextNodes.languageSwitch
   const assumptionsRoot = div()
   const fiButton = button(
     'FI',
@@ -1847,39 +1920,31 @@ function createIntroSection(languageSelectionState: State<Language>) {
     { class: 'card' },
     div(
       { class: 'heading' },
-      h2(titleNode),
+      h2(introTextNodes.title),
       div(
         { class: 'no-print' },
         pageStyles.rowButtons,
-        span({ class: 'muted' }, languageSwitchLabelNode),
+        span({ class: 'muted' }, languageSwitchTextNodes.label),
         fiButton,
         enButton
       )
     ),
-    p({ class: 'muted' }, descriptionNode),
-    p({ class: 'muted' }, unlistedDescriptionNode),
+    p({ class: 'muted' }, introTextNodes.description),
+    p({ class: 'muted' }, introTextNodes.unlistedDescription),
     div(
       pageStyles.denseStack,
-      h3(securityTitleNode),
-      p(pageStyles.compactParagraph, { class: 'muted' }, securityTextNode),
-      p(pageStyles.compactParagraph, { class: 'muted' }, securityAdditionalTextNode),
-      p(pageStyles.redNote, pageStyles.compactParagraph, securityNoteNode),
-      p(pageStyles.compactParagraph, { class: 'muted' }, securityIssuesNode)
+      h3(introTextNodes.securityTitle),
+      p(pageStyles.compactParagraph, { class: 'muted' }, introTextNodes.securityText),
+      p(pageStyles.compactParagraph, { class: 'muted' }, introTextNodes.securityAdditionalText),
+      p(pageStyles.redNote, pageStyles.compactParagraph, introTextNodes.securityNote),
+      p(pageStyles.compactParagraph, { class: 'muted' }, introTextNodes.securityIssues)
     ),
     assumptionsRoot
   )
   return {
     root,
     set({ languageSelection, texts }: OsakkeetPageReadModel) {
-      setTextValue(titleNode, texts.intro.title)
-      setTextValue(languageSwitchLabelNode, texts.languageSwitch.label)
-      setTextValue(descriptionNode, texts.intro.description)
-      setTextValue(unlistedDescriptionNode, texts.intro.unlistedDescription)
-      setTextValue(securityTitleNode, texts.intro.securityTitle)
-      setTextValue(securityTextNode, texts.intro.securityText)
-      setTextValue(securityAdditionalTextNode, texts.intro.securityAdditionalText)
-      setTextValue(securityNoteNode, texts.intro.securityNote)
-      setTextValue(securityIssuesNode, texts.intro.securityIssues)
+      void texts
       setButtonVariant(fiButton, languageSelection === 'fi')
       setButtonVariant(enButton, languageSelection === 'en')
       replaceChildren(assumptionsRoot, assumptionsContent(texts))
@@ -1887,15 +1952,15 @@ function createIntroSection(languageSelectionState: State<Language>) {
   }
 }
 
-function createStickyWarningsSection() {
-  const titleNode = text()
+function createStickyWarningsSection(localizedTextNodes: LocalizedTextNodes) {
+  const introTextNodes = localizedTextNodes.intro
   const warningListRoot = ul()
-  const root = div(pageStyles.stickyWarningBox, h3(titleNode), warningListRoot)
+  const root = div(pageStyles.stickyWarningBox, h3(introTextNodes.warningsTitle), warningListRoot)
 
   return {
     root,
     set({ texts }: Pick<OsakkeetPageReadModel, 'texts'>) {
-      setTextValue(titleNode, texts.intro.warningsTitle)
+      void texts
       replaceChildren(
         warningListRoot,
         texts.intro.warnings.map((warning) => li(warning))
@@ -1904,33 +1969,18 @@ function createStickyWarningsSection() {
   }
 }
 
-function createToolbarSection(dataState: State<OsakkeetFormData>) {
-  const statusNode = text()
-  const titleNode = text()
-  const rowTitleHeaderNode = text()
-  const rowDescriptionHeaderNode = text()
-  const rowActionsHeaderNode = text()
-  const autoSaveTitleNode = text()
-  const autoSaveDescriptionNode = text()
-  const fileTitleNode = text()
-  const fileDescriptionNode = text()
-  const browserTitleNode = text()
-  const browserDescriptionNode = text()
-  const clearTitleNode = text()
-  const clearDescriptionNode = text()
-  const exampleTitleNode = text()
-  const exampleDescriptionNode = text()
-  const saveToBrowserStorageLabelNode = text()
-  const loadFromBrowserStorageLabelNode = text()
-  const removeFromBrowserStorageLabelNode = text()
-  const copyShareUrlLabelNode = text()
-  const copyShareUrlHelpNode = text()
-  const copyShareUrlNoteNode = text()
-  const saveFileLabelNode = text()
-  const loadFileLabelNode = text()
-  const restoreExampleLabelNode = text()
-  const clearExampleLabelNode = text()
+function createToolbarSection(dataState: State<OsakkeetFormData>, localizedTextNodes: LocalizedTextNodes) {
+  const viewState = createState({
+    value: {
+      status: '',
+    },
+  })
+  const storageTextNodes = localizedTextNodes.storage
+  const statusNode = createTextNodesFromState(viewState, { path: ['status'] })
   let currentTexts = getOsakkeetLocalization(tryLoadLanguage())
+  const setStatus = (status: string) => {
+    viewState.set((current) => ({ ...current, status }))
+  }
   const refreshStorageButtons = () => {
     const currentSerialized = serializeOsakkeetFormData(dataState.get())
     const browserSerialized = tryStorageGet(localStorage, storageKeys.browserFormData)
@@ -1969,15 +2019,15 @@ function createToolbarSection(dataState: State<OsakkeetFormData>) {
             const normalized = normalizeLoadedData(parsed)
             dataState.set(normalized)
             tryStorageSet(sessionStorage, storageKeys.lastFileSavedHash, serializeOsakkeetFormData(normalized))
-            statusNode.textContent = currentTexts.storage.status.loaded
+            setStatus(currentTexts.storage.status.loaded)
             refreshStorageButtons()
           } catch {
-            statusNode.textContent = currentTexts.storage.errors.invalidFile
+            setStatus(currentTexts.storage.errors.invalidFile)
           }
           inputNode.value = ''
         }
         reader.onerror = () => {
-          statusNode.textContent = currentTexts.storage.errors.fileReadFailed
+          setStatus(currentTexts.storage.errors.fileReadFailed)
           inputNode.value = ''
         }
         reader.readAsText(file)
@@ -1986,7 +2036,7 @@ function createToolbarSection(dataState: State<OsakkeetFormData>) {
   )
   const buttonConfigs = [
     {
-      labelNode: saveFileLabelNode,
+      labelNode: storageTextNodes.actions.saveFile,
       variant: 'secondary' as const,
       action: () => {
         const blob = new Blob([JSON.stringify(sanitizeOsakkeetFormData(dataState.get()), null, 2)], {
@@ -2000,21 +2050,21 @@ function createToolbarSection(dataState: State<OsakkeetFormData>) {
         link.click()
         URL.revokeObjectURL(url)
         tryStorageSet(sessionStorage, storageKeys.lastFileSavedHash, serialized)
-        statusNode.textContent = currentTexts.storage.status.fileSaved
+        setStatus(currentTexts.storage.status.fileSaved)
         refreshStorageButtons()
       },
     },
     {
-      labelNode: saveToBrowserStorageLabelNode,
+      labelNode: storageTextNodes.actions.saveToBrowserStorage,
       variant: 'secondary' as const,
       action: () => {
         tryStorageSet(localStorage, storageKeys.browserFormData, serializeOsakkeetFormData(dataState.get()))
-        statusNode.textContent = currentTexts.storage.status.browserSaved
+        setStatus(currentTexts.storage.status.browserSaved)
         refreshStorageButtons()
       },
     },
     {
-      labelNode: loadFromBrowserStorageLabelNode,
+      labelNode: storageTextNodes.actions.loadFromBrowserStorage,
       variant: 'secondary' as const,
       action: () => {
         const saved = tryStorageGet(localStorage, storageKeys.browserFormData)
@@ -2022,60 +2072,74 @@ function createToolbarSection(dataState: State<OsakkeetFormData>) {
         try {
           const parsed = JSON.parse(saved) as Partial<OsakkeetFormData>
           dataState.set(normalizeLoadedData(parsed))
-          statusNode.textContent = currentTexts.storage.status.browserLoaded
+          setStatus(currentTexts.storage.status.browserLoaded)
           refreshStorageButtons()
         } catch {
-          statusNode.textContent = currentTexts.storage.errors.invalidFile
+          setStatus(currentTexts.storage.errors.invalidFile)
         }
       },
     },
     {
-      labelNode: removeFromBrowserStorageLabelNode,
+      labelNode: storageTextNodes.actions.removeFromBrowserStorage,
       variant: 'secondary' as const,
       action: () => {
         tryStorageRemove(localStorage, storageKeys.browserFormData)
-        statusNode.textContent = currentTexts.storage.status.browserRemoved
+        setStatus(currentTexts.storage.status.browserRemoved)
         refreshStorageButtons()
       },
     },
     {
-      labelNode: loadFileLabelNode,
+      labelNode: storageTextNodes.actions.loadFile,
       variant: 'secondary' as const,
       action: () => {
         fileInput.click()
       },
     },
     {
-      labelNode: restoreExampleLabelNode,
+      labelNode: storageTextNodes.actions.showSmallExample,
       variant: 'secondary' as const,
       action: () => {
-        dataState.set(createOsakkeetFormData(true))
-        statusNode.textContent = currentTexts.storage.status.exampleShown
+        dataState.set(createExampleOsakkeetFormData('small2y'))
+        setStatus(currentTexts.storage.status.exampleShown)
       },
     },
     {
-      labelNode: clearExampleLabelNode,
+      labelNode: storageTextNodes.actions.showMediumExample,
+      variant: 'secondary' as const,
+      action: () => {
+        dataState.set(createExampleOsakkeetFormData('medium8y'))
+        setStatus(currentTexts.storage.status.exampleShown)
+      },
+    },
+    {
+      labelNode: storageTextNodes.actions.showLargeExample,
+      variant: 'secondary' as const,
+      action: () => {
+        dataState.set(createExampleOsakkeetFormData('large16y'))
+        setStatus(currentTexts.storage.status.exampleShown)
+      },
+    },
+    {
+      labelNode: storageTextNodes.actions.clearExample,
       variant: 'secondary' as const,
       action: () => {
         if (!window.confirm(currentTexts.storage.confirmations.clearExample)) {
           return
         }
         dataState.set(createOsakkeetFormData(false))
-        statusNode.textContent = currentTexts.storage.status.exampleCleared
+        setStatus(currentTexts.storage.status.exampleCleared)
       },
     },
     {
-      labelNode: copyShareUrlLabelNode,
+      labelNode: storageTextNodes.actions.copyShareUrl,
       variant: 'secondary' as const,
       action: () => {
         void copyTextToClipboard(buildShareUrl(dataState.get())).then(
           (copied) => {
-            statusNode.textContent = copied
-              ? currentTexts.storage.status.shareUrlCopied
-              : currentTexts.storage.errors.clipboardFailed
+            setStatus(copied ? currentTexts.storage.status.shareUrlCopied : currentTexts.storage.errors.clipboardFailed)
           },
           () => {
-            statusNode.textContent = currentTexts.storage.errors.clipboardFailed
+            setStatus(currentTexts.storage.errors.clipboardFailed)
           }
         )
       },
@@ -2087,35 +2151,41 @@ function createToolbarSection(dataState: State<OsakkeetFormData>) {
     loadFromBrowserStorageButton,
     removeFromBrowserStorageButton,
     loadFileButton,
-    restoreExampleButton,
+    smallExampleButton,
+    mediumExampleButton,
+    largeExampleButton,
     clearExampleButton,
     copyShareUrlButton,
   ] = buttonConfigs.map(({ labelNode, variant, action }) => createActionButton(labelNode, variant, action))
+  dataState.onValueChange(() => {
+    refreshStorageButtons()
+  })
+  refreshStorageButtons()
   const root = div(
     { class: 'card no-print' },
-    div({ class: 'heading' }, h2(titleNode), span({ class: 'muted' }, statusNode)),
+    div({ class: 'heading' }, h2(storageTextNodes.title), span({ class: 'muted' }, statusNode)),
     fileInput,
     table(
       pageStyles.storageTable,
       thead(
         tr(
-          th(pageStyles.storageCellTop, pageStyles.storageLabelCell, rowTitleHeaderNode),
-          th(pageStyles.storageCellTop, pageStyles.storageActionsCell, rowActionsHeaderNode),
-          th(pageStyles.storageCellTop, pageStyles.storageDescriptionCell, rowDescriptionHeaderNode)
+          th(pageStyles.storageCellTop, pageStyles.storageLabelCell, storageTextNodes.table.rowTitle),
+          th(pageStyles.storageCellTop, pageStyles.storageActionsCell, storageTextNodes.table.actionsTitle),
+          th(pageStyles.storageCellTop, pageStyles.storageDescriptionCell, storageTextNodes.table.descriptionTitle)
         )
       ),
       tbody(
         tr(
-          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, autoSaveTitleNode),
+          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, storageTextNodes.table.autoSaveTitle),
           td(pageStyles.storageCellTop, pageStyles.storageActionsCell),
           td(
             pageStyles.storageCellTop,
             pageStyles.storageDescriptionCell,
-            span({ class: 'muted' }, autoSaveDescriptionNode)
+            span({ class: 'muted' }, storageTextNodes.table.autoSaveDescription)
           )
         ),
         tr(
-          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, fileTitleNode),
+          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, storageTextNodes.table.fileTitle),
           td(
             pageStyles.storageCellTop,
             pageStyles.storageActionsCell,
@@ -2124,11 +2194,11 @@ function createToolbarSection(dataState: State<OsakkeetFormData>) {
           td(
             pageStyles.storageCellTop,
             pageStyles.storageDescriptionCell,
-            span({ class: 'muted' }, fileDescriptionNode)
+            span({ class: 'muted' }, storageTextNodes.table.fileDescription)
           )
         ),
         tr(
-          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, browserTitleNode),
+          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, storageTextNodes.table.browserTitle),
           td(
             pageStyles.storageCellTop,
             pageStyles.storageActionsCell,
@@ -2142,25 +2212,29 @@ function createToolbarSection(dataState: State<OsakkeetFormData>) {
           td(
             pageStyles.storageCellTop,
             pageStyles.storageDescriptionCell,
-            span({ class: 'muted' }, browserDescriptionNode)
+            span({ class: 'muted' }, storageTextNodes.table.browserDescription)
           )
         ),
         tr(
-          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, clearTitleNode),
+          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, storageTextNodes.table.clearTitle),
           td(pageStyles.storageCellTop, pageStyles.storageActionsCell, clearExampleButton),
           td(
             pageStyles.storageCellTop,
             pageStyles.storageDescriptionCell,
-            span({ class: 'muted' }, clearDescriptionNode)
+            span({ class: 'muted' }, storageTextNodes.table.clearDescription)
           )
         ),
         tr(
-          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, exampleTitleNode),
-          td(pageStyles.storageCellTop, pageStyles.storageActionsCell, restoreExampleButton),
+          td(pageStyles.storageCellTop, pageStyles.storageLabelCell, storageTextNodes.table.exampleTitle),
+          td(
+            pageStyles.storageCellTop,
+            pageStyles.storageActionsCell,
+            div(pageStyles.topAlignedRowButtons, smallExampleButton, mediumExampleButton, largeExampleButton)
+          ),
           td(
             pageStyles.storageCellTop,
             pageStyles.storageDescriptionCell,
-            span({ class: 'muted' }, exampleDescriptionNode)
+            span({ class: 'muted' }, storageTextNodes.table.exampleDescription)
           )
         )
       )
@@ -2170,8 +2244,8 @@ function createToolbarSection(dataState: State<OsakkeetFormData>) {
       div(
         pageStyles.actionGroup,
         copyShareUrlButton,
-        span({ class: 'muted' }, copyShareUrlHelpNode),
-        span(pageStyles.redNote, copyShareUrlNoteNode)
+        span({ class: 'muted' }, storageTextNodes.copyShareUrlHelp),
+        span(pageStyles.redNote, storageTextNodes.copyShareUrlNote)
       )
     )
   )
@@ -2180,46 +2254,27 @@ function createToolbarSection(dataState: State<OsakkeetFormData>) {
     root,
     set({ texts }: OsakkeetPageReadModel) {
       currentTexts = texts
-      setTextValue(titleNode, texts.storage.title)
-      setTextValue(rowTitleHeaderNode, texts.storage.table.rowTitle)
-      setTextValue(rowDescriptionHeaderNode, texts.storage.table.descriptionTitle)
-      setTextValue(rowActionsHeaderNode, texts.storage.table.actionsTitle)
-      setTextValue(autoSaveTitleNode, texts.storage.table.autoSaveTitle)
-      setTextValue(autoSaveDescriptionNode, texts.storage.table.autoSaveDescription)
-      setTextValue(fileTitleNode, texts.storage.table.fileTitle)
-      setTextValue(fileDescriptionNode, texts.storage.table.fileDescription)
-      setTextValue(browserTitleNode, texts.storage.table.browserTitle)
-      setTextValue(browserDescriptionNode, texts.storage.table.browserDescription)
-      setTextValue(clearTitleNode, texts.storage.table.clearTitle)
-      setTextValue(clearDescriptionNode, texts.storage.table.clearDescription)
-      setTextValue(exampleTitleNode, texts.storage.table.exampleTitle)
-      setTextValue(exampleDescriptionNode, texts.storage.table.exampleDescription)
-      setTextValue(saveToBrowserStorageLabelNode, texts.storage.actions.saveToBrowserStorage)
-      setTextValue(loadFromBrowserStorageLabelNode, texts.storage.actions.loadFromBrowserStorage)
-      setTextValue(removeFromBrowserStorageLabelNode, texts.storage.actions.removeFromBrowserStorage)
-      setTextValue(copyShareUrlLabelNode, texts.storage.actions.copyShareUrl)
-      setTextValue(copyShareUrlHelpNode, texts.storage.copyShareUrlHelp)
-      setTextValue(copyShareUrlNoteNode, texts.storage.copyShareUrlNote)
-      setTextValue(saveFileLabelNode, texts.storage.actions.saveFile)
-      setTextValue(loadFileLabelNode, texts.storage.actions.loadFile)
-      setTextValue(restoreExampleLabelNode, texts.storage.actions.showExample)
-      setTextValue(clearExampleLabelNode, texts.storage.actions.clearExample)
       refreshStorageButtons()
     },
   }
 }
 
-function createTaxSummarySection(dataState: State<OsakkeetFormData>) {
-  const titleNode = text()
-  const mathematicalShareValuesEditor = createMathematicalShareValuesEditor(dataState)
+function createTaxSummarySection(dataState: State<OsakkeetFormData>, localizedTextNodes: LocalizedTextNodes) {
+  const taxReturnsTextNodes = localizedTextNodes.taxReturns
+  const mathematicalShareValuesEditor = createMathematicalShareValuesEditor(dataState, localizedTextNodes)
   const resultsRoot = div(pageStyles.denseStack)
-  const root = section({ class: 'card' }, h2(titleNode), mathematicalShareValuesEditor.root, resultsRoot)
+  const root = section(
+    { class: 'card' },
+    h2(taxReturnsTextNodes.title),
+    mathematicalShareValuesEditor.root,
+    resultsRoot
+  )
 
   return {
     root,
-    set({ texts, osakkeetCalculation, ...rest }: OsakkeetPageReadModel) {
-      setTextValue(titleNode, texts.taxReturns.title)
-      mathematicalShareValuesEditor.set({ texts, osakkeetCalculation, ...rest })
+    set({ texts, osakkeetCalculation }: OsakkeetPageReadModel) {
+      void texts
+      mathematicalShareValuesEditor.set({ texts, osakkeetCalculation })
       replaceChildren(resultsRoot, taxSummarySection(osakkeetCalculation, texts))
     },
   }
@@ -2235,10 +2290,13 @@ type OsakkeetPageReadModel = {
 export function osakkeetIpoCalculatorPage() {
   const dataState = createState({ value: tryLoadInitialData() })
   const languageSelectionState = createState<Language>({ value: tryLoadLanguage() })
+  const localizationTexts = languageSelectionState.map((languageSelection) =>
+    getOsakkeetLocalization(languageSelection)
+  )
+  const localizedTextNodes = createTextNodesFromState(localizationTexts)
   const pageReadState = mergeStates(
-    { formData: dataState, languageSelection: languageSelectionState },
-    ({ formData, languageSelection }) => {
-      const texts = getOsakkeetLocalization(languageSelection)
+    { formData: dataState, languageSelection: languageSelectionState, texts: localizationTexts },
+    ({ formData, languageSelection, texts }) => {
       return {
         formData,
         languageSelection,
@@ -2248,14 +2306,22 @@ export function osakkeetIpoCalculatorPage() {
     }
   )
 
-  const stickyWarningsSection = createStickyWarningsSection()
-  const introSection = createIntroSection(languageSelectionState)
-  const toolbarSection = createToolbarSection(dataState)
-  const subscriptionsSection = createSubscriptionsSection(dataState)
-  const cashDistributionsSection = createCashDistributionsSection(dataState)
-  const taxSummarySectionController = createTaxSummarySection(dataState)
-  const ipoSection = createIpoSection(dataState)
-  const resultsSection = createResultsSection(dataState)
+  const stickyWarningsSection = createStickyWarningsSection(localizedTextNodes)
+  const introSection = createIntroSection(languageSelectionState, localizedTextNodes)
+  const toolbarSection = createToolbarSection(dataState, localizedTextNodes)
+  const subscriptionsSection = createSubscriptionsSection(
+    dataState,
+    localizedTextNodes,
+    createTextNodesFromState(localizationTexts, { path: ['common'] })
+  )
+  const cashDistributionsSection = createCashDistributionsSection(
+    dataState,
+    localizedTextNodes,
+    createTextNodesFromState(localizationTexts, { path: ['common'] })
+  )
+  const taxSummarySectionController = createTaxSummarySection(dataState, localizedTextNodes)
+  const ipoSection = createIpoSection(dataState, localizedTextNodes)
+  const resultsSection = createResultsSection(dataState, localizedTextNodes)
   const root = div(pageStyles.stack)
   const applyPageReadModel = (pageReadModel: OsakkeetPageReadModel) => {
     stickyWarningsSection.set(pageReadModel)
@@ -2268,11 +2334,19 @@ export function osakkeetIpoCalculatorPage() {
     resultsSection.set(pageReadModel)
   }
 
-  languageSelectionState.onValueChange((languageSelection) => {
-    localStorage.setItem(storageKeys.language, languageSelection)
+  persistState(languageSelectionState, {
+    storage: localStorage,
+    key: storageKeys.language,
+    serialize: (languageSelection) => languageSelection,
+    deserialize: (raw) => (raw === 'en' ? 'en' : 'fi'),
+    hydrate: false,
   })
-  dataState.onValueChange((data) => {
-    tryStorageSet(sessionStorage, storageKeys.windowFormData, serializeOsakkeetFormData(data))
+  persistState(dataState, {
+    storage: sessionStorage,
+    key: storageKeys.windowFormData,
+    serialize: serializeOsakkeetFormData,
+    deserialize: (raw) => normalizeLoadedData(JSON.parse(raw) as Partial<OsakkeetFormData>),
+    hydrate: false,
   })
   pageReadState.onValueChange(applyPageReadModel)
 
