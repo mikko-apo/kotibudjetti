@@ -4,7 +4,15 @@ import {
   calculateOsakkeet,
   type OsakkeetFormData,
   type OsakkeetTaxRules,
+  yearlyTaxCalculator,
 } from './osakkeetCalculator'
+import { getOsakkeetLocalization } from './osakkeetLocalizations'
+
+const localization = getOsakkeetLocalization('fi')
+
+function calculate(form: OsakkeetFormData, rules?: OsakkeetTaxRules) {
+  return calculateOsakkeet(form, localization, rules)
+}
 
 function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetFormData {
   return {
@@ -55,7 +63,7 @@ function decimalValue(value: { toFixed: (precision?: number) => string }) {
 }
 
 function snapshotCalculation(form: OsakkeetFormData) {
-  const result = calculateOsakkeet(form)
+  const result = calculate(form)
   return {
     warnings: result.warnings,
     errors: result.errors,
@@ -176,8 +184,32 @@ function snapshotCalculation(form: OsakkeetFormData) {
 }
 
 describe(calculateOsakkeet, () => {
+  it('returns 2016-and-later yearly tax rules from the latest matching rule set', () => {
+    expect(yearlyTaxCalculator(2016)).toMatchObject({
+      capitalIncomeTax: {
+        threshold: 30000,
+        lowRate: 0.3,
+        highRate: 0.34,
+      },
+    })
+    expect(yearlyTaxCalculator(2026)).toEqual(yearlyTaxCalculator(2016))
+    expect(() => yearlyTaxCalculator(2015)).toThrow(/2016 and after/)
+  })
+
+  it('warns when yearly tax calculations are used for pre-2016 cash-distribution years', () => {
+    const result = calculate(
+      createBaseForm({
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2015-12-31', amountPerShare: '1' }],
+      })
+    )
+
+    expect(result.warnings).toContain(
+      'Vuositason vero-, osinko- ja pääomanpalautuslaskenta on tuettu verovuosille 2016 ja sitä uudemmille. Syötteissä on vuosi 2015.'
+    )
+  })
+
   it('splits cash distributions into capital repayments and dividends lot by lot', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
       })
@@ -210,7 +242,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('applies share splits to later share counts while keeping total acquisition cost unchanged', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -246,7 +278,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('uses split-adjusted shares for later cash distributions', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -273,7 +305,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('uses split-adjusted shares in ipo sell allocation', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -312,7 +344,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('allocates acquisition cost to the old company after a demerger', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -338,7 +370,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('uses demerger-adjusted acquisition cost for later capital repayments and sale deductions', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -377,7 +409,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('does not apply a demerger to subscriptions acquired after the demerger date', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -410,7 +442,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('applies same-day split before demerger in the final acquisition cost', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -435,7 +467,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('rejects demerger ratios above one', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         demergers: [{ id: 'dmg1', date: '2024-01-01', oldCompanyRatio: '1.2' }],
       })
@@ -446,7 +478,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('treats cash distributions on or after ipo date as dividends', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'dividend', date: '2026-06-01', amountPerShare: '1' }],
       })
@@ -459,7 +491,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('treats post-IPO capital-return rows as listed dividends in yearly tax calculations', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         mathematicalShareValues: [],
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2026-06-15', amountPerShare: '1' }],
@@ -479,7 +511,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('uses fifo lots and picks the more beneficial deduction method per lot', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
         sell: { amount: '120' },
@@ -500,7 +532,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('includes price per share and other acquisition costs in the actual cost basis', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -531,7 +563,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('excludes vesting-restricted lots from the IPO sale allocation', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -567,7 +599,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('excludes subscriptions made after the IPO date from IPO sell calculations', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         subscriptions: [
           {
@@ -608,7 +640,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('calculates current total value from current share value', () => {
-    const result = calculateOsakkeet(createBaseForm())
+    const result = calculate(createBaseForm())
 
     expect(result.errors).toEqual([])
     expect(result.ipo.currentShareValue.toFixed(2)).toBe('12.00')
@@ -628,12 +660,11 @@ describe(calculateOsakkeet, () => {
       },
     }
 
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
         sell: { amount: '120' },
       }),
-      undefined,
       customRules
     )
 
@@ -643,7 +674,7 @@ describe(calculateOsakkeet, () => {
   })
 
   it('reduces annual tax estimate when other annual capital losses are entered', () => {
-    const result = calculateOsakkeet(
+    const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
         sell: { amount: '120', otherAnnualCapitalGainsOrLosses: '-200' },

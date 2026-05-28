@@ -1,6 +1,6 @@
 export type Language = 'fi' | 'en'
 
-export const FI = {
+const FI = {
   languageSwitch: {
     label: 'Kieli',
   },
@@ -40,6 +40,7 @@ export const FI = {
       'IPO-päivänä tai sen jälkeen tehdyt varojenjaot käsitellään tässä laskurissa kokonaan osinkona.',
       'Listaamattoman yhtiön osingon verolajit lasketaan syötetyn osakkeiden matemaattisen arvon perusteella.',
       'Hankintameno-olettama vertaillaan jokaiselle käytetylle merkintäerälle erikseen.',
+      'Vuositason vero-, osinko- ja pääomanpalautuslaskenta on tuettu vuosille 2016 ja sitä uudemmille verovuosille.',
       'Pääomatulovero arvioidaan vain tämän myynnin perusteella vuoden 2026 30 % / 34 % verokannoilla.',
     ],
     sourcesLabel: 'Lähteet: ',
@@ -411,6 +412,8 @@ export const FI = {
         'Osakkeiden kokonaismäärä on pienempi kuin syötettyjen merkintöjen yhteismäärä.',
       secondarySellPercentZero: 'Secondary-myyntiprosentti on 0, joten IPO-kulu/osake on jaettu koko osakemäärälle.',
       noSharesHeldForDistribution: (date: string) => `Varojenjaolle ${date} ei löytynyt omistettuja osakkeita.`,
+      unsupportedYearRange: (year: number) =>
+        `Vuositason vero-, osinko- ja pääomanpalautuslaskenta on tuettu verovuosille 2016 ja sitä uudemmille. Syötteissä on vuosi ${year}.`,
       sellAmountExceedsEstimatedSecondary: 'Myyntimäärä ylittää arvioidun secondary-myyntimäärän koko yhtiön tasolla.',
       vestingBlockedWithoutIpoDate:
         'IPO-päivä puuttuu, joten ansaintajakson rajoittamia merkintäeriä ei voitu ottaa mukaan myyntiin.',
@@ -422,7 +425,7 @@ export const FI = {
   },
 }
 
-export const EN: typeof FI = {
+const EN: typeof FI = {
   languageSwitch: {
     label: 'Language',
   },
@@ -462,6 +465,7 @@ export const EN: typeof FI = {
       'On and after the IPO date, distributions are treated as dividends in this calculator.',
       'Tax categories for dividends from an unlisted company are calculated using the entered mathematical value per share for each year.',
       'The deemed acquisition cost is compared separately for each subscription lot used in the sale.',
+      'Year-level tax, dividend, and capital-repayment calculations are supported for tax years 2016 and later.',
       'Capital income tax is estimated only for this sale using the 2026 30% / 34% rates.',
     ],
     sourcesLabel: 'Sources: ',
@@ -835,6 +839,8 @@ export const EN: typeof FI = {
       secondarySellPercentZero:
         'Secondary sell percentage is 0, so IPO cost/share has been divided across the full share count.',
       noSharesHeldForDistribution: (date: string) => `No held shares were found for the distribution on ${date}.`,
+      unsupportedYearRange: (year: number) =>
+        `Year-level tax, dividend, and capital-repayment calculations are supported for tax years 2016 and later. The input contains year ${year}.`,
       sellAmountExceedsEstimatedSecondary:
         'Sell amount exceeds the estimated secondary sell amount at whole-company level.',
       vestingBlockedWithoutIpoDate:
