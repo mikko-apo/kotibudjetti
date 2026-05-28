@@ -286,15 +286,40 @@ export function billSummary(
           },
         })
       ),
-      powerUsageAsLink,
-      powerUsageHashInfo
-    ),
-    h3('Hinnanmuutokset'),
-    table(styles({ width: 'auto' }), priceChangeTBody),
-    h3('Hinnanmuutokset edelliseen kuukauteen verrattuna'),
-    table(uiStyles.numberTableRight, priceChangeTBody),
-    h3(`Hinnanmuutokset vuositasolla`),
-    priceChangeComparedToFirstYear
+      button(
+        'Tyhjennä',
+        events({
+          click() {
+            powerUsageState.set((old) => {
+              return { ...(old || {}), numbers: {} }
+            })
+            usedPowerEditable.set(true)
+          },
+        })
+      ),
+      button(
+        'Tallenna',
+        events({
+          click() {
+            const input = powerUsageState.get()
+            if (input) {
+              localStorage.setItem('kaukolampo', formatAsUnderscoreSeparated(input))
+            }
+          },
+        })
+      ),
+      button(
+        'Lataa',
+        events({
+          click() {
+            const savedData = localStorage.getItem('kaukolampo')
+            if (savedData) {
+              powerUsageState.set(parseUnderscoreSeparatedYmNumbers(savedData))
+            }
+          },
+        })
+      )
+    )
   )
 }
 
@@ -599,7 +624,7 @@ export function kaukolampoExcessPricingCalculator() {
   const from = { year: 2022, month: 1 }
   const to = { year: 2025, month: 12 }
   const years = range(from.year, to.year)
-  const address = 'Jätintie 1 A'
+  const address = 'Rykmentintie 12 A'
   const monthlyPricing = resolveMonthlyPricingLookup(contract, from, to)
   const pFromBrowserUrl = getPUrlParameter()
   const powerUsage = parseUnderscoreSeparatedYmNumbers(pFromBrowserUrl || usage)
