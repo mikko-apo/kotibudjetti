@@ -12,7 +12,7 @@ export const FI = {
       'Tämä laskuri on tarkoitettu ennen listautumista olevalle listaamattomalle yhtiölle. IPO-päivästä eteenpäin varojenjako käsitellään tässä näkymässä osinkona.',
     warningsTitle: 'Varoitukset',
     warnings: [
-      'Laskuri ei tue yritysten sulautumisia eikä jakautumisia.',
+      'Laskuri ei tue yritysten sulautumisia.',
       'Laskuria ei ole vielä testattu kattavasti ihmisten toimesta.',
       'Todellisiin rahallisiin päätöksiin kannattaa käyttää ammattilaispalvelua. Tämä ei ole sellainen.',
     ],
@@ -56,6 +56,14 @@ export const FI = {
       otherTotalAcquisitionCostsHelp:
         'Syötä tähän esimerkiksi varainsiirtovero, merkintään liittyvät palkkiot ja muut hankinnasta aiheutuneet kulut. Älä syötä tähän tulonhankkimisvelan korkoja, vaan ilmoita ne vuosiverotuksessa kohdassa pääomatuloista tehtävät vähennykset.',
       totalPricePerShare: 'Kokonaishankintameno / osake',
+      totalPricePerShareTooltipBase: (shares: string, pricePerShare: string, otherCosts: string, total: string) =>
+        `Alku: (${shares} osaketta x ${pricePerShare}) + ${otherCosts} = ${total}`,
+      totalPricePerShareTooltipDemerger: (date: string, before: string, ratio: string, after: string) =>
+        `${date}: jakautuminen ${before} x ${ratio} = ${after}`,
+      totalPricePerShareTooltipSplit: (date: string, beforeShares: string, multiplier: string, afterShares: string) =>
+        `${date}: split ${beforeShares} osaketta x ${multiplier} = ${afterShares} osaketta`,
+      totalPricePerShareTooltipResult: (total: string, shares: string, perShare: string) =>
+        `Lopuksi: ${total} / ${shares} osaketta = ${perShare}`,
       totalReimbursements: 'Pääomanpalautukset yhteensä',
       totalReimbursementsHelp:
         'Tässä laskurissa ennen IPO-päivää tehty SVOP-varojenjako lasketaan pääomanpalautukseksi vain siltä osin kuin se palauttaa saman osakkaan omaa enintään 10 vuotta vanhaa pääomasijoitusta. Pääomanpalautus vähentää jäljellä olevaa todellista hankintamenoa enintään siihen määrään asti. Hankintameno-olettamaa ei käytetä pääomanpalautukseen. IPO-päivänä tai sen jälkeen varojenjako käsitellään tässä laskurissa osinkona.',
@@ -115,6 +123,16 @@ export const FI = {
     },
     actions: {
       add: 'Lisää split',
+    },
+  },
+  demergers: {
+    title: 'Yrityksen jakautuminen hankintamenon mukaan',
+    help: 'Syötä jakautumisen päivä ja se desimaaliosuus, joka jää tämän laskurin seuraaman vanhan yhtiön hankintamenoksi. Esimerkiksi 0,72 tarkoittaa, että 72 % hankintamenosta jää vanhalle yhtiölle ja loput siirtyvät uudelle yhtiölle. Käytä yhtiön tai verotusohjeen ilmoittamaa jakosuhdetta: se perustuu yleensä nettovarallisuuksien suhteeseen, mutta jos se poikkeaa olennaisesti osakkeiden käypien arvojen suhteesta, käytetään käypien arvojen suhdetta.',
+    fields: {
+      oldCompanyRatio: 'Vanhan yhtiön osuus hankintamenosta',
+    },
+    actions: {
+      add: 'Lisää jakautuminen',
     },
   },
   ipo: {
@@ -353,6 +371,8 @@ export const FI = {
   sources: {
     dividends: 'Verohallinto: Osingot listaamattomasta yhtiöstä',
     listedDividends: 'Verohallinto: Osingot listatusta yhtiöstä',
+    demergerAcquisitionCost: 'Verohallinto: Arvopaperien luovutusten verotus - jakautuminen',
+    demergers: 'Verohallinto: Yritysjärjestelyt ja verotus - jakautuminen',
     reporting: 'Verohallinto: Esitäytetty veroilmoitus - näin ilmoitat OmaVerossa tai paperilla',
     form9a: 'Verohallinto: 9A täyttöohje',
     sales: 'Verohallinto: Osakkeiden myynti',
@@ -383,6 +403,8 @@ export const FI = {
       cashDistributionAmountPerShare: (id: string) => `Varojenjako ${id} €/osake`,
       shareSplitDate: (id: string) => `Split ${id} päivä`,
       shareSplitMultiplier: (id: string) => `Split ${id} kerroin`,
+      demergerDate: (id: string) => `Jakautuminen ${id} päivä`,
+      demergerOldCompanyRatio: (id: string) => `Jakautuminen ${id} vanhan yhtiön osuus`,
     },
     warnings: {
       totalShareCountBelowSubscriptions:
@@ -412,7 +434,7 @@ export const EN: typeof FI = {
       'This calculator is intended for an unlisted company before listing. From the IPO date onward, distributions are treated as dividends in this view.',
     warningsTitle: 'Warnings',
     warnings: [
-      'This calculator does not support mergers or demergers.',
+      'This calculator does not support mergers.',
       'This calculator has not yet been thoroughly tested by humans.',
       'For real monetary advice, use a professional service. This is not one.',
     ],
@@ -456,6 +478,14 @@ export const EN: typeof FI = {
       otherTotalAcquisitionCostsHelp:
         'Enter items such as transfer tax, subscription-related fees, and other acquisition costs. Do not include interest on income-producing debt here; report that in annual taxation under deductions from capital income.',
       totalPricePerShare: 'Total acquisition cost / share',
+      totalPricePerShareTooltipBase: (shares: string, pricePerShare: string, otherCosts: string, total: string) =>
+        `Start: (${shares} shares x ${pricePerShare}) + ${otherCosts} = ${total}`,
+      totalPricePerShareTooltipDemerger: (date: string, before: string, ratio: string, after: string) =>
+        `${date}: demerger ${before} x ${ratio} = ${after}`,
+      totalPricePerShareTooltipSplit: (date: string, beforeShares: string, multiplier: string, afterShares: string) =>
+        `${date}: split ${beforeShares} shares x ${multiplier} = ${afterShares} shares`,
+      totalPricePerShareTooltipResult: (total: string, shares: string, perShare: string) =>
+        `Final: ${total} / ${shares} shares = ${perShare}`,
       totalReimbursements: 'Capital repayments total',
       totalReimbursementsHelp:
         'In this calculator, a pre-IPO distribution from the invested unrestricted equity reserve is treated as capital repayment only to the extent it returns the same shareholder’s own capital investment made within the previous 10 years. The capital repayment reduces the remaining actual acquisition cost only up to that amount. The deemed acquisition cost is not used for capital repayments. On the IPO date and after it, distributions are treated as dividends in this calculator.',
@@ -516,6 +546,16 @@ export const EN: typeof FI = {
     },
     actions: {
       add: 'Add split',
+    },
+  },
+  demergers: {
+    title: 'Company demerger by acquisition-cost allocation',
+    help: 'Enter the demerger date and the decimal portion of acquisition cost that remains with the old company tracked in this calculator. For example, 0.72 means 72% of the acquisition cost remains with the old company and the rest moves to the new company. Use the allocation ratio given by the company or tax guidance: it is usually based on the net-asset ratio, but if that differs materially from the share fair-value ratio, the fair-value ratio is used.',
+    fields: {
+      oldCompanyRatio: 'Old company share of acquisition cost',
+    },
+    actions: {
+      add: 'Add demerger',
     },
   },
   ipo: {
@@ -755,6 +795,8 @@ export const EN: typeof FI = {
   sources: {
     dividends: 'Tax Admin: Dividends from an unlisted company',
     listedDividends: 'Tax Admin: Dividends from a listed company',
+    demergerAcquisitionCost: 'Tax Admin: Taxation of securities transfers - demerger',
+    demergers: 'Tax Admin: Corporate reorganisations and taxation - demerger',
     reporting: 'Tax Admin: Pre-completed tax return - how to report in MyTax or on paper',
     form9a: 'Tax Admin: Form 9A instructions',
     sales: 'Tax Admin: Sale of shares',
@@ -785,6 +827,8 @@ export const EN: typeof FI = {
       cashDistributionAmountPerShare: (id: string) => `Distribution ${id} EUR/share`,
       shareSplitDate: (id: string) => `Split ${id} date`,
       shareSplitMultiplier: (id: string) => `Split ${id} multiplier`,
+      demergerDate: (id: string) => `Demerger ${id} date`,
+      demergerOldCompanyRatio: (id: string) => `Demerger ${id} old-company ratio`,
     },
     warnings: {
       totalShareCountBelowSubscriptions: 'Total share count is lower than the total amount of entered subscriptions.',

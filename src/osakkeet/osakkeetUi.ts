@@ -200,6 +200,30 @@ function multiplier(value: { toFixed: (precision?: number) => string }) {
   return `${value.toFixed(2)}x`
 }
 
+function parseSupportedDate(trimmed: string) {
+  const finnishDateMatch = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(trimmed)
+  const isoDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed)
+
+  if (finnishDateMatch) {
+    const [, day, month, year] = finnishDateMatch
+    return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+  }
+  if (isoDateMatch) {
+    return new Date(`${trimmed}T00:00:00Z`)
+  }
+  return undefined
+}
+
+function decimalOrUndefined(value?: string) {
+  const normalized = value?.trim() || ''
+  if (!normalized) return undefined
+  try {
+    return new Decimal(normalized)
+  } catch {
+    return undefined
+  }
+}
+
 function createId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`
 }
@@ -261,6 +285,7 @@ function createOsakkeetFormData(demo: boolean): OsakkeetFormData {
       { id: createId('distribution'), type: 'capital_return', date: '', amountPerShare: '', shareCount: '' },
     ],
     shareSplits: [{ id: createId('split'), date: '', multiplier: '' }],
+    demergers: [{ id: createId('demerger'), date: '', oldCompanyRatio: '' }],
     mathematicalShareValues: [{ id: createId('math'), year: '', valuePerShare: '' }],
     ipo: {
       ipoDate: '',
@@ -308,6 +333,7 @@ function createExampleOsakkeetFormData(preset: ExamplePreset): OsakkeetFormData 
         },
       ],
       shareSplits: [],
+      demergers: [],
       mathematicalShareValues: [
         { id: createId('math'), year: '2025', valuePerShare: '7.50' },
         { id: createId('math'), year: '2026', valuePerShare: '10.20' },
@@ -378,6 +404,7 @@ function createExampleOsakkeetFormData(preset: ExamplePreset): OsakkeetFormData 
         },
       ],
       shareSplits: [{ id: createId('split'), date: '02.01.2026', multiplier: '2' }],
+      demergers: [],
       mathematicalShareValues: [
         { id: createId('math'), year: '2022', valuePerShare: '18.00' },
         { id: createId('math'), year: '2023', valuePerShare: '21.50' },
@@ -464,6 +491,7 @@ function createExampleOsakkeetFormData(preset: ExamplePreset): OsakkeetFormData 
       },
     ],
     shareSplits: [],
+    demergers: [{ id: createId('demerger'), date: '02.01.2024', oldCompanyRatio: '0.68' }],
     mathematicalShareValues: [
       { id: createId('math'), year: '2022', valuePerShare: '24.00' },
       { id: createId('math'), year: '2023', valuePerShare: '31.00' },
@@ -509,6 +537,11 @@ function sanitizeOsakkeetFormData(data: Partial<OsakkeetFormData>): OsakkeetForm
       date: shareSplit.date || '',
       multiplier: shareSplit.multiplier || '',
     })),
+    demergers: (data.demergers || []).map((demerger) => ({
+      id: demerger.id || createId('demerger'),
+      date: demerger.date || '',
+      oldCompanyRatio: demerger.oldCompanyRatio || '',
+    })),
     mathematicalShareValues: (data.mathematicalShareValues || []).map((row) => ({
       id: row.id || createId('math'),
       year: row.year || '',
@@ -531,7 +564,7 @@ function sanitizeOsakkeetFormData(data: Partial<OsakkeetFormData>): OsakkeetForm
 
 type ShareableOsakkeetUrlData = Pick<
   OsakkeetFormData,
-  'cashDistributions' | 'shareSplits' | 'mathematicalShareValues' | 'ipo'
+  'cashDistributions' | 'shareSplits' | 'demergers' | 'mathematicalShareValues' | 'ipo'
 >
 
 function createShareableOsakkeetUrlData(data: OsakkeetFormData): ShareableOsakkeetUrlData {
@@ -544,6 +577,7 @@ function createShareableOsakkeetUrlData(data: OsakkeetFormData): ShareableOsakke
       amountPerShare: cashDistribution.amountPerShare,
     })),
     shareSplits: sanitized.shareSplits,
+    demergers: sanitized.demergers,
     mathematicalShareValues: sanitized.mathematicalShareValues,
     ipo: sanitized.ipo,
   }
@@ -571,6 +605,11 @@ function normalizeLoadedData(parsed: Partial<OsakkeetFormData>): OsakkeetFormDat
       id: shareSplit.id || createId('split'),
       date: shareSplit.date || '',
       multiplier: shareSplit.multiplier || '',
+    })),
+    demergers: (parsed.demergers || []).map((demerger) => ({
+      id: demerger.id || createId('demerger'),
+      date: demerger.date || '',
+      oldCompanyRatio: demerger.oldCompanyRatio || '',
     })),
     mathematicalShareValues: (parsed.mathematicalShareValues || []).map((row) => ({
       ...row,
@@ -638,6 +677,7 @@ function tryLoadSharedUrlData(): OsakkeetFormData | undefined {
       ...emptyForm,
       cashDistributions: parsed.cashDistributions || [],
       shareSplits: parsed.shareSplits || [],
+      demergers: parsed.demergers || [],
       mathematicalShareValues: parsed.mathematicalShareValues || [],
       ipo: {
         ...emptyForm.ipo,
@@ -856,6 +896,16 @@ function assumptionsContent(t: OsakkeetLocalization) {
       ),
       ', ',
       linkToSource(
+        t.sources.demergerAcquisitionCost,
+        'https://www.vero.fi/syventavat-vero-ohjeet/ohje-hakusivu/48262/arvopaperien-luovutusten-verotus4/'
+      ),
+      ', ',
+      linkToSource(
+        t.sources.demergers,
+        'https://www.vero.fi/syventavat-vero-ohjeet/ohje-hakusivu/49340/yritysjarjestelyt-ja-verotus-jakautuminen4/'
+      ),
+      ', ',
+      linkToSource(
         t.sources.form9a,
         'https://www.vero.fi/tietoa-verohallinnosta/yhteystiedot-ja-asiointi/lomakkeet/tayttoohjeet/9a-arvopapereiden-luovutusvoitot-ja--tappiot-t%C3%A4ytt%C3%B6ohje/'
       ),
@@ -1044,6 +1094,102 @@ function createShareSplitsSection(
   }
 }
 
+type DemergerRowViewModel = {
+  id: string
+  date: string
+  oldCompanyRatio: string
+  removeLabel: string
+}
+
+function createDemergersSection(
+  dataState: State<OsakkeetFormData>,
+  localizedTextNodes: LocalizedTextNodes,
+  commonTextNodes: CommonLocalizedTextNodes
+) {
+  const textState = createState({
+    value: {
+      rowCount: '',
+    },
+  })
+  const demergerTextNodes = localizedTextNodes.demergers
+  const rowCountNode = createTextNodesFromState(textState, { path: ['rowCount'] })
+  const tbodyNode = tbody()
+  const rowsState = createState<DemergerRowViewModel[]>({ value: [] })
+  const demergers = createStateCollectionEditor(dataState, ['demergers'])
+
+  mapStateToDomChildren(rowsState, tbodyNode, {
+    render: (row) => {
+      const rowState = createState({ value: { row } })
+      const rowTextNodes = createTextNodesFromState(rowState, { path: ['row'] })
+      const dateInput = finnishDateInput(row.date, (value) => {
+        demergers.patch(row.id, { date: value })
+      })
+      const oldCompanyRatioInput = numberInput(row.oldCompanyRatio, (value) => {
+        demergers.patch(row.id, { oldCompanyRatio: value })
+      })
+      const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
+        demergers.remove(row.id)
+      })
+
+      return {
+        node: tr(
+          td(div(pageStyles.compactField, dateInput)),
+          td(div(pageStyles.compactField, oldCompanyRatioInput)),
+          td({ class: 'no-print' }, removeButton)
+        ),
+        set(nextRow) {
+          setInputValue(dateInput, nextRow.date)
+          setInputValue(oldCompanyRatioInput, nextRow.oldCompanyRatio)
+          rowState.set({ row: nextRow })
+        },
+      }
+    },
+  })
+
+  const addButton = createActionButton(demergerTextNodes.actions.add, 'primary', () => {
+    demergers.append({
+      date: '',
+      oldCompanyRatio: '',
+    })
+  })
+
+  const root = section(
+    { class: 'card' },
+    div({ class: 'heading' }, h2(demergerTextNodes.title), span({ class: 'muted' }, rowCountNode)),
+    p({ class: 'muted' }, demergerTextNodes.help),
+    table(
+      pageStyles.compactTable,
+      thead(
+        tr(
+          th(commonTextNodes.date),
+          th(demergerTextNodes.fields.oldCompanyRatio),
+          th({ class: 'no-print' }, '')
+        )
+      ),
+      tbodyNode
+    ),
+    div({ class: 'no-print' }, pageStyles.rowButtons, addButton)
+  )
+
+  return {
+    root,
+    set({ osakkeetCalculation, texts }: OsakkeetPageReadModel) {
+      const current = osakkeetCalculation.formData
+      textState.set({
+        rowCount: `${current.demergers.length} ${texts.common.rows}`,
+      })
+      rowsState.set(
+        current.demergers.map((demerger) => ({
+          id: demerger.id,
+          date: demerger.date,
+          oldCompanyRatio: demerger.oldCompanyRatio,
+          removeLabel: texts.common.remove,
+        }))
+      )
+    },
+  }
+}
+
 function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocalization) {
   const zeroMoney = calculation.ipo.totalIpoCost.mul(0)
   const yearSet = new Set<number>()
@@ -1176,6 +1322,7 @@ type SubscriptionRowViewModel = {
   pricePerShare: string
   otherTotalAcquisitionCosts: string
   totalPricePerShare: string
+  totalPricePerShareTooltip: string
   capitalRepaymentTotal: string
   capitalRepaymentTotalTooltip: string
   capitalRepaymentPerShare: string
@@ -1196,6 +1343,91 @@ function createCapitalRepaymentTooltip(breakdown: CapitalRepaymentBreakdown[], t
       )
     ),
   ].join('\n')
+}
+
+function createTotalPricePerShareTooltip(
+  subscription: OsakkeetFormData['subscriptions'][number],
+  formData: OsakkeetFormData,
+  summary: OsakkeetCalculation['subscriptions'][number] | undefined,
+  texts: OsakkeetLocalization
+) {
+  if (!summary) return ''
+
+  const baseShares = decimalOrUndefined(subscription.amount)
+  const pricePerShare = decimalOrUndefined(subscription.pricePerShare || '') || new Decimal(0)
+  const otherCosts = decimalOrUndefined(subscription.otherTotalAcquisitionCosts || '') || new Decimal(0)
+  if (!baseShares) return ''
+
+  let currentTotal = baseShares.mul(pricePerShare).add(otherCosts)
+  let currentShares = baseShares
+  const subscriptionDate = parseSupportedDate(subscription.date.trim())
+  const events = [
+    ...formData.demergers.map((demerger) => ({ kind: 'demerger' as const, date: demerger.date, entry: demerger })),
+    ...formData.shareSplits.map((shareSplit) => ({ kind: 'split' as const, date: shareSplit.date, entry: shareSplit })),
+  ]
+    .filter((event) => {
+      const eventDate = parseSupportedDate(event.date.trim())
+      if (!eventDate) return false
+      if (!subscriptionDate) return true
+      return subscriptionDate.getTime() <= eventDate.getTime()
+    })
+    .sort((a, b) => {
+      const dateA = parseSupportedDate(a.date.trim())
+      const dateB = parseSupportedDate(b.date.trim())
+      const dateComparison = (dateA?.getTime() || 0) - (dateB?.getTime() || 0)
+      if (dateComparison !== 0) return dateComparison
+      if (a.kind === b.kind) return 0
+      return a.kind === 'split' ? -1 : 1
+    })
+
+  const lines = [
+    texts.subscriptions.fields.totalPricePerShareTooltipBase(
+      amount(baseShares),
+      euro(pricePerShare),
+      euro(otherCosts),
+      euro(currentTotal)
+    ),
+  ]
+
+  for (const event of events) {
+    if (event.kind === 'demerger') {
+      const ratio = decimalOrUndefined(event.entry.oldCompanyRatio)
+      if (!ratio) continue
+      const nextTotal = currentTotal.mul(ratio)
+      lines.push(
+        texts.subscriptions.fields.totalPricePerShareTooltipDemerger(
+          event.entry.date,
+          euro(currentTotal),
+          amount(ratio),
+          euro(nextTotal)
+        )
+      )
+      currentTotal = nextTotal
+      continue
+    }
+
+    const splitMultiplier = decimalOrUndefined(event.entry.multiplier)
+    if (!splitMultiplier) continue
+    const nextShares = currentShares.mul(splitMultiplier)
+    lines.push(
+      texts.subscriptions.fields.totalPricePerShareTooltipSplit(
+        event.entry.date,
+        amount(currentShares),
+        amount(splitMultiplier),
+        amount(nextShares)
+      )
+    )
+    currentShares = nextShares
+  }
+
+  lines.push(
+    texts.subscriptions.fields.totalPricePerShareTooltipResult(
+      euro(summary.totalPrice),
+      amount(summary.amount),
+      euro(summary.totalPricePerShare)
+    )
+  )
+  return lines.join('\n')
 }
 
 function createSubscriptionsSection(
@@ -1247,6 +1479,9 @@ function createSubscriptionsSection(
       const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
         subscriptions.remove(row.id)
       })
+      const totalPricePerShareCell = td(
+        row.totalPricePerShareTooltip ? hoverValue(row.totalPricePerShare, row.totalPricePerShareTooltip) : row.totalPricePerShare
+      )
       const capitalRepaymentTotalCell = td(
         row.capitalRepaymentTotalTooltip
           ? hoverValue(row.capitalRepaymentTotal, row.capitalRepaymentTotalTooltip)
@@ -1260,7 +1495,7 @@ function createSubscriptionsSection(
           td(amountInput),
           td(pricePerShareInput),
           td(otherTotalAcquisitionCostsInput),
-          td(rowTextNodes.totalPricePerShare),
+          totalPricePerShareCell,
           td(rowTextNodes.capitalRepaymentPerShare),
           td(rowTextNodes.remainingCostPerShare),
           capitalRepaymentTotalCell,
@@ -1273,6 +1508,12 @@ function createSubscriptionsSection(
           setInputValue(pricePerShareInput, nextRow.pricePerShare)
           setInputValue(otherTotalAcquisitionCostsInput, nextRow.otherTotalAcquisitionCosts)
           rowState.set({ row: nextRow })
+          replaceChildren(
+            totalPricePerShareCell,
+            nextRow.totalPricePerShareTooltip
+              ? hoverValue(nextRow.totalPricePerShare, nextRow.totalPricePerShareTooltip)
+              : nextRow.totalPricePerShare
+          )
           replaceChildren(
             capitalRepaymentTotalCell,
             nextRow.capitalRepaymentTotalTooltip
@@ -1356,6 +1597,12 @@ function createSubscriptionsSection(
           totalPricePerShare: summariesById[subscription.id]
             ? euro(summariesById[subscription.id].totalPricePerShare)
             : '-',
+          totalPricePerShareTooltip: createTotalPricePerShareTooltip(
+            subscription,
+            current,
+            summariesById[subscription.id],
+            texts
+          ),
           capitalRepaymentTotal: summariesById[subscription.id]
             ? euro(summariesById[subscription.id].capitalRepaymentTotal)
             : '-',
@@ -2434,6 +2681,11 @@ export function osakkeetIpoCalculatorPage() {
     localizedTextNodes,
     createTextNodesFromState(localizationTexts, { path: ['common'] })
   )
+  const demergersSection = createDemergersSection(
+    dataState,
+    localizedTextNodes,
+    createTextNodesFromState(localizationTexts, { path: ['common'] })
+  )
   const shareSplitsSection = createShareSplitsSection(
     dataState,
     localizedTextNodes,
@@ -2449,6 +2701,7 @@ export function osakkeetIpoCalculatorPage() {
     toolbarSection.set(pageReadModel)
     subscriptionsSection.set(pageReadModel)
     cashDistributionsSection.set(pageReadModel)
+    demergersSection.set(pageReadModel)
     shareSplitsSection.set(pageReadModel)
     taxSummarySectionController.set(pageReadModel)
     ipoSection.set(pageReadModel)
@@ -2480,6 +2733,7 @@ export function osakkeetIpoCalculatorPage() {
     toolbarSection.root,
     subscriptionsSection.root,
     cashDistributionsSection.root,
+    demergersSection.root,
     shareSplitsSection.root,
     taxSummarySectionController.root,
     ipoSection.root,

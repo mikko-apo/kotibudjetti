@@ -4334,7 +4334,7 @@
       unlistedDescription: "T\xE4m\xE4 laskuri on tarkoitettu ennen listautumista olevalle listaamattomalle yhti\xF6lle. IPO-p\xE4iv\xE4st\xE4 eteenp\xE4in varojenjako k\xE4sitell\xE4\xE4n t\xE4ss\xE4 n\xE4kym\xE4ss\xE4 osinkona.",
       warningsTitle: "Varoitukset",
       warnings: [
-        "Laskuri ei tue yritysten sulautumisia eik\xE4 jakautumisia.",
+        "Laskuri ei tue yritysten sulautumisia.",
         "Laskuria ei ole viel\xE4 testattu kattavasti ihmisten toimesta.",
         "Todellisiin rahallisiin p\xE4\xE4t\xF6ksiin kannattaa k\xE4ytt\xE4\xE4 ammattilaispalvelua. T\xE4m\xE4 ei ole sellainen."
       ],
@@ -4374,6 +4374,10 @@
         otherTotalAcquisitionCosts: "Muut hankintamenot yhteens\xE4",
         otherTotalAcquisitionCostsHelp: "Sy\xF6t\xE4 t\xE4h\xE4n esimerkiksi varainsiirtovero, merkint\xE4\xE4n liittyv\xE4t palkkiot ja muut hankinnasta aiheutuneet kulut. \xC4l\xE4 sy\xF6t\xE4 t\xE4h\xE4n tulonhankkimisvelan korkoja, vaan ilmoita ne vuosiverotuksessa kohdassa p\xE4\xE4omatuloista teht\xE4v\xE4t v\xE4hennykset.",
         totalPricePerShare: "Kokonaishankintameno / osake",
+        totalPricePerShareTooltipBase: (shares, pricePerShare, otherCosts, total) => `Alku: (${shares} osaketta x ${pricePerShare}) + ${otherCosts} = ${total}`,
+        totalPricePerShareTooltipDemerger: (date, before, ratio, after) => `${date}: jakautuminen ${before} x ${ratio} = ${after}`,
+        totalPricePerShareTooltipSplit: (date, beforeShares, multiplier2, afterShares) => `${date}: split ${beforeShares} osaketta x ${multiplier2} = ${afterShares} osaketta`,
+        totalPricePerShareTooltipResult: (total, shares, perShare) => `Lopuksi: ${total} / ${shares} osaketta = ${perShare}`,
         totalReimbursements: "P\xE4\xE4omanpalautukset yhteens\xE4",
         totalReimbursementsHelp: "T\xE4ss\xE4 laskurissa ennen IPO-p\xE4iv\xE4\xE4 tehty SVOP-varojenjako lasketaan p\xE4\xE4omanpalautukseksi vain silt\xE4 osin kuin se palauttaa saman osakkaan omaa enint\xE4\xE4n 10 vuotta vanhaa p\xE4\xE4omasijoitusta. P\xE4\xE4omanpalautus v\xE4hent\xE4\xE4 j\xE4ljell\xE4 olevaa todellista hankintamenoa enint\xE4\xE4n siihen m\xE4\xE4r\xE4\xE4n asti. Hankintameno-olettamaa ei k\xE4ytet\xE4 p\xE4\xE4omanpalautukseen. IPO-p\xE4iv\xE4n\xE4 tai sen j\xE4lkeen varojenjako k\xE4sitell\xE4\xE4n t\xE4ss\xE4 laskurissa osinkona.",
         totalReimbursementsTooltipIntro: "Muodostuu n\xE4ist\xE4 p\xE4\xE4omanpalautuksista:",
@@ -4426,6 +4430,16 @@
       },
       actions: {
         add: "Lis\xE4\xE4 split"
+      }
+    },
+    demergers: {
+      title: "Yrityksen jakautuminen hankintamenon mukaan",
+      help: "Sy\xF6t\xE4 jakautumisen p\xE4iv\xE4 ja se desimaaliosuus, joka j\xE4\xE4 t\xE4m\xE4n laskurin seuraaman vanhan yhti\xF6n hankintamenoksi. Esimerkiksi 0,72 tarkoittaa, ett\xE4 72 % hankintamenosta j\xE4\xE4 vanhalle yhti\xF6lle ja loput siirtyv\xE4t uudelle yhti\xF6lle. K\xE4yt\xE4 yhti\xF6n tai verotusohjeen ilmoittamaa jakosuhdetta: se perustuu yleens\xE4 nettovarallisuuksien suhteeseen, mutta jos se poikkeaa olennaisesti osakkeiden k\xE4ypien arvojen suhteesta, k\xE4ytet\xE4\xE4n k\xE4ypien arvojen suhdetta.",
+      fields: {
+        oldCompanyRatio: "Vanhan yhti\xF6n osuus hankintamenosta"
+      },
+      actions: {
+        add: "Lis\xE4\xE4 jakautuminen"
       }
     },
     ipo: {
@@ -4639,6 +4653,8 @@
     sources: {
       dividends: "Verohallinto: Osingot listaamattomasta yhti\xF6st\xE4",
       listedDividends: "Verohallinto: Osingot listatusta yhti\xF6st\xE4",
+      demergerAcquisitionCost: "Verohallinto: Arvopaperien luovutusten verotus - jakautuminen",
+      demergers: "Verohallinto: Yritysj\xE4rjestelyt ja verotus - jakautuminen",
       reporting: "Verohallinto: Esit\xE4ytetty veroilmoitus - n\xE4in ilmoitat OmaVerossa tai paperilla",
       form9a: "Verohallinto: 9A t\xE4ytt\xF6ohje",
       sales: "Verohallinto: Osakkeiden myynti"
@@ -4668,7 +4684,9 @@
         cashDistributionDate: (id) => `Varojenjako ${id} p\xE4iv\xE4`,
         cashDistributionAmountPerShare: (id) => `Varojenjako ${id} \u20AC/osake`,
         shareSplitDate: (id) => `Split ${id} p\xE4iv\xE4`,
-        shareSplitMultiplier: (id) => `Split ${id} kerroin`
+        shareSplitMultiplier: (id) => `Split ${id} kerroin`,
+        demergerDate: (id) => `Jakautuminen ${id} p\xE4iv\xE4`,
+        demergerOldCompanyRatio: (id) => `Jakautuminen ${id} vanhan yhti\xF6n osuus`
       },
       warnings: {
         totalShareCountBelowSubscriptions: "Osakkeiden kokonaism\xE4\xE4r\xE4 on pienempi kuin sy\xF6tettyjen merkint\xF6jen yhteism\xE4\xE4r\xE4.",
@@ -4692,7 +4710,7 @@
       unlistedDescription: "This calculator is intended for an unlisted company before listing. From the IPO date onward, distributions are treated as dividends in this view.",
       warningsTitle: "Warnings",
       warnings: [
-        "This calculator does not support mergers or demergers.",
+        "This calculator does not support mergers.",
         "This calculator has not yet been thoroughly tested by humans.",
         "For real monetary advice, use a professional service. This is not one."
       ],
@@ -4732,6 +4750,10 @@
         otherTotalAcquisitionCosts: "Other acquisition costs total",
         otherTotalAcquisitionCostsHelp: "Enter items such as transfer tax, subscription-related fees, and other acquisition costs. Do not include interest on income-producing debt here; report that in annual taxation under deductions from capital income.",
         totalPricePerShare: "Total acquisition cost / share",
+        totalPricePerShareTooltipBase: (shares, pricePerShare, otherCosts, total) => `Start: (${shares} shares x ${pricePerShare}) + ${otherCosts} = ${total}`,
+        totalPricePerShareTooltipDemerger: (date, before, ratio, after) => `${date}: demerger ${before} x ${ratio} = ${after}`,
+        totalPricePerShareTooltipSplit: (date, beforeShares, multiplier2, afterShares) => `${date}: split ${beforeShares} shares x ${multiplier2} = ${afterShares} shares`,
+        totalPricePerShareTooltipResult: (total, shares, perShare) => `Final: ${total} / ${shares} shares = ${perShare}`,
         totalReimbursements: "Capital repayments total",
         totalReimbursementsHelp: "In this calculator, a pre-IPO distribution from the invested unrestricted equity reserve is treated as capital repayment only to the extent it returns the same shareholder\u2019s own capital investment made within the previous 10 years. The capital repayment reduces the remaining actual acquisition cost only up to that amount. The deemed acquisition cost is not used for capital repayments. On the IPO date and after it, distributions are treated as dividends in this calculator.",
         totalReimbursementsTooltipIntro: "Built from these applied capital repayments:",
@@ -4784,6 +4806,16 @@
       },
       actions: {
         add: "Add split"
+      }
+    },
+    demergers: {
+      title: "Company demerger by acquisition-cost allocation",
+      help: "Enter the demerger date and the decimal portion of acquisition cost that remains with the old company tracked in this calculator. For example, 0.72 means 72% of the acquisition cost remains with the old company and the rest moves to the new company. Use the allocation ratio given by the company or tax guidance: it is usually based on the net-asset ratio, but if that differs materially from the share fair-value ratio, the fair-value ratio is used.",
+      fields: {
+        oldCompanyRatio: "Old company share of acquisition cost"
+      },
+      actions: {
+        add: "Add demerger"
       }
     },
     ipo: {
@@ -4997,6 +5029,8 @@
     sources: {
       dividends: "Tax Admin: Dividends from an unlisted company",
       listedDividends: "Tax Admin: Dividends from a listed company",
+      demergerAcquisitionCost: "Tax Admin: Taxation of securities transfers - demerger",
+      demergers: "Tax Admin: Corporate reorganisations and taxation - demerger",
       reporting: "Tax Admin: Pre-completed tax return - how to report in MyTax or on paper",
       form9a: "Tax Admin: Form 9A instructions",
       sales: "Tax Admin: Sale of shares"
@@ -5026,7 +5060,9 @@
         cashDistributionDate: (id) => `Distribution ${id} date`,
         cashDistributionAmountPerShare: (id) => `Distribution ${id} EUR/share`,
         shareSplitDate: (id) => `Split ${id} date`,
-        shareSplitMultiplier: (id) => `Split ${id} multiplier`
+        shareSplitMultiplier: (id) => `Split ${id} multiplier`,
+        demergerDate: (id) => `Demerger ${id} date`,
+        demergerOldCompanyRatio: (id) => `Demerger ${id} old-company ratio`
       },
       warnings: {
         totalShareCountBelowSubscriptions: "Total share count is lower than the total amount of entered subscriptions.",
@@ -5278,6 +5314,40 @@
       };
     });
   }
+  function createParsedDemergers(rows = [], errors, localization) {
+    return rows.map((row) => {
+      const ratioField = localization.calculator.fields.demergerOldCompanyRatio(row.id);
+      const normalizedDate = row.date.trim();
+      const normalizedRatio = row.oldCompanyRatio.trim();
+      if (normalizedDate === "" && normalizedRatio === "") {
+        return {
+          id: row.id,
+          date: row.date,
+          dateValue: void 0,
+          oldCompanyRatio: zero
+        };
+      }
+      let oldCompanyRatio = zero;
+      if (normalizedRatio === "") {
+        errors.push(localization.calculator.validation.invalidNumber(ratioField));
+      } else {
+        try {
+          oldCompanyRatio = new decimal_default(normalizedRatio);
+          if (oldCompanyRatio.lte(0) || oldCompanyRatio.gt(1)) {
+            errors.push(localization.calculator.validation.invalidNumber(ratioField));
+          }
+        } catch {
+          errors.push(localization.calculator.validation.invalidNumber(ratioField));
+        }
+      }
+      return {
+        id: row.id,
+        date: row.date,
+        dateValue: dateOrUndefined(row.date, localization.calculator.fields.demergerDate(row.id), errors, localization),
+        oldCompanyRatio
+      };
+    });
+  }
   function cloneLots(lots) {
     return lots.map((lot) => ({
       ...lot,
@@ -5297,6 +5367,14 @@
       return !!shareSplit.dateValue && shareSplit.dateValue.getTime() <= upToDate.getTime();
     }).sort((a2, b2) => compareDateStrings(a2.date, b2.date))) {
       applyShareSplit(lots, entry);
+    }
+  }
+  function applyDemerger(lots, entry) {
+    if (!entry.dateValue || entry.oldCompanyRatio.lte(0) || entry.oldCompanyRatio.gt(1)) return;
+    for (const lot of lots) {
+      if (lot.dateValue && lot.dateValue.getTime() > entry.dateValue.getTime()) continue;
+      lot.totalPrice = lot.totalPrice.mul(entry.oldCompanyRatio);
+      lot.remainingCostTotal = lot.remainingCostTotal.mul(entry.oldCompanyRatio);
     }
   }
   function parseIpoAndSellInputs(form2, ipoDate, totalSubscribedShares, totalSubscribedCost, errors, warnings, localization) {
@@ -5392,7 +5470,7 @@
       unvestedShares: sumDecimals(lockedLots.map((lot) => lot.amount))
     };
   }
-  function applyCashDistributions(lots, cashDistributions, shareSplits, ipoDate, mathematicalShareValuesByYear, rules, warnings, localization, options = {}) {
+  function applyCashDistributions(lots, cashDistributions, shareSplits, demergers, ipoDate, mathematicalShareValuesByYear, rules, warnings, localization, options = {}) {
     const capitalDividendUsedByYear = /* @__PURE__ */ new Map();
     const grossDividendUsedByYear = /* @__PURE__ */ new Map();
     const events2 = [
@@ -5400,6 +5478,10 @@
         if (!options.stopAtIpoDate || !ipoDate) return true;
         return !!entry.dateValue && entry.dateValue.getTime() <= ipoDate.getTime();
       }).map((entry) => ({ kind: "split", date: entry.date, entry })),
+      ...demergers.filter((entry) => {
+        if (!options.stopAtIpoDate || !ipoDate) return true;
+        return !!entry.dateValue && entry.dateValue.getTime() <= ipoDate.getTime();
+      }).map((entry) => ({ kind: "demerger", date: entry.date, entry })),
       ...cashDistributions.filter((entry) => {
         if (!options.stopAtIpoDate || !ipoDate) return true;
         return !!entry.dateValue && entry.dateValue.getTime() < ipoDate.getTime();
@@ -5408,12 +5490,18 @@
       const dateComparison = compareDateStrings(a2.date, b2.date);
       if (dateComparison !== 0) return dateComparison;
       if (a2.kind === b2.kind) return 0;
-      return a2.kind === "split" ? -1 : 1;
+      if (a2.kind === "distribution") return 1;
+      if (b2.kind === "distribution") return -1;
+      return 0;
     });
     const summaries = [];
     for (const event of events2) {
       if (event.kind === "split") {
         applyShareSplit(lots, event.entry);
+        continue;
+      }
+      if (event.kind === "demerger") {
+        applyDemerger(lots, event.entry);
         continue;
       }
       const entry = event.entry;
@@ -5672,6 +5760,7 @@
     );
     const parsedCashDistributions = createParsedCashDistributions(form2.cashDistributions, errors, localization);
     const parsedShareSplits = createParsedShareSplits(form2.shareSplits, errors, localization);
+    const parsedDemergers = createParsedDemergers(form2.demergers, errors, localization);
     const splitAdjustedLots = cloneLots(baseLots);
     applyShareSplitsToLots(splitAdjustedLots, parsedShareSplits, ipoDate);
     const totalSubscribedShares = sumDecimals(splitAdjustedLots.map((lot) => lot.amount));
@@ -5689,6 +5778,7 @@
       ipoTimelineLots,
       parsedCashDistributions,
       parsedShareSplits,
+      parsedDemergers,
       ipoDate,
       mathematicalShareValuesByYear,
       rules,
@@ -5702,6 +5792,7 @@
       lots,
       parsedCashDistributions,
       parsedShareSplits,
+      parsedDemergers,
       ipoDate,
       mathematicalShareValuesByYear,
       rules,
@@ -6187,6 +6278,27 @@
   function multiplier(value) {
     return `${value.toFixed(2)}x`;
   }
+  function parseSupportedDate2(trimmed) {
+    const finnishDateMatch = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(trimmed);
+    const isoDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if (finnishDateMatch) {
+      const [, day, month, year] = finnishDateMatch;
+      return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    }
+    if (isoDateMatch) {
+      return /* @__PURE__ */ new Date(`${trimmed}T00:00:00Z`);
+    }
+    return void 0;
+  }
+  function decimalOrUndefined(value) {
+    const normalized = (value == null ? void 0 : value.trim()) || "";
+    if (!normalized) return void 0;
+    try {
+      return new decimal_default(normalized);
+    } catch {
+      return void 0;
+    }
+  }
   function createId2(prefix) {
     return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
   }
@@ -6238,6 +6350,7 @@
         { id: createId2("distribution"), type: "capital_return", date: "", amountPerShare: "", shareCount: "" }
       ],
       shareSplits: [{ id: createId2("split"), date: "", multiplier: "" }],
+      demergers: [{ id: createId2("demerger"), date: "", oldCompanyRatio: "" }],
       mathematicalShareValues: [{ id: createId2("math"), year: "", valuePerShare: "" }],
       ipo: {
         ipoDate: "",
@@ -6284,6 +6397,7 @@
           }
         ],
         shareSplits: [],
+        demergers: [],
         mathematicalShareValues: [
           { id: createId2("math"), year: "2025", valuePerShare: "7.50" },
           { id: createId2("math"), year: "2026", valuePerShare: "10.20" }
@@ -6353,6 +6467,7 @@
           }
         ],
         shareSplits: [{ id: createId2("split"), date: "02.01.2026", multiplier: "2" }],
+        demergers: [],
         mathematicalShareValues: [
           { id: createId2("math"), year: "2022", valuePerShare: "18.00" },
           { id: createId2("math"), year: "2023", valuePerShare: "21.50" },
@@ -6438,6 +6553,7 @@
         }
       ],
       shareSplits: [],
+      demergers: [{ id: createId2("demerger"), date: "02.01.2024", oldCompanyRatio: "0.68" }],
       mathematicalShareValues: [
         { id: createId2("math"), year: "2022", valuePerShare: "24.00" },
         { id: createId2("math"), year: "2023", valuePerShare: "31.00" },
@@ -6483,6 +6599,11 @@
         date: shareSplit.date || "",
         multiplier: shareSplit.multiplier || ""
       })),
+      demergers: (data2.demergers || []).map((demerger) => ({
+        id: demerger.id || createId2("demerger"),
+        date: demerger.date || "",
+        oldCompanyRatio: demerger.oldCompanyRatio || ""
+      })),
       mathematicalShareValues: (data2.mathematicalShareValues || []).map((row) => ({
         id: row.id || createId2("math"),
         year: row.year || "",
@@ -6512,6 +6633,7 @@
         amountPerShare: cashDistribution.amountPerShare
       })),
       shareSplits: sanitized.shareSplits,
+      demergers: sanitized.demergers,
       mathematicalShareValues: sanitized.mathematicalShareValues,
       ipo: sanitized.ipo
     };
@@ -6538,6 +6660,11 @@
         id: shareSplit.id || createId2("split"),
         date: shareSplit.date || "",
         multiplier: shareSplit.multiplier || ""
+      })),
+      demergers: (parsed.demergers || []).map((demerger) => ({
+        id: demerger.id || createId2("demerger"),
+        date: demerger.date || "",
+        oldCompanyRatio: demerger.oldCompanyRatio || ""
       })),
       mathematicalShareValues: (parsed.mathematicalShareValues || []).map((row) => ({
         ...row
@@ -6600,6 +6727,7 @@
         ...emptyForm,
         cashDistributions: parsed.cashDistributions || [],
         shareSplits: parsed.shareSplits || [],
+        demergers: parsed.demergers || [],
         mathematicalShareValues: parsed.mathematicalShareValues || [],
         ipo: {
           ...emptyForm.ipo,
@@ -6790,6 +6918,16 @@
         ),
         ", ",
         linkToSource(
+          t.sources.demergerAcquisitionCost,
+          "https://www.vero.fi/syventavat-vero-ohjeet/ohje-hakusivu/48262/arvopaperien-luovutusten-verotus4/"
+        ),
+        ", ",
+        linkToSource(
+          t.sources.demergers,
+          "https://www.vero.fi/syventavat-vero-ohjeet/ohje-hakusivu/49340/yritysjarjestelyt-ja-verotus-jakautuminen4/"
+        ),
+        ", ",
+        linkToSource(
           t.sources.form9a,
           "https://www.vero.fi/tietoa-verohallinnosta/yhteystiedot-ja-asiointi/lomakkeet/tayttoohjeet/9a-arvopapereiden-luovutusvoitot-ja--tappiot-t%C3%A4ytt%C3%B6ohje/"
         ),
@@ -6951,6 +7089,85 @@
       }
     };
   }
+  function createDemergersSection(dataState, localizedTextNodes, commonTextNodes) {
+    const textState = createState({
+      value: {
+        rowCount: ""
+      }
+    });
+    const demergerTextNodes = localizedTextNodes.demergers;
+    const rowCountNode = createTextNodesFromState(textState, { path: ["rowCount"] });
+    const tbodyNode = tbody();
+    const rowsState = createState({ value: [] });
+    const demergers = createStateCollectionEditor(dataState, ["demergers"]);
+    mapStateToDomChildren(rowsState, tbodyNode, {
+      render: (row) => {
+        const rowState = createState({ value: { row } });
+        const rowTextNodes = createTextNodesFromState(rowState, { path: ["row"] });
+        const dateInput = finnishDateInput(row.date, (value) => {
+          demergers.patch(row.id, { date: value });
+        });
+        const oldCompanyRatioInput = numberInput(row.oldCompanyRatio, (value) => {
+          demergers.patch(row.id, { oldCompanyRatio: value });
+        });
+        const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
+          demergers.remove(row.id);
+        });
+        return {
+          node: tr(
+            td(div(pageStyles.compactField, dateInput)),
+            td(div(pageStyles.compactField, oldCompanyRatioInput)),
+            td({ class: "no-print" }, removeButton)
+          ),
+          set(nextRow) {
+            setInputValue(dateInput, nextRow.date);
+            setInputValue(oldCompanyRatioInput, nextRow.oldCompanyRatio);
+            rowState.set({ row: nextRow });
+          }
+        };
+      }
+    });
+    const addButton = createActionButton(demergerTextNodes.actions.add, "primary", () => {
+      demergers.append({
+        date: "",
+        oldCompanyRatio: ""
+      });
+    });
+    const root = section(
+      { class: "card" },
+      div({ class: "heading" }, h2(demergerTextNodes.title), span({ class: "muted" }, rowCountNode)),
+      p({ class: "muted" }, demergerTextNodes.help),
+      table(
+        pageStyles.compactTable,
+        thead(
+          tr(
+            th(commonTextNodes.date),
+            th(demergerTextNodes.fields.oldCompanyRatio),
+            th({ class: "no-print" }, "")
+          )
+        ),
+        tbodyNode
+      ),
+      div({ class: "no-print" }, pageStyles.rowButtons, addButton)
+    );
+    return {
+      root,
+      set({ osakkeetCalculation, texts }) {
+        const current = osakkeetCalculation.formData;
+        textState.set({
+          rowCount: `${current.demergers.length} ${texts.common.rows}`
+        });
+        rowsState.set(
+          current.demergers.map((demerger) => ({
+            id: demerger.id,
+            date: demerger.date,
+            oldCompanyRatio: demerger.oldCompanyRatio,
+            removeLabel: texts.common.remove
+          }))
+        );
+      }
+    };
+  }
   function taxSummarySection(calculation, t) {
     var _a2;
     const zeroMoney = calculation.ipo.totalIpoCost.mul(0);
@@ -7078,6 +7295,77 @@
       )
     ].join("\n");
   }
+  function createTotalPricePerShareTooltip(subscription, formData, summary2, texts) {
+    if (!summary2) return "";
+    const baseShares = decimalOrUndefined(subscription.amount);
+    const pricePerShare = decimalOrUndefined(subscription.pricePerShare || "") || new decimal_default(0);
+    const otherCosts = decimalOrUndefined(subscription.otherTotalAcquisitionCosts || "") || new decimal_default(0);
+    if (!baseShares) return "";
+    let currentTotal = baseShares.mul(pricePerShare).add(otherCosts);
+    let currentShares = baseShares;
+    const subscriptionDate = parseSupportedDate2(subscription.date.trim());
+    const events2 = [
+      ...formData.demergers.map((demerger) => ({ kind: "demerger", date: demerger.date, entry: demerger })),
+      ...formData.shareSplits.map((shareSplit) => ({ kind: "split", date: shareSplit.date, entry: shareSplit }))
+    ].filter((event) => {
+      const eventDate = parseSupportedDate2(event.date.trim());
+      if (!eventDate) return false;
+      if (!subscriptionDate) return true;
+      return subscriptionDate.getTime() <= eventDate.getTime();
+    }).sort((a2, b2) => {
+      const dateA = parseSupportedDate2(a2.date.trim());
+      const dateB = parseSupportedDate2(b2.date.trim());
+      const dateComparison = ((dateA == null ? void 0 : dateA.getTime()) || 0) - ((dateB == null ? void 0 : dateB.getTime()) || 0);
+      if (dateComparison !== 0) return dateComparison;
+      if (a2.kind === b2.kind) return 0;
+      return a2.kind === "split" ? -1 : 1;
+    });
+    const lines = [
+      texts.subscriptions.fields.totalPricePerShareTooltipBase(
+        amount(baseShares),
+        euro(pricePerShare),
+        euro(otherCosts),
+        euro(currentTotal)
+      )
+    ];
+    for (const event of events2) {
+      if (event.kind === "demerger") {
+        const ratio = decimalOrUndefined(event.entry.oldCompanyRatio);
+        if (!ratio) continue;
+        const nextTotal = currentTotal.mul(ratio);
+        lines.push(
+          texts.subscriptions.fields.totalPricePerShareTooltipDemerger(
+            event.entry.date,
+            euro(currentTotal),
+            amount(ratio),
+            euro(nextTotal)
+          )
+        );
+        currentTotal = nextTotal;
+        continue;
+      }
+      const splitMultiplier = decimalOrUndefined(event.entry.multiplier);
+      if (!splitMultiplier) continue;
+      const nextShares = currentShares.mul(splitMultiplier);
+      lines.push(
+        texts.subscriptions.fields.totalPricePerShareTooltipSplit(
+          event.entry.date,
+          amount(currentShares),
+          amount(splitMultiplier),
+          amount(nextShares)
+        )
+      );
+      currentShares = nextShares;
+    }
+    lines.push(
+      texts.subscriptions.fields.totalPricePerShareTooltipResult(
+        euro(summary2.totalPrice),
+        amount(summary2.amount),
+        euro(summary2.totalPricePerShare)
+      )
+    );
+    return lines.join("\n");
+  }
   function createSubscriptionsSection(dataState, localizedTextNodes, commonTextNodes) {
     const textState = createState({
       value: {
@@ -7122,6 +7410,9 @@
         const removeButton = createRemoveButton(rowTextNodes.removeLabel, () => {
           subscriptions.remove(row.id);
         });
+        const totalPricePerShareCell = td(
+          row.totalPricePerShareTooltip ? hoverValue(row.totalPricePerShare, row.totalPricePerShareTooltip) : row.totalPricePerShare
+        );
         const capitalRepaymentTotalCell = td(
           row.capitalRepaymentTotalTooltip ? hoverValue(row.capitalRepaymentTotal, row.capitalRepaymentTotalTooltip) : row.capitalRepaymentTotal
         );
@@ -7132,7 +7423,7 @@
             td(amountInput),
             td(pricePerShareInput),
             td(otherTotalAcquisitionCostsInput),
-            td(rowTextNodes.totalPricePerShare),
+            totalPricePerShareCell,
             td(rowTextNodes.capitalRepaymentPerShare),
             td(rowTextNodes.remainingCostPerShare),
             capitalRepaymentTotalCell,
@@ -7145,6 +7436,10 @@
             setInputValue(pricePerShareInput, nextRow.pricePerShare);
             setInputValue(otherTotalAcquisitionCostsInput, nextRow.otherTotalAcquisitionCosts);
             rowState.set({ row: nextRow });
+            replaceChildren(
+              totalPricePerShareCell,
+              nextRow.totalPricePerShareTooltip ? hoverValue(nextRow.totalPricePerShare, nextRow.totalPricePerShareTooltip) : nextRow.totalPricePerShare
+            );
             replaceChildren(
               capitalRepaymentTotalCell,
               nextRow.capitalRepaymentTotalTooltip ? hoverValue(nextRow.capitalRepaymentTotal, nextRow.capitalRepaymentTotalTooltip) : nextRow.capitalRepaymentTotal
@@ -7218,6 +7513,12 @@
             pricePerShare: subscription.pricePerShare || "",
             otherTotalAcquisitionCosts: subscription.otherTotalAcquisitionCosts || "",
             totalPricePerShare: summariesById[subscription.id] ? euro(summariesById[subscription.id].totalPricePerShare) : "-",
+            totalPricePerShareTooltip: createTotalPricePerShareTooltip(
+              subscription,
+              current,
+              summariesById[subscription.id],
+              texts
+            ),
             capitalRepaymentTotal: summariesById[subscription.id] ? euro(summariesById[subscription.id].capitalRepaymentTotal) : "-",
             capitalRepaymentTotalTooltip: summariesById[subscription.id] ? createCapitalRepaymentTooltip(summariesById[subscription.id].capitalRepaymentBreakdown, texts) : "",
             capitalRepaymentPerShare: summariesById[subscription.id] ? euro(summariesById[subscription.id].capitalRepaymentPerShare) : "-",
@@ -8196,6 +8497,11 @@
       localizedTextNodes,
       createTextNodesFromState(localizationTexts, { path: ["common"] })
     );
+    const demergersSection = createDemergersSection(
+      dataState,
+      localizedTextNodes,
+      createTextNodesFromState(localizationTexts, { path: ["common"] })
+    );
     const shareSplitsSection = createShareSplitsSection(
       dataState,
       localizedTextNodes,
@@ -8211,6 +8517,7 @@
       toolbarSection.set(pageReadModel);
       subscriptionsSection.set(pageReadModel);
       cashDistributionsSection.set(pageReadModel);
+      demergersSection.set(pageReadModel);
       shareSplitsSection.set(pageReadModel);
       taxSummarySectionController.set(pageReadModel);
       ipoSection.set(pageReadModel);
@@ -8240,6 +8547,7 @@
       toolbarSection.root,
       subscriptionsSection.root,
       cashDistributionsSection.root,
+      demergersSection.root,
       shareSplitsSection.root,
       taxSummarySectionController.root,
       ipoSection.root,

@@ -25,6 +25,12 @@ export type ShareSplitInput = {
   multiplier: string
 }
 
+export type DemergerInput = {
+  id: string
+  date: string
+  oldCompanyRatio: string
+}
+
 export type MathematicalShareValueInput = {
   id: string
   year: string
@@ -49,6 +55,7 @@ export type OsakkeetFormData = {
   subscriptions: ShareSubscriptionInput[]
   cashDistributions: CashDistributionInput[]
   shareSplits: ShareSplitInput[]
+  demergers: DemergerInput[]
   mathematicalShareValues: MathematicalShareValueInput[]
   ipo: IpoDetailsInput
   sell: IpoSellDetailsInput
@@ -81,6 +88,13 @@ type ParsedShareSplit = {
   date: string
   dateValue?: Date
   multiplier: Decimal
+}
+
+type ParsedDemerger = {
+  id: string
+  date: string
+  dateValue?: Date
+  oldCompanyRatio: Decimal
 }
 
 export type CapitalRepaymentBreakdown = {
@@ -519,6 +533,41 @@ function createParsedShareSplits(rows: ShareSplitInput[] = [], errors: string[],
   })
 }
 
+function createParsedDemergers(rows: DemergerInput[] = [], errors: string[], localization: OsakkeetLocalization) {
+  return rows.map((row) => {
+    const ratioField = localization.calculator.fields.demergerOldCompanyRatio(row.id)
+    const normalizedDate = row.date.trim()
+    const normalizedRatio = row.oldCompanyRatio.trim()
+    if (normalizedDate === '' && normalizedRatio === '') {
+      return {
+        id: row.id,
+        date: row.date,
+        dateValue: undefined,
+        oldCompanyRatio: zero,
+      } satisfies ParsedDemerger
+    }
+    let oldCompanyRatio = zero
+    if (normalizedRatio === '') {
+      errors.push(localization.calculator.validation.invalidNumber(ratioField))
+    } else {
+      try {
+        oldCompanyRatio = new Decimal(normalizedRatio)
+        if (oldCompanyRatio.lte(0) || oldCompanyRatio.gt(1)) {
+          errors.push(localization.calculator.validation.invalidNumber(ratioField))
+        }
+      } catch {
+        errors.push(localization.calculator.validation.invalidNumber(ratioField))
+      }
+    }
+    return {
+      id: row.id,
+      date: row.date,
+      dateValue: dateOrUndefined(row.date, localization.calculator.fields.demergerDate(row.id), errors, localization),
+      oldCompanyRatio,
+    } satisfies ParsedDemerger
+  })
+}
+
 function cloneLots(lots: WorkingLot[]) {
   return lots.map((lot) => ({
     ...lot,
@@ -542,6 +591,15 @@ function applyShareSplitsToLots(lots: WorkingLot[], shareSplits: ParsedShareSpli
     })
     .sort((a, b) => compareDateStrings(a.date, b.date))) {
     applyShareSplit(lots, entry)
+  }
+}
+
+function applyDemerger(lots: WorkingLot[], entry: ParsedDemerger) {
+  if (!entry.dateValue || entry.oldCompanyRatio.lte(0) || entry.oldCompanyRatio.gt(1)) return
+  for (const lot of lots) {
+    if (lot.dateValue && lot.dateValue.getTime() > entry.dateValue.getTime()) continue
+    lot.totalPrice = lot.totalPrice.mul(entry.oldCompanyRatio)
+    lot.remainingCostTotal = lot.remainingCostTotal.mul(entry.oldCompanyRatio)
   }
 }
 
@@ -662,6 +720,7 @@ function applyCashDistributions(
   lots: WorkingLot[],
   cashDistributions: ParsedCashDistribution[],
   shareSplits: ParsedShareSplit[],
+  demergers: ParsedDemerger[],
   ipoDate: Date | undefined,
   mathematicalShareValuesByYear: Map<number, Decimal>,
   rules: OsakkeetTaxRules,
@@ -678,6 +737,12 @@ function applyCashDistributions(
         return !!entry.dateValue && entry.dateValue.getTime() <= ipoDate.getTime()
       })
       .map((entry) => ({ kind: 'split' as const, date: entry.date, entry })),
+    ...demergers
+      .filter((entry) => {
+        if (!options.stopAtIpoDate || !ipoDate) return true
+        return !!entry.dateValue && entry.dateValue.getTime() <= ipoDate.getTime()
+      })
+      .map((entry) => ({ kind: 'demerger' as const, date: entry.date, entry })),
     ...cashDistributions
       .filter((entry) => {
         if (!options.stopAtIpoDate || !ipoDate) return true
@@ -688,13 +753,19 @@ function applyCashDistributions(
     const dateComparison = compareDateStrings(a.date, b.date)
     if (dateComparison !== 0) return dateComparison
     if (a.kind === b.kind) return 0
-    return a.kind === 'split' ? -1 : 1
+    if (a.kind === 'distribution') return 1
+    if (b.kind === 'distribution') return -1
+    return 0
   })
   const summaries: CashDistributionSummary[] = []
 
   for (const event of events) {
     if (event.kind === 'split') {
       applyShareSplit(lots, event.entry)
+      continue
+    }
+    if (event.kind === 'demerger') {
+      applyDemerger(lots, event.entry)
       continue
     }
 
@@ -1013,6 +1084,7 @@ export function calculateOsakkeet(
   )
   const parsedCashDistributions = createParsedCashDistributions(form.cashDistributions, errors, localization)
   const parsedShareSplits = createParsedShareSplits(form.shareSplits, errors, localization)
+  const parsedDemergers = createParsedDemergers(form.demergers, errors, localization)
   const splitAdjustedLots = cloneLots(baseLots)
   applyShareSplitsToLots(splitAdjustedLots, parsedShareSplits, ipoDate)
   const totalSubscribedShares = sumDecimals(splitAdjustedLots.map((lot) => lot.amount))
@@ -1030,6 +1102,7 @@ export function calculateOsakkeet(
     ipoTimelineLots,
     parsedCashDistributions,
     parsedShareSplits,
+    parsedDemergers,
     ipoDate,
     mathematicalShareValuesByYear,
     rules,
@@ -1043,6 +1116,7 @@ export function calculateOsakkeet(
     lots,
     parsedCashDistributions,
     parsedShareSplits,
+    parsedDemergers,
     ipoDate,
     mathematicalShareValuesByYear,
     rules,
