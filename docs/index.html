@@ -181,6 +181,18 @@
         min-height: calc(100vh - 56px);
       }
 
+      .osakkeet-sticky-warning {
+        position: relative;
+      }
+
+      .osakkeet-sticky-warning__inner {
+        position: fixed;
+        top: 12px;
+        left: calc(28px + var(--nav-width) + 24px);
+        right: 28px;
+        z-index: 45;
+      }
+
       .topbar {
         display: flex;
         align-items: center;
@@ -311,6 +323,12 @@
 
         .main {
           padding-top: 64px;
+        }
+
+        .osakkeet-sticky-warning__inner {
+          left: 16px;
+          right: 16px;
+          top: 72px;
         }
 
         .bottom-nav {

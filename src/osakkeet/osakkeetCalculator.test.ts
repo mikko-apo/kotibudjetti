@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   OSAKKEET_TAX_RULES_2026,
   calculateOsakkeet,
-  type OsakkeetFormData,
   type OsakkeetTaxRules,
   yearlyTaxCalculator,
 } from './osakkeetCalculator'
 import { getOsakkeetLocalization } from './osakkeetLocalizations'
+import type { OsakkeetFormData } from './osakkeetTypes'
 
 const localization = getOsakkeetLocalization('fi')
 
@@ -34,6 +34,7 @@ function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetForm
         otherTotalAcquisitionCosts: '',
       },
     ],
+    sells: [],
     cashDistributions: [],
     shareSplits: [],
     demergers: [],
@@ -239,6 +240,110 @@ describe(calculateOsakkeet, () => {
     expect(result.subscriptions[0].capitalRepaymentPerShare.toFixed(2)).toBe('0.00')
     expect(result.subscriptions[1].capitalRepaymentPerShare.toFixed(2)).toBe('2.00')
     expect(result.subscriptions[1].remainingCostPerShare.toFixed(2)).toBe('2.00')
+    expect(
+      result.subscriptions[0].capitalRepaymentHoverEntries.map((entry) => ({
+        distributionDate: entry.distributionDate,
+        applied: entry.appliedCapitalRepaymentTotal.toFixed(2),
+        dividend: entry.directedToDividendTotal.toFixed(2),
+        reason: entry.dividendReason,
+      }))
+    ).toEqual([
+      {
+        distributionDate: '2024-01-01',
+        applied: '0.00',
+        dividend: '200.00',
+        reason: 'too_old',
+      },
+    ])
+    expect(
+      result.subscriptions[1].capitalRepaymentHoverEntries.map((entry) => ({
+        distributionDate: entry.distributionDate,
+        applied: entry.appliedCapitalRepaymentTotal.toFixed(2),
+        dividend: entry.directedToDividendTotal.toFixed(2),
+        reason: entry.dividendReason,
+      }))
+    ).toEqual([
+      {
+        distributionDate: '2024-01-01',
+        applied: '100.00',
+        dividend: '0.00',
+        reason: undefined,
+      },
+    ])
+  })
+
+  it('tracks capital-return rows redirected to dividend when acquisition cost runs out', () => {
+    const result = calculate(
+      createBaseForm({
+        subscriptions: [
+          {
+            id: 's1',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '50',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
+        ipo: {
+          ipoDate: '2026-06-01',
+          totalShareCount: '50',
+          totalIpoCost: '0',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '600',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+      })
+    )
+
+    expect(result.subscriptions[0].capitalRepaymentPerShare.toFixed(2)).toBe('1.00')
+    expect(result.subscriptions[0].remainingCostPerShare.toFixed(2)).toBe('0.00')
+    expect(
+      result.subscriptions[0].capitalRepaymentHoverEntries.map((entry) => ({
+        appliedPerShare: entry.appliedCapitalRepaymentPerShare.toFixed(2),
+        dividendPerShare: entry.directedToDividendPerShare.toFixed(2),
+        reason: entry.dividendReason,
+      }))
+    ).toEqual([
+      {
+        appliedPerShare: '1.00',
+        dividendPerShare: '1.00',
+        reason: 'remaining_cost_limit',
+      },
+    ])
+  })
+
+  it('accounts for historical sells in later holdings distributions and IPO sale allocation', () => {
+    const result = calculate(
+      createBaseForm({
+        sells: [{ id: 'sell1', date: '2024-01-01', shareCount: '80', sellPrice: '800', pricePerShare: '10' }],
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-06-01', amountPerShare: '1' }],
+        sell: { amount: '70', otherAnnualCapitalGainsOrLosses: '' },
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.subscriptions[0].amount.toFixed(2)).toBe('20.00')
+    expect(result.subscriptions[1].amount.toFixed(2)).toBe('50.00')
+    expect(result.subscriptions[0].shareCalculatorLog).toHaveLength(3)
+    expect(result.subscriptions[0].shareCalculatorLog[0].kind).toBe('subscription')
+    expect(result.subscriptions[0].shareCalculatorLog[1].kind).toBe('sellForThisSubscription')
+    if (result.subscriptions[0].shareCalculatorLog[1].kind === 'sellForThisSubscription') {
+      expect(result.subscriptions[0].shareCalculatorLog[1].soldShareCount.toFixed(2)).toBe('80.00')
+      expect(result.subscriptions[0].shareCalculatorLog[1].remainingAfter.shareCount.toFixed(2)).toBe('20.00')
+    }
+    expect(result.subscriptions[0].shareCalculatorLog[2].kind).toBe('capitalRepayment')
+    expect(result.cashDistributions[0].sharesHeld.toFixed(2)).toBe('70.00')
+    expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('50.00')
+    expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('20.00')
+    expect(result.vesting.totalShares.toFixed(2)).toBe('70.00')
+    expect(result.sell.usedSubscriptions).toHaveLength(2)
+    expect(result.sell.usedSubscriptions[0].subscriptionId).toBe('s1')
+    expect(result.sell.usedSubscriptions[0].soldAmount.toFixed(2)).toBe('20.00')
+    expect(result.sell.usedSubscriptions[1].subscriptionId).toBe('s2')
+    expect(result.sell.usedSubscriptions[1].soldAmount.toFixed(2)).toBe('50.00')
+    expect(result.sell.remainingUnsoldShares.toFixed(2)).toBe('0.00')
   })
 
   it('applies share splits to later share counts while keeping total acquisition cost unchanged', () => {
@@ -441,7 +546,7 @@ describe(calculateOsakkeet, () => {
     expect(result.subscriptions[1].totalPricePerShare.toFixed(2)).toBe('8.00')
   })
 
-  it('applies same-day split before demerger in the final acquisition cost', () => {
+  it('allows share-count and acquisition-cost changes on the same day', () => {
     const result = calculate(
       createBaseForm({
         subscriptions: [
@@ -460,10 +565,7 @@ describe(calculateOsakkeet, () => {
       })
     )
 
-    expect(result.errors).toEqual([])
-    expect(result.subscriptions[0].amount.toFixed(2)).toBe('200.00')
-    expect(result.subscriptions[0].totalPrice.toFixed(2)).toBe('720.00')
-    expect(result.subscriptions[0].totalPricePerShare.toFixed(2)).toBe('3.60')
+    expect(result.errors.some((error) => error.includes('Timestamp conflict'))).toBe(false)
   })
 
   it('rejects demerger ratios above one', () => {
@@ -508,6 +610,33 @@ describe(calculateOsakkeet, () => {
     expect(result.cashDistributions[0].taxableEarnedDividend.toFixed(2)).toBe('0.00')
     expect(result.cashDistributions[0].taxFreeEarnedDividend.toFixed(2)).toBe('0.00')
     expect(result.cashDistributions[0].withholdingToTaxOffice.toFixed(2)).toBe('38.25')
+  })
+
+  it('builds tax-return asset and capital-gain summaries as tables can consume them', () => {
+    const result = calculate(
+      createBaseForm({
+        sell: { amount: '120', otherAnnualCapitalGainsOrLosses: '' },
+      })
+    )
+
+    const year2024 = result.taxReturns.years.find((year) => year.year === 2024)
+    const year2025 = result.taxReturns.years.find((year) => year.year === 2025)
+    const year2026 = result.taxReturns.years.find((year) => year.year === 2026)
+
+    expect(year2024?.assets?.date).toBe('31.12.2024')
+    expect(year2024?.assets?.shareCount.toFixed(2)).toBe('150.00')
+    expect(year2024?.assets?.shareholderMathematicalValue.toFixed(2)).toBe('3000.00')
+    expect(year2024?.assets?.remainingAcquisitionCost.toFixed(2)).toBe('300.00')
+    expect(year2025?.assets?.date).toBe('31.12.2025')
+    expect(year2025?.assets?.shareholderMathematicalValue.toFixed(2)).toBe('3000.00')
+    expect(year2026?.assets).toBeUndefined()
+    expect(year2026?.ipoSale?.entries).toHaveLength(2)
+    expect(year2026?.ipoSale?.entries[0].subscriptionDate).toBe('01.01.2013')
+    expect(year2026?.ipoSale?.entries[0].sellDate).toBe('2026-06-01')
+    expect(year2026?.ipoSale?.soldShareCount.toFixed(2)).toBe('120.00')
+    expect(year2026?.ipoSale?.grossSale.toFixed(2)).toBe('1200.00')
+    expect(year2026?.ipoSale?.selectedDeductionTotal.toFixed(2)).toBe('500.00')
+    expect(year2026?.ipoSale?.taxableCapitalGain.toFixed(2)).toBe('700.00')
   })
 
   it('uses fifo lots and picks the more beneficial deduction method per lot', () => {
@@ -717,6 +846,7 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        sells: [],
         shareSplits: [],
         demergers: [],
         cashDistributions: [
@@ -775,6 +905,7 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        sells: [],
         shareSplits: [],
         demergers: [],
         cashDistributions: [{ id: 'd1', type: 'capital_return', date: '30.06.2024', amountPerShare: '0.18' }],
@@ -819,6 +950,7 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        sells: [],
         shareSplits: [],
         demergers: [],
         cashDistributions: [

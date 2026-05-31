@@ -1,5 +1,13 @@
 import Decimal from 'decimal.js'
 import { type OsakkeetLocalization } from './osakkeetLocalizations'
+import type {
+  CashDistributionInput,
+  MathematicalShareValueInput,
+  OsakkeetFormData,
+  ShareSellInput,
+  ShareSubscriptionInput,
+} from './osakkeetTypes'
+import { createShareCalculator, type ShareCalculatorError, type ShareCalculatorLogEntry } from './shareCalculator'
 import {
   compareDateStrings,
   isAtLeastYears,
@@ -7,66 +15,6 @@ import {
   parseSupportedDate,
   sumDecimals,
 } from './osakkeetUtils'
-
-type ShareSubscriptionInput = {
-  id: string
-  date: string
-  vestingEndsOn?: string
-  amount: string
-  pricePerShare?: string
-  otherTotalAcquisitionCosts?: string
-  totalPrice?: string
-}
-
-type CashDistributionInput = {
-  id: string
-  date: string
-  type: 'capital_return' | 'dividend'
-  amountPerShare: string
-  shareCount?: string
-}
-
-type ShareSplitInput = {
-  id: string
-  date: string
-  multiplier: string
-}
-
-type DemergerInput = {
-  id: string
-  date: string
-  oldCompanyRatio: string
-}
-
-type MathematicalShareValueInput = {
-  id: string
-  year: string
-  valuePerShare: string
-}
-
-type IpoDetailsInput = {
-  ipoDate: string
-  totalShareCount: string
-  totalIpoCost: string
-  currentShareValue: string
-  estimatedPreIpoValue: string
-  estimatedSecondaryShareSellPercentage: string
-}
-
-type IpoSellDetailsInput = {
-  amount: string
-  otherAnnualCapitalGainsOrLosses?: string
-}
-
-export type OsakkeetFormData = {
-  subscriptions: ShareSubscriptionInput[]
-  cashDistributions: CashDistributionInput[]
-  shareSplits: ShareSplitInput[]
-  demergers: DemergerInput[]
-  mathematicalShareValues: MathematicalShareValueInput[]
-  ipo: IpoDetailsInput
-  sell: IpoSellDetailsInput
-}
 
 type WorkingLot = {
   id: string
@@ -84,6 +32,8 @@ type WorkingLot = {
   capitalRepaymentTotal: Decimal
   cashDistributionGrossTotal: Decimal
   capitalRepaymentBreakdown: CapitalRepaymentBreakdown[]
+  capitalRepaymentHoverEntries: CapitalRepaymentHoverEntry[]
+  shareCalculatorLog: ShareCalculatorLogEntry[]
   acquisitionCostAdjustments: AcquisitionCostAdjustment[]
 }
 
@@ -95,25 +45,22 @@ type ParsedCashDistribution = {
   amountPerShare: Decimal
 }
 
-type ParsedShareSplit = {
-  id: string
-  date: string
-  dateValue?: Date
-  multiplier: Decimal
-}
-
-type ParsedDemerger = {
-  id: string
-  date: string
-  dateValue?: Date
-  oldCompanyRatio: Decimal
-}
-
 export type CapitalRepaymentBreakdown = {
   distributionDate: string
   shares: Decimal
   capitalRepaymentPerShare: Decimal
   capitalRepaymentTotal: Decimal
+}
+
+export type CapitalRepaymentHoverEntry = {
+  distributionDate: string
+  shares: Decimal
+  inputAmountPerShare: Decimal
+  appliedCapitalRepaymentPerShare: Decimal
+  appliedCapitalRepaymentTotal: Decimal
+  directedToDividendPerShare: Decimal
+  directedToDividendTotal: Decimal
+  dividendReason?: 'too_old' | 'no_remaining_cost' | 'listed_dividend' | 'remaining_cost_limit'
 }
 
 type AcquisitionCostAdjustment =
@@ -150,6 +97,8 @@ type SubscriptionSummary = {
   cashDistributionGrossTotal: Decimal
   capitalRepaymentTotal: Decimal
   capitalRepaymentBreakdown: CapitalRepaymentBreakdown[]
+  capitalRepaymentHoverEntries: CapitalRepaymentHoverEntry[]
+  shareCalculatorLog: ShareCalculatorLogEntry[]
   capitalRepaymentPerShare: Decimal
   remainingCostPerShare: Decimal
   remainingCostTotal: Decimal
@@ -227,8 +176,33 @@ type TaxReturnSectionSummary = {
   totals: TaxReturnTotals
 }
 
-type TaxReturnIpoSaleSummary = {
+type TaxReturnAssetSummary = {
+  date: string
+  shareCount: Decimal
+  mathematicalShareValuePerShare: Decimal
+  shareholderMathematicalValue: Decimal
+  remainingAcquisitionCost: Decimal
+}
+
+type TaxReturnIpoSaleEntry = {
+  subscriptionDate: string
+  sellDate: string
+  soldShareCount: Decimal
   grossSale: Decimal
+  actualDeduction: Decimal
+  hankintamenoOlettaDeduction: Decimal
+  selectedMethod: 'actual_costs' | 'hmo'
+  selectedDeduction: Decimal
+  taxableCapitalGain: Decimal
+}
+
+type TaxReturnIpoSaleSummary = {
+  entries: TaxReturnIpoSaleEntry[]
+  soldShareCount: Decimal
+  grossSale: Decimal
+  actualDeductionTotal: Decimal
+  hankintamenoOlettaDeductionTotal: Decimal
+  selectedDeductionTotal: Decimal
   totalIpoCostAllocated: Decimal
   taxableCapitalGain: Decimal
   estimatedTax: Decimal
@@ -238,6 +212,7 @@ type TaxReturnIpoSaleSummary = {
 type TaxReturnYearSummary = {
   year: number
   missingMathematicalValueWarningDates: string[]
+  assets?: TaxReturnAssetSummary
   unlisted?: TaxReturnSectionSummary
   listed?: TaxReturnSectionSummary
   ipoSale?: TaxReturnIpoSaleSummary
@@ -384,9 +359,7 @@ const OSAKKEET_TAX_RULES_2016: YearlyTaxRules = {
   },
 }
 
-const YEARLY_TAX_RULES: YearlyTaxRules[] = [
-  OSAKKEET_TAX_RULES_2016,
-]
+const YEARLY_TAX_RULES: YearlyTaxRules[] = [OSAKKEET_TAX_RULES_2016]
 
 export function yearlyTaxCalculator(year: number): OsakkeetTaxRules {
   if (year < OSAKKEET_TAX_RULES_2016.year) {
@@ -498,6 +471,8 @@ function createLot(input: ShareSubscriptionInput, errors: string[], localization
     capitalRepaymentTotal: zero,
     cashDistributionGrossTotal: zero,
     capitalRepaymentBreakdown: [],
+    capitalRepaymentHoverEntries: [],
+    shareCalculatorLog: [],
     acquisitionCostAdjustments: [],
   } satisfies WorkingLot
 }
@@ -510,11 +485,7 @@ function estimateCapitalTax(taxableGain: Decimal, rules: OsakkeetTaxRules) {
   return lowPart.mul(rules.capitalIncomeTax.lowRate).add(highPart.mul(rules.capitalIncomeTax.highRate))
 }
 
-function resolveYearlyTaxRules(
-  year: number | undefined,
-  fallbackRules: OsakkeetTaxRules,
-  useYearlyRules: boolean
-) {
+function resolveYearlyTaxRules(year: number | undefined, fallbackRules: OsakkeetTaxRules, useYearlyRules: boolean) {
   if (!useYearlyRules || year == null || year < OSAKKEET_TAX_RULES_2016.year) {
     return fallbackRules
   }
@@ -605,168 +576,141 @@ function createParsedCashDistributions(
   }))
 }
 
-function parseDatedDecimalAction<TParsed extends { id: string; date: string; dateValue?: Date }>(
-  row: { id: string; date: string },
-  rawValue: string,
-  valueField: string,
-  dateField: string,
-  errors: string[],
-  localization: OsakkeetLocalization,
-  isValid: (value: Decimal) => boolean,
-  build: (value: Decimal, dateValue: Date | undefined) => TParsed
-) {
-  const normalizedDate = row.date.trim()
-  const normalizedValue = rawValue.trim()
-  if (normalizedDate === '' && normalizedValue === '') {
-    return build(zero, undefined)
-  }
-
-  const parsedValue =
-    normalizedValue === ''
-      ? (errors.push(localization.calculator.validation.invalidNumber(valueField)), zero)
-      : parseDecimalInput(rawValue, valueField, errors, localization, { validate: isValid })
-
-  return build(parsedValue, parseOptionalDateInput(row.date, dateField, errors, localization))
-}
-
-function createParsedShareSplits(rows: ShareSplitInput[] = [], errors: string[], localization: OsakkeetLocalization) {
-  return rows.map((row) =>
-    parseDatedDecimalAction(
-      row,
-      row.multiplier,
-      localization.calculator.fields.shareSplitMultiplier(row.id),
-      localization.calculator.fields.shareSplitDate(row.id),
-      errors,
-      localization,
-      (value) => value.gt(0),
-      (multiplier, dateValue) =>
-        ({
-          id: row.id,
-          date: row.date,
-          dateValue,
-          multiplier,
-        }) satisfies ParsedShareSplit
-    )
-  )
-}
-
-function createParsedDemergers(rows: DemergerInput[] = [], errors: string[], localization: OsakkeetLocalization) {
-  return rows.map((row) =>
-    parseDatedDecimalAction(
-      row,
-      row.oldCompanyRatio,
-      localization.calculator.fields.demergerOldCompanyRatio(row.id),
-      localization.calculator.fields.demergerDate(row.id),
-      errors,
-      localization,
-      (value) => value.gt(0) && value.lte(1),
-      (oldCompanyRatio, dateValue) =>
-        ({
-          id: row.id,
-          date: row.date,
-          dateValue,
-          oldCompanyRatio,
-        }) satisfies ParsedDemerger
-    )
-  )
-}
-
-function cloneLots(lots: WorkingLot[]) {
-  return lots.map((lot) => ({
-    ...lot,
-    capitalRepaymentBreakdown: lot.capitalRepaymentBreakdown.map((entry) => ({ ...entry })),
-    acquisitionCostAdjustments: lot.acquisitionCostAdjustments.map((entry) => ({ ...entry })),
-  }))
-}
-
-function applyToOwnedLots(lots: WorkingLot[], eventDate: Date | undefined, apply: (lot: WorkingLot) => void) {
-  if (!eventDate) return
-  for (const lot of lots) {
-    if (lot.dateValue && lot.dateValue.getTime() > eventDate.getTime()) continue
-    apply(lot)
-  }
-}
-
-function applyShareSplit(lots: WorkingLot[], entry: ParsedShareSplit) {
-  if (entry.multiplier.lte(0)) return
-  applyToOwnedLots(lots, entry.dateValue, (lot) => {
-    const beforeShares = lot.amount
-    lot.amount = lot.amount.mul(entry.multiplier)
-    lot.acquisitionCostAdjustments.push({
-      kind: 'split',
-      date: entry.date,
-      beforeShares,
-      afterShares: lot.amount,
-      multiplier: entry.multiplier,
-    })
+function mapShareCalculatorErrors(shareCalculatorErrors: ShareCalculatorError[], errors: string[]) {
+  shareCalculatorErrors.forEach((error) => {
+    if (!errors.includes(error.message)) {
+      errors.push(error.message)
+    }
   })
 }
 
-function applyShareSplitsToLots(lots: WorkingLot[], shareSplits: ParsedShareSplit[], upToDate?: Date) {
-  for (const entry of shareSplits
-    .filter((shareSplit) => {
-      if (!upToDate) return true
-      return !!shareSplit.dateValue && shareSplit.dateValue.getTime() <= upToDate.getTime()
-    })
-    .sort((a, b) => compareDateStrings(a.date, b.date))) {
-    applyShareSplit(lots, entry)
+function getLatestLotStateOrZero(
+  shareCalculator: ReturnType<typeof createShareCalculator>['shareCalculator'],
+  subscriptionId: string
+) {
+  const result = shareCalculator.getRemainingCountAndAcquisitionCost(
+    subscriptionId,
+    new Date('9999-12-31T23:59:59.999Z')
+  )
+  const subscriptionEntry = result.log.find((entry) => entry.kind === 'subscription')
+  const baseShareAcquisitionCost = result.log
+    .filter(
+      (entry) =>
+        entry.kind === 'subscription' ||
+        entry.kind === 'companyAcquisitionCostChange' ||
+        entry.kind === 'sellForThisSubscription'
+    )
+    .reduce(
+      (acc, entry) => {
+        if (entry.kind === 'subscription') return entry.shareAcquisitionCost
+        if (entry.kind === 'companyAcquisitionCostChange') return acc.mul(entry.shareAcquisitionCostMultiplier)
+        if (entry.kind === 'sellForThisSubscription')
+          return Decimal.max(acc.minus(entry.soldBaseShareAcquisitionCost), zero)
+        return acc
+      },
+      subscriptionEntry?.kind === 'subscription' ? subscriptionEntry.shareAcquisitionCost : zero
+    )
+
+  return {
+    shareCount: result.remaining.shareCount,
+    shareAcquisitionCost: result.remaining.shareAcquisitionCost,
+    baseShareAcquisitionCost,
   }
 }
 
-function applyDemerger(lots: WorkingLot[], entry: ParsedDemerger) {
-  if (entry.oldCompanyRatio.lte(0) || entry.oldCompanyRatio.gt(1)) return
-  applyToOwnedLots(lots, entry.dateValue, (lot) => {
-    const beforeTotalPrice = lot.totalPrice
-    lot.totalPrice = lot.totalPrice.mul(entry.oldCompanyRatio)
-    lot.remainingCostTotal = lot.remainingCostTotal.mul(entry.oldCompanyRatio)
-    lot.acquisitionCostAdjustments.push({
-      kind: 'demerger',
-      date: entry.date,
-      beforeTotalPrice,
-      afterTotalPrice: lot.totalPrice,
-      oldCompanyRatio: entry.oldCompanyRatio,
-    })
-  })
-}
-
-type TimelineEvent =
-  | { kind: 'split'; date: string; entry: ParsedShareSplit }
-  | { kind: 'demerger'; date: string; entry: ParsedDemerger }
-  | { kind: 'distribution'; date: string; entry: ParsedCashDistribution }
-
-function isEventWithinTimeline(dateValue: Date | undefined, ipoDate: Date | undefined, stopAtIpoDate?: boolean) {
-  if (!stopAtIpoDate || !ipoDate) return true
-  return !!dateValue && dateValue.getTime() <= ipoDate.getTime()
-}
-
-function createTimelineEvents(
-  cashDistributions: ParsedCashDistribution[],
-  shareSplits: ParsedShareSplit[],
-  demergers: ParsedDemerger[],
-  ipoDate: Date | undefined,
-  options: { stopAtIpoDate?: boolean } = {}
+function getLotStateAtOrZero(
+  shareCalculator: ReturnType<typeof createShareCalculator>['shareCalculator'],
+  subscriptionId: string,
+  timestamp: Date,
+  inclusive = true
 ) {
-  return [
-    ...shareSplits
-      .filter((entry) => isEventWithinTimeline(entry.dateValue, ipoDate, options.stopAtIpoDate))
-      .map((entry) => ({ kind: 'split' as const, date: entry.date, entry })),
-    ...demergers
-      .filter((entry) => isEventWithinTimeline(entry.dateValue, ipoDate, options.stopAtIpoDate))
-      .map((entry) => ({ kind: 'demerger' as const, date: entry.date, entry })),
-    ...cashDistributions
-      .filter((entry) => {
-        if (!options.stopAtIpoDate || !ipoDate) return true
-        return !!entry.dateValue && entry.dateValue.getTime() < ipoDate.getTime()
+  const effectiveTimestamp = inclusive ? timestamp : new Date(timestamp.getTime() - 1)
+  const result = shareCalculator.getRemainingCountAndAcquisitionCost(subscriptionId, effectiveTimestamp)
+  const subscriptionEntry = result.log.find((entry) => entry.kind === 'subscription')
+  const baseShareAcquisitionCost = result.log
+    .filter(
+      (entry) =>
+        entry.kind === 'subscription' ||
+        entry.kind === 'companyAcquisitionCostChange' ||
+        entry.kind === 'sellForThisSubscription'
+    )
+    .reduce(
+      (acc, entry) => {
+        if (entry.kind === 'subscription') return entry.shareAcquisitionCost
+        if (entry.kind === 'companyAcquisitionCostChange') return acc.mul(entry.shareAcquisitionCostMultiplier)
+        if (entry.kind === 'sellForThisSubscription')
+          return Decimal.max(acc.minus(entry.soldBaseShareAcquisitionCost), zero)
+        return acc
+      },
+      subscriptionEntry?.kind === 'subscription' ? subscriptionEntry.shareAcquisitionCost : zero
+    )
+
+  return {
+    shareCount: result.remaining.shareCount,
+    shareAcquisitionCost: result.remaining.shareAcquisitionCost,
+    baseShareAcquisitionCost,
+  }
+}
+
+function buildAcquisitionCostAdjustments(
+  lot: WorkingLot,
+  shareCalculator: ReturnType<typeof createShareCalculator>['shareCalculator']
+): AcquisitionCostAdjustment[] {
+  const adjustments: AcquisitionCostAdjustment[] = []
+  let baseShareAcquisitionCost = lot.originalTotalPrice
+  const log = shareCalculator.getRemainingCountAndAcquisitionCost(lot.id, new Date('9999-12-31T23:59:59.999Z')).log
+  for (const entry of log) {
+    if (entry.kind === 'companyShareCountChange') {
+      const beforeShares = entry.remainingAfter.shareCount.div(entry.shareCountMultiplier)
+      adjustments.push({
+        kind: 'split',
+        date: entry.date,
+        beforeShares,
+        afterShares: entry.remainingAfter.shareCount,
+        multiplier: entry.shareCountMultiplier,
       })
-      .map((entry) => ({ kind: 'distribution' as const, date: entry.date, entry })),
-  ].sort((a, b) => {
-    const dateComparison = compareDateStrings(a.date, b.date)
-    if (dateComparison !== 0) return dateComparison
-    if (a.kind === b.kind) return 0
-    if (a.kind === 'distribution') return 1
-    if (b.kind === 'distribution') return -1
-    return 0
-  }) satisfies TimelineEvent[]
+      continue
+    }
+
+    if (entry.kind === 'companyAcquisitionCostChange') {
+      const beforeTotalPrice = baseShareAcquisitionCost
+      baseShareAcquisitionCost = baseShareAcquisitionCost.mul(entry.shareAcquisitionCostMultiplier)
+      adjustments.push({
+        kind: 'demerger',
+        date: entry.date,
+        beforeTotalPrice,
+        afterTotalPrice: baseShareAcquisitionCost,
+        oldCompanyRatio: entry.shareAcquisitionCostMultiplier,
+      })
+    }
+  }
+
+  return adjustments
+}
+
+function buildShareCalculatorLog(
+  subscriptionId: string,
+  shareCalculator: ReturnType<typeof createShareCalculator>['shareCalculator']
+) {
+  return shareCalculator.getRemainingCountAndAcquisitionCost(subscriptionId, new Date('9999-12-31T23:59:59.999Z')).log
+}
+
+function buildFinalLotsFromShareCalculator(
+  baseLots: WorkingLot[],
+  shareCalculator: ReturnType<typeof createShareCalculator>['shareCalculator']
+) {
+  return baseLots.map((lot) => {
+    const latestState = getLatestLotStateOrZero(shareCalculator, lot.id)
+    return {
+      ...lot,
+      amount: latestState.shareCount,
+      totalPrice: latestState.baseShareAcquisitionCost,
+      remainingCostTotal: latestState.shareAcquisitionCost,
+      capitalRepaymentTotal: zero,
+      shareCalculatorLog: buildShareCalculatorLog(lot.id, shareCalculator),
+      acquisitionCostAdjustments: buildAcquisitionCostAdjustments(lot, shareCalculator),
+    }
+  })
 }
 
 function parseIpoAndSellInputs(
@@ -810,7 +754,12 @@ function parseIpoAndSellInputs(
     errors,
     localization
   )
-  const sellAmount = parseDecimalInput(form.sell.amount, localization.calculator.fields.sellAmount, errors, localization)
+  const sellAmount = parseDecimalInput(
+    form.sell.amount,
+    localization.calculator.fields.sellAmount,
+    errors,
+    localization
+  )
   const otherAnnualCapitalGainsOrLosses = parseDecimalInput(
     form.sell.otherAnnualCapitalGainsOrLosses || '',
     localization.calculator.fields.otherAnnualCapitalGainsOrLosses,
@@ -869,10 +818,13 @@ function calculateVestingSummary(lots: WorkingLot[], ipoDate?: Date): VestingSum
     (lot) => !lot.dateValue || !ipoDate || lot.dateValue.getTime() <= ipoDate.getTime()
   )
   const sellableLots = ipoEligibleLots.filter(
-    (lot) => !lot.vestingEndsOnValue || !!(ipoDate && ipoDate.getTime() >= lot.vestingEndsOnValue.getTime())
+    (lot) =>
+      lot.amount.gt(0) &&
+      (!lot.vestingEndsOnValue || !!(ipoDate && ipoDate.getTime() >= lot.vestingEndsOnValue.getTime()))
   )
   const lockedLots = ipoEligibleLots.filter(
-    (lot) => !!lot.vestingEndsOnValue && (!ipoDate || ipoDate.getTime() < lot.vestingEndsOnValue.getTime())
+    (lot) =>
+      lot.amount.gt(0) && !!lot.vestingEndsOnValue && (!ipoDate || ipoDate.getTime() < lot.vestingEndsOnValue.getTime())
   )
   return {
     sellableLots,
@@ -886,44 +838,40 @@ function calculateVestingSummary(lots: WorkingLot[], ipoDate?: Date): VestingSum
 function applyCashDistributions(
   lots: WorkingLot[],
   cashDistributions: ParsedCashDistribution[],
-  shareSplits: ParsedShareSplit[],
-  demergers: ParsedDemerger[],
+  shareCalculator: ReturnType<typeof createShareCalculator>['shareCalculator'],
   ipoDate: Date | undefined,
   mathematicalShareValuesByYear: Map<number, Decimal>,
   rules: OsakkeetTaxRules,
   warnings: string[],
   localization: OsakkeetLocalization,
-  useYearlyRules: boolean,
-  options: { stopAtIpoDate?: boolean } = {}
+  useYearlyRules: boolean
 ) {
   const capitalDividendUsedByYear = new Map<number, Decimal>()
   const grossDividendUsedByYear = new Map<number, Decimal>()
-  const events = createTimelineEvents(cashDistributions, shareSplits, demergers, ipoDate, options)
   const summaries: CashDistributionSummary[] = []
+  const lotsById = new Map(lots.map((lot) => [lot.id, lot]))
 
-  for (const event of events) {
-    if (event.kind === 'split') {
-      applyShareSplit(lots, event.entry)
-      continue
-    }
-    if (event.kind === 'demerger') {
-      applyDemerger(lots, event.entry)
-      continue
-    }
-
-    const entry = event.entry
+  for (const entry of [...cashDistributions].sort((a, b) => compareDateStrings(a.date, b.date))) {
     const cashDistributionDate = entry.dateValue
     const amountPerShare = entry.amountPerShare
     const eligibleLots = lots.filter(
       (lot) => !lot.dateValue || !cashDistributionDate || lot.dateValue.getTime() <= cashDistributionDate.getTime()
     )
-    const sharesHeld = sumDecimals(eligibleLots.map((lot) => lot.amount))
+    const lotStates = eligibleLots.map((lot) => ({
+      lot,
+      before: cashDistributionDate
+        ? getLotStateAtOrZero(shareCalculator, lot.id, cashDistributionDate, false)
+        : getLatestLotStateOrZero(shareCalculator, lot.id),
+      after: cashDistributionDate
+        ? getLotStateAtOrZero(shareCalculator, lot.id, cashDistributionDate, true)
+        : getLatestLotStateOrZero(shareCalculator, lot.id),
+    }))
+    const sharesHeld = sumDecimals(lotStates.map(({ before }) => before.shareCount))
     const expectedTotal = amountPerShare.mul(sharesHeld)
     const grossTotal = expectedTotal
     const effectivePerShare = sharesHeld.gt(0) ? grossTotal.div(sharesHeld) : zero
     const isAfterIpoDate = !!(ipoDate && cashDistributionDate && cashDistributionDate.getTime() >= ipoDate.getTime())
     const effectiveType: CashDistributionSummary['type'] = isAfterIpoDate ? 'dividend' : entry.type
-    const isDividend = effectiveType === 'dividend'
     const year = cashDistributionDate?.getUTCFullYear()
     const distributionRules = resolveYearlyTaxRules(year, rules, useYearlyRules)
 
@@ -931,41 +879,73 @@ function applyCashDistributions(
       warnings.push(localization.calculator.warnings.noSharesHeldForDistribution(entry.date))
     }
 
-    const allocations = eligibleLots.map((lot) => {
-      const gross = effectivePerShare.mul(lot.amount)
+    const allocations = lotStates.map(({ lot, before, after }) => {
+      const shares = before.shareCount
+      const gross = effectivePerShare.mul(shares)
+      const capitalRepayment = Decimal.max(before.shareAcquisitionCost.minus(after.shareAcquisitionCost), zero)
+      const dividend = Decimal.max(gross.minus(capitalRepayment), zero)
       const eligibleCapitalRepayment =
-        !isDividend &&
+        effectiveType === 'capital_return' &&
         isWithinYearsInclusive(
           lot.dateValue,
           cashDistributionDate,
           distributionRules.capitalRepayment.eligibilityYears
         ) &&
-        lot.remainingCostTotal.gt(0)
-      const remainingCostPerShare = lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero
-      const capitalRepaymentPerShare = eligibleCapitalRepayment
-        ? Decimal.min(effectivePerShare, remainingCostPerShare)
-        : zero
-      const capitalRepayment = capitalRepaymentPerShare.mul(lot.amount)
-      const dividend = Decimal.max(gross.minus(capitalRepayment), zero)
-      lot.remainingCostTotal = Decimal.max(lot.remainingCostTotal.minus(capitalRepayment), zero)
-      lot.capitalRepaymentTotal = lot.capitalRepaymentTotal.add(capitalRepayment)
-      lot.cashDistributionGrossTotal = lot.cashDistributionGrossTotal.add(gross)
+        capitalRepayment.gt(0)
+
+      const targetLot = lotsById.get(lot.id)
+      if (targetLot) {
+        targetLot.cashDistributionGrossTotal = targetLot.cashDistributionGrossTotal.add(gross)
+        targetLot.capitalRepaymentTotal = targetLot.capitalRepaymentTotal.add(capitalRepayment)
+      }
+
       if (capitalRepayment.gt(0)) {
-        lot.capitalRepaymentBreakdown.push({
+        targetLot?.capitalRepaymentBreakdown.push({
           distributionDate: entry.date,
-          shares: lot.amount,
-          capitalRepaymentPerShare,
+          shares,
+          capitalRepaymentPerShare: shares.gt(0) ? capitalRepayment.div(shares) : zero,
           capitalRepaymentTotal: capitalRepayment,
         })
       }
+
+      if (entry.type === 'capital_return' && targetLot && shares.gt(0)) {
+        const appliedCapitalRepaymentPerShare = shares.gt(0) ? capitalRepayment.div(shares) : zero
+        const directedToDividendPerShare = shares.gt(0) ? dividend.div(shares) : zero
+        const dividendReason =
+          effectiveType !== 'capital_return'
+            ? 'listed_dividend'
+            : !isWithinYearsInclusive(
+                  lot.dateValue,
+                  cashDistributionDate,
+                  distributionRules.capitalRepayment.eligibilityYears
+                )
+              ? 'too_old'
+              : dividend.gt(0)
+                ? before.shareAcquisitionCost.lte(0)
+                  ? 'no_remaining_cost'
+                  : 'remaining_cost_limit'
+                : undefined
+
+        targetLot.capitalRepaymentHoverEntries.push({
+          distributionDate: entry.date,
+          shares,
+          inputAmountPerShare: amountPerShare,
+          appliedCapitalRepaymentPerShare,
+          appliedCapitalRepaymentTotal: capitalRepayment,
+          directedToDividendPerShare,
+          directedToDividendTotal: dividend,
+          dividendReason,
+        })
+      }
+
       return {
         subscriptionId: lot.id,
         subscriptionDate: lot.date,
-        shares: lot.amount,
+        shares,
         gross,
         capitalRepayment,
         dividend,
-        remainingCostPerShareAfter: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
+        remainingCostPerShareAfter: after.shareCount.gt(0) ? after.shareAcquisitionCost.div(after.shareCount) : zero,
         eligibleCapitalRepayment,
       } satisfies CashDistributionAllocation
     })
@@ -1035,30 +1015,29 @@ function applyCashDistributions(
     )
 
     summaries.push({
-        id: entry.id,
-        date: entry.date,
-        type: effectiveType,
-        amountPerShare,
-        sharesHeld,
-        capitalRepaymentShareCount,
-        dividendShareCount,
-        mathematicalShareValuePerShare,
-        shareholderMathematicalValue,
-        eightPercentYieldLimit,
-        expectedTotal,
-        grossTotal,
-        paidInCash,
-        capitalRepaymentTotal,
-        dividendTotal,
-        withholdingToTaxOffice,
-        taxableCapitalIncome,
-        taxFreeCapitalIncomePortion,
-        taxableEarnedDividend,
-        taxFreeEarnedDividend,
-        treatedAsListedDividend: isAfterIpoDate,
-        allocations,
-      } satisfies CashDistributionSummary
-    )
+      id: entry.id,
+      date: entry.date,
+      type: effectiveType,
+      amountPerShare,
+      sharesHeld,
+      capitalRepaymentShareCount,
+      dividendShareCount,
+      mathematicalShareValuePerShare,
+      shareholderMathematicalValue,
+      eightPercentYieldLimit,
+      expectedTotal,
+      grossTotal,
+      paidInCash,
+      capitalRepaymentTotal,
+      dividendTotal,
+      withholdingToTaxOffice,
+      taxableCapitalIncome,
+      taxFreeCapitalIncomePortion,
+      taxableEarnedDividend,
+      taxFreeEarnedDividend,
+      treatedAsListedDividend: isAfterIpoDate,
+      allocations,
+    } satisfies CashDistributionSummary)
   }
 
   return summaries
@@ -1066,6 +1045,7 @@ function applyCashDistributions(
 
 function calculateSellSummary(
   sellableLots: WorkingLot[],
+  sellShareCalculator: ReturnType<typeof createShareCalculator>['shareCalculator'],
   sellAmount: Decimal,
   otherAnnualCapitalGainsOrLosses: Decimal,
   vestingSummary: VestingSummary,
@@ -1087,51 +1067,49 @@ function calculateSellSummary(
     warnings.push(localization.calculator.warnings.sellAmountExceedsEstimatedSecondary)
   }
 
-  let remainingSellAmount = sellAmount
-  const usedSubscriptions: SellLotSummary[] = []
-  for (const lot of sellableLots) {
-    if (remainingSellAmount.lte(0)) break
-    const soldAmount = Decimal.min(lot.amount, remainingSellAmount)
-    if (soldAmount.lte(0)) continue
-
-    const gross = soldAmount.mul(ipoSummary.ipoPricePerShare)
-    const originalCostBasis = lot.amount.gt(0) ? lot.totalPrice.mul(soldAmount).div(lot.amount) : zero
-    const realCostBasis = lot.amount.gt(0) ? lot.remainingCostTotal.mul(soldAmount).div(lot.amount) : zero
-    const allocatedIpoCost = soldAmount.mul(ipoSummary.ipoCostPerShare)
-    const actualDeduction = realCostBasis.add(allocatedIpoCost)
-    const hankintamenoOlettaRate = isAtLeastYears(
-      lot.dateValue,
-      ipoSummary.ipoDate,
-      sellRules.hankintamenoOlettama.ownershipYearsThreshold
+  const usedSubscriptions: SellLotSummary[] = sellableLots.flatMap((lot) => {
+    const sellAllocations = (sellShareCalculator.sellsForThisSubscriptionLotsBySubscriptionId[lot.id] || []).filter(
+      (allocation) => allocation.sellId === 'ipo-sell'
     )
-      ? new Decimal(sellRules.hankintamenoOlettama.longOwnershipRate)
-      : new Decimal(sellRules.hankintamenoOlettama.shortOwnershipRate)
-    const hankintamenoOlettaDeduction = gross.mul(hankintamenoOlettaRate)
-    const useActualCosts = actualDeduction.gte(hankintamenoOlettaDeduction)
-    const selectedDeduction = useActualCosts ? actualDeduction : hankintamenoOlettaDeduction
-    const taxableGain = gross.minus(selectedDeduction)
+    return sellAllocations.map((allocation) => {
+      const soldAmount = allocation.soldShareCount
+      const gross = soldAmount.mul(ipoSummary.ipoPricePerShare)
+      const originalCostBasis = allocation.soldBaseShareAcquisitionCost
+      const realCostBasis = allocation.soldShareAcquisitionCost
+      const allocatedIpoCost = soldAmount.mul(ipoSummary.ipoCostPerShare)
+      const actualDeduction = realCostBasis.add(allocatedIpoCost)
+      const hankintamenoOlettaRate = isAtLeastYears(
+        lot.dateValue,
+        ipoSummary.ipoDate,
+        sellRules.hankintamenoOlettama.ownershipYearsThreshold
+      )
+        ? new Decimal(sellRules.hankintamenoOlettama.longOwnershipRate)
+        : new Decimal(sellRules.hankintamenoOlettama.shortOwnershipRate)
+      const hankintamenoOlettaDeduction = gross.mul(hankintamenoOlettaRate)
+      const useActualCosts = actualDeduction.gte(hankintamenoOlettaDeduction)
+      const selectedDeduction = useActualCosts ? actualDeduction : hankintamenoOlettaDeduction
+      const taxableGain = gross.minus(selectedDeduction)
 
-    usedSubscriptions.push({
-      subscriptionId: lot.id,
-      subscriptionDate: lot.date,
-      totalSubscriptionShares: lot.amount,
-      soldAmount,
-      gross,
-      originalCostBasis,
-      realCostBasis,
-      allocatedIpoCost,
-      actualDeduction,
-      hankintamenoOlettaRate,
-      hankintamenoOlettaDeduction,
-      selectedMethod: useActualCosts ? 'actual_costs' : 'hmo',
-      selectedDeduction,
-      taxableGain,
-      taxFreeGainPart: zero,
-      taxedGainPart: Decimal.max(taxableGain, zero),
+      return {
+        subscriptionId: lot.id,
+        subscriptionDate: lot.date,
+        totalSubscriptionShares: lot.amount,
+        soldAmount,
+        gross,
+        originalCostBasis,
+        realCostBasis,
+        allocatedIpoCost,
+        actualDeduction,
+        hankintamenoOlettaRate,
+        hankintamenoOlettaDeduction,
+        selectedMethod: useActualCosts ? 'actual_costs' : 'hmo',
+        selectedDeduction,
+        taxableGain,
+        taxFreeGainPart: zero,
+        taxedGainPart: Decimal.max(taxableGain, zero),
+      } satisfies SellLotSummary
     })
-
-    remainingSellAmount = remainingSellAmount.minus(soldAmount)
-  }
+  })
 
   const taxableGainTotal = sumDecimals(usedSubscriptions.map((lot) => lot.taxableGain))
   const capitalIncomeThreshold = new Decimal(sellRules.capitalIncomeTax.threshold)
@@ -1234,6 +1212,8 @@ function buildSubscriptionSummaries(lots: WorkingLot[]): SubscriptionSummary[] {
     cashDistributionGrossTotal: lot.cashDistributionGrossTotal,
     capitalRepaymentTotal: lot.capitalRepaymentTotal,
     capitalRepaymentBreakdown: lot.capitalRepaymentBreakdown,
+    capitalRepaymentHoverEntries: lot.capitalRepaymentHoverEntries,
+    shareCalculatorLog: lot.shareCalculatorLog,
     capitalRepaymentPerShare: lot.amount.gt(0) ? lot.capitalRepaymentTotal.div(lot.amount) : zero,
     remainingCostPerShare: lot.amount.gt(0) ? lot.remainingCostTotal.div(lot.amount) : zero,
     remainingCostTotal: lot.remainingCostTotal,
@@ -1253,10 +1233,50 @@ function createTaxReturnTotals(entries: CashDistributionSummary[]): TaxReturnTot
   }
 }
 
+function createYearEndTimestamp(year: number) {
+  return new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999))
+}
+
+function buildTaxReturnAssetSummary(
+  year: number,
+  mathematicalShareValuePerShare: Decimal,
+  subscriptionIds: string[],
+  shareCalculator: ReturnType<typeof createShareCalculator>['shareCalculator']
+) {
+  const yearEndTimestamp = createYearEndTimestamp(year)
+  const shareCount = sumDecimals(
+    subscriptionIds.map(
+      (subscriptionId) =>
+        shareCalculator.getRemainingCountAndAcquisitionCost(subscriptionId, yearEndTimestamp).remaining.shareCount
+    )
+  )
+  const remainingAcquisitionCost = sumDecimals(
+    subscriptionIds.map(
+      (subscriptionId) =>
+        shareCalculator.getRemainingCountAndAcquisitionCost(subscriptionId, yearEndTimestamp).remaining
+          .shareAcquisitionCost
+    )
+  )
+
+  if (shareCount.lte(0) && remainingAcquisitionCost.lte(0) && mathematicalShareValuePerShare.lte(0)) {
+    return undefined
+  }
+
+  return {
+    date: `31.12.${year}`,
+    shareCount,
+    mathematicalShareValuePerShare,
+    shareholderMathematicalValue: mathematicalShareValuePerShare.mul(shareCount),
+    remainingAcquisitionCost,
+  } satisfies TaxReturnAssetSummary
+}
+
 function buildTaxReturnYearSummaries(
   cashDistributions: CashDistributionSummary[],
   ipoDate: Date | undefined,
-  sell: SellSummary
+  sell: SellSummary,
+  mathematicalShareValuesByYear: Map<number, Decimal>,
+  shareCalculator: ReturnType<typeof createShareCalculator>['shareCalculator']
 ) {
   const yearSet = new Set<number>()
   cashDistributions.forEach((cashDistribution) => {
@@ -1264,6 +1284,10 @@ function buildTaxReturnYearSummaries(
     if (date) yearSet.add(Number(date))
   })
   const ipoYear = ipoDate?.getUTCFullYear()
+  for (const year of mathematicalShareValuesByYear.keys()) {
+    if (ipoYear != null && year >= ipoYear) continue
+    yearSet.add(year)
+  }
   if (ipoYear && sell.grossTotal.gt(0)) {
     yearSet.add(ipoYear)
   }
@@ -1276,10 +1300,20 @@ function buildTaxReturnYearSummaries(
     const missingMathematicalValueWarningDates = unlistedEntries
       .filter((row) => row.dividendTotal.gt(0) && row.shareholderMathematicalValue.eq(0))
       .map((row) => row.date)
+    const assets =
+      ipoYear == null || year < ipoYear
+        ? buildTaxReturnAssetSummary(
+            year,
+            mathematicalShareValuesByYear.get(year) || zero,
+            shareCalculator.subscriptionIds,
+            shareCalculator
+          )
+        : undefined
 
     return {
       year,
       missingMathematicalValueWarningDates,
+      assets,
       unlisted:
         unlistedEntries.length > 0
           ? {
@@ -1299,7 +1333,24 @@ function buildTaxReturnYearSummaries(
       ipoSale:
         ipoYear === year && sell.grossTotal.gt(0)
           ? {
+              entries: sell.usedSubscriptions.map((entry) => ({
+                subscriptionDate: entry.subscriptionDate,
+                sellDate: ipoDate!.toISOString().slice(0, 10),
+                soldShareCount: entry.soldAmount,
+                grossSale: entry.gross,
+                actualDeduction: entry.actualDeduction,
+                hankintamenoOlettaDeduction: entry.hankintamenoOlettaDeduction,
+                selectedMethod: entry.selectedMethod,
+                selectedDeduction: entry.selectedDeduction,
+                taxableCapitalGain: entry.taxableGain,
+              })),
+              soldShareCount: sumDecimals(sell.usedSubscriptions.map((entry) => entry.soldAmount)),
               grossSale: sell.grossTotal,
+              actualDeductionTotal: sumDecimals(sell.usedSubscriptions.map((entry) => entry.actualDeduction)),
+              hankintamenoOlettaDeductionTotal: sumDecimals(
+                sell.usedSubscriptions.map((entry) => entry.hankintamenoOlettaDeduction)
+              ),
+              selectedDeductionTotal: sell.selectedDeductionTotal,
               totalIpoCostAllocated: sell.totalIpoCostAllocated,
               taxableCapitalGain: sell.taxableGainTotal,
               estimatedTax: sell.estimatedTax,
@@ -1319,9 +1370,9 @@ export function calculateOsakkeet(
   const useYearlyRules = rules == null
   const errors: string[] = []
   const warnings: string[] = []
-  const baseLots = [...form.subscriptions]
-    .sort((a, b) => compareDateStrings(a.date, b.date))
-    .map((subscription) => createLot(subscription, errors, localization))
+  const sortedSubscriptions = [...form.subscriptions].sort((a, b) => compareDateStrings(a.date, b.date))
+  const sortedSells = [...form.sells].sort((a, b) => compareDateStrings(a.date, b.date))
+  const baseLots = sortedSubscriptions.map((subscription) => createLot(subscription, errors, localization))
   const totalSubscribedCost = sumDecimals(baseLots.map((lot) => lot.totalPrice))
   const ipoDate = parseOptionalDateInput(form.ipo.ipoDate, localization.calculator.fields.ipoDate, errors, localization)
   const mathematicalShareValuesByYear = createMathematicalShareValuesByYear(
@@ -1330,11 +1381,37 @@ export function calculateOsakkeet(
     localization
   )
   const parsedCashDistributions = createParsedCashDistributions(form.cashDistributions, errors, localization)
-  const parsedShareSplits = createParsedShareSplits(form.shareSplits, errors, localization)
-  const parsedDemergers = createParsedDemergers(form.demergers, errors, localization)
-  const splitAdjustedLots = cloneLots(baseLots)
-  applyShareSplitsToLots(splitAdjustedLots, parsedShareSplits, ipoDate)
-  const totalSubscribedShares = sumDecimals(splitAdjustedLots.map((lot) => lot.amount))
+  form.demergers.forEach((entry) => {
+    parseDecimalInput(
+      entry.oldCompanyRatio,
+      localization.calculator.fields.demergerOldCompanyRatio(entry.id),
+      errors,
+      localization,
+      { validate: (value) => value.gt(0) && value.lte(1) }
+    )
+  })
+  const { shareCalculator: baseShareCalculator, errors: baseShareCalculatorErrors } = createShareCalculator(
+    sortedSubscriptions,
+    sortedSells,
+    form.shareSplits,
+    form.demergers,
+    form.cashDistributions,
+    { capitalReturnCutoffDateExclusive: ipoDate }
+  )
+  mapShareCalculatorErrors(baseShareCalculatorErrors, errors)
+
+  const ipoLots = baseLots.map((lot) => {
+    const ipoState = ipoDate
+      ? getLotStateAtOrZero(baseShareCalculator, lot.id, ipoDate, true)
+      : getLatestLotStateOrZero(baseShareCalculator, lot.id)
+    return {
+      ...lot,
+      amount: ipoState.shareCount,
+      totalPrice: ipoState.baseShareAcquisitionCost,
+      remainingCostTotal: ipoState.shareAcquisitionCost,
+    }
+  })
+  const totalSubscribedShares = sumDecimals(ipoLots.map((lot) => lot.amount))
   const { sellAmount, otherAnnualCapitalGainsOrLosses, ipo } = parseIpoAndSellInputs(
     form,
     ipoDate,
@@ -1345,27 +1422,12 @@ export function calculateOsakkeet(
     localization
   )
   collectUnsupportedYearWarnings(form, ipoDate, sellAmount, warnings, localization, useYearlyRules)
-  const ipoTimelineLots = cloneLots(baseLots)
-  applyCashDistributions(
-    ipoTimelineLots,
-    parsedCashDistributions,
-    parsedShareSplits,
-    parsedDemergers,
-    ipoDate,
-    mathematicalShareValuesByYear,
-    effectiveRules,
-    warnings,
-    localization,
-    useYearlyRules,
-    { stopAtIpoDate: true }
-  )
-  const vesting = calculateVestingSummary(ipoTimelineLots, ipoDate)
-  const lots = cloneLots(baseLots)
+  const vesting = calculateVestingSummary(ipoLots, ipoDate)
+  const lots = buildFinalLotsFromShareCalculator(baseLots, baseShareCalculator)
   const cashDistributions = applyCashDistributions(
     lots,
     parsedCashDistributions,
-    parsedShareSplits,
-    parsedDemergers,
+    baseShareCalculator,
     ipoDate,
     mathematicalShareValuesByYear,
     effectiveRules,
@@ -1373,8 +1435,33 @@ export function calculateOsakkeet(
     localization,
     useYearlyRules
   )
+  const sellableLotIds = new Set(vesting.sellableLots.map((lot) => lot.id))
+  const ipoRelevantSells = ipoDate
+    ? sortedSells.filter((sell) => compareDateStrings(sell.date, form.ipo.ipoDate) <= 0)
+    : sortedSells
+  const { shareCalculator: sellShareCalculator, errors: sellShareCalculatorErrors } = createShareCalculator(
+    sortedSubscriptions.filter((subscription) => sellableLotIds.has(subscription.id)),
+    ipoDate && sellAmount.gt(0)
+      ? [
+          ...ipoRelevantSells,
+          {
+            id: 'ipo-sell',
+            date: form.ipo.ipoDate,
+            shareCount: sellAmount.toString(),
+            sellPrice: sellAmount.mul(ipo.ipoPricePerShare).toString(),
+            pricePerShare: ipo.ipoPricePerShare.toString(),
+          } satisfies ShareSellInput,
+        ]
+      : ipoRelevantSells,
+    form.shareSplits,
+    form.demergers,
+    form.cashDistributions,
+    { capitalReturnCutoffDateExclusive: ipoDate }
+  )
+  mapShareCalculatorErrors(sellShareCalculatorErrors, errors)
   const sell = calculateSellSummary(
     vesting.sellableLots,
+    sellShareCalculator,
     sellAmount,
     otherAnnualCapitalGainsOrLosses,
     vesting,
@@ -1396,7 +1483,13 @@ export function calculateOsakkeet(
     ipo,
     sell,
     taxReturns: {
-      years: buildTaxReturnYearSummaries(cashDistributions, ipoDate, sell),
+      years: buildTaxReturnYearSummaries(
+        cashDistributions,
+        ipoDate,
+        sell,
+        mathematicalShareValuesByYear,
+        baseShareCalculator
+      ),
     },
   }
 }
