@@ -6,6 +6,7 @@ import {
   isAtLeastYears,
   isWithinYearsInclusive,
   parseSupportedDate,
+  parseSupportedTimestampOrDate,
   sumDecimals,
 } from './osakkeetUtils'
 
@@ -17,6 +18,17 @@ describe(parseSupportedDate, () => {
 
   it('returns undefined for unsupported dates', () => {
     expect(parseSupportedDate('2025/02/03')).toBeUndefined()
+  })
+})
+
+describe(parseSupportedTimestampOrDate, () => {
+  it('parses supported ISO timestamps with timezone offsets', () => {
+    expect(parseSupportedTimestampOrDate('2025-02-03T10:15:30Z')?.toISOString()).toBe('2025-02-03T10:15:30.000Z')
+    expect(parseSupportedTimestampOrDate('2025-02-03T12:15:30+02:00')?.toISOString()).toBe('2025-02-03T10:15:30.000Z')
+  })
+
+  it('returns undefined for unsupported timestamp formats', () => {
+    expect(parseSupportedTimestampOrDate('2025-02-03 10:15:30')).toBeUndefined()
   })
 })
 

@@ -12,7 +12,6 @@ const FI = {
       'Tämä laskuri on tarkoitettu ennen listautumista olevalle listaamattomalle yhtiölle. IPO-päivästä eteenpäin varojenjako käsitellään tässä näkymässä osinkona.',
     warningsTitle: 'Varoitukset',
     warnings: [
-      'Laskuri ei tue yritysten sulautumisia.',
       'Laskuria ei ole vielä testattu kattavasti ihmisten toimesta.',
       'Todellisiin rahallisiin päätöksiin kannattaa käyttää ammattilaispalvelua. Tämä ei ole sellainen.',
     ],
@@ -72,12 +71,105 @@ const FI = {
       totalReimbursementsTooltipLine: (date: string, amountPerShare: string, shares: string, total: string) =>
         `${date}: ${amountPerShare} / osake x ${shares} osaketta = ${total}`,
       capitalRepaymentPerShare: 'Pääomanpalautus / osake',
+      capitalRepaymentPerShareTooltipIntro: 'Muodostuu näistä pääomanpalautusriveistä:',
+      capitalRepaymentPerShareTooltipAppliedLine: (
+        date: string,
+        inputPerShare: string,
+        shares: string,
+        appliedPerShare: string,
+        appliedTotal: string
+      ) =>
+        `${date}: syöte ${inputPerShare} / osake x ${shares} osaketta -> käytetty pääomanpalautuksena ${appliedPerShare} / osake = ${appliedTotal}`,
+      capitalRepaymentPerShareTooltipDividendLine: (
+        date: string,
+        inputPerShare: string,
+        shares: string,
+        dividendPerShare: string,
+        dividendTotal: string,
+        reason: string
+      ) =>
+        `${date}: syöte ${inputPerShare} / osake x ${shares} osaketta -> osinkona ${dividendPerShare} / osake = ${dividendTotal} (${reason})`,
+      capitalRepaymentPerShareTooltipReasonTooOld: 'merkinnästä on yli 10 vuotta',
+      capitalRepaymentPerShareTooltipReasonNoRemainingCost: 'jäljellä oleva hankintameno on 0',
+      capitalRepaymentPerShareTooltipReasonRemainingCostLimit:
+        'jäljellä oleva hankintameno ei riittänyt koko pääomanpalautukseen',
+      capitalRepaymentPerShareTooltipReasonListedDividend:
+        'jako on IPO-päivänä tai sen jälkeen ja käsitellään osinkona',
       remainingCostPerShare: 'Jäljellä oleva hankintameno / osake',
+      remainingCostPerShareTooltipBase: (totalPrice: string) => `Lähtö: hankintameno yhteensä ${totalPrice}.`,
+      remainingCostPerShareTooltipCapitalRepayment: (
+        date: string,
+        amountPerShare: string,
+        shares: string,
+        total: string
+      ) => `${date}: pääomanpalautus ${amountPerShare} / osake x ${shares} osaketta = ${total}`,
+      remainingCostPerShareTooltipResult: (
+        totalPrice: string,
+        capitalRepayments: string,
+        remainingTotal: string,
+        shares: string,
+        perShare: string
+      ) =>
+        `Lopuksi: ${totalPrice} - ${capitalRepayments} = ${remainingTotal}. ${remainingTotal} / ${shares} osaketta = ${perShare}.`,
     },
     summary: {
       totalShares: 'Osakkeita yhteensä',
       vestedShares: 'Ansaintajakson päättäneet osakkeet',
       unvestedShares: 'Ansaintajakson piirissä olevat osakkeet',
+    },
+    history: {
+      show: 'Näytä historia',
+      hide: 'Sulje historia',
+      empty: 'Ei tapahtumia',
+      fields: {
+        date: 'Päivä',
+        event: 'Tapahtuma',
+        shareCount: 'Osakkeita',
+        shareCost: 'Hankintameno',
+        pricePerShare: 'Hankintameno / osake',
+        details: 'Vaikutus',
+      },
+      events: {
+        subscription: 'Merkintä',
+        split: 'Split',
+        demerger: 'Yrityksen jakautuminen',
+        sell: 'Myynti',
+        capitalRepayment: 'Pääomanpalautus',
+      },
+      details: {
+        subscription: (shares: string, totalPrice: string, pricePerShare: string) =>
+          `${shares} osaketta, hankintameno yhteensä ${totalPrice}, ${pricePerShare} / osake`,
+        split: (beforeShares: string, multiplier: string, afterShares: string) =>
+          `${beforeShares} osaketta x ${multiplier} = ${afterShares} osaketta`,
+        demerger: (beforeTotalPrice: string, ratio: string, afterTotalPrice: string) =>
+          `${beforeTotalPrice} x ${ratio} = ${afterTotalPrice}`,
+        sell: (soldShares: string, sellPrice: string, pricePerShare: string) =>
+          `Myyty ${soldShares} osaketta, myyntihinta yhteensä ${sellPrice} (${pricePerShare} / osake). Osakkeiden määrä pieneni, hankintameno / osake pysyi samana.`,
+        capitalRepaymentAppliedOnly: (
+          inputPerShare: string,
+          shares: string,
+          appliedPerShare: string,
+          appliedTotal: string
+        ) => `Pääomanpalautus ${appliedPerShare} / osake * ${shares} osaketta = ${appliedTotal}.`,
+        capitalRepaymentAppliedAndDividend: (
+          inputPerShare: string,
+          shares: string,
+          appliedPerShare: string,
+          appliedTotal: string,
+          dividendPerShare: string,
+          dividendTotal: string,
+          reason: string
+        ) =>
+          `Pääomanpalautus ${inputPerShare} / osake. ${reason}. Pääomanpalautuksena ${appliedPerShare} / osake = ${appliedTotal}. Osinkona ${dividendPerShare} / osake = ${dividendTotal}.`,
+        capitalRepaymentDividendOnly: (
+          inputPerShare: string,
+          shares: string,
+          dividendPerShare: string,
+          dividendTotal: string,
+          reason: string
+        ) =>
+          `Pääomanpalautus ${inputPerShare} / osake x ${shares} osaketta. Osinkona ${dividendPerShare} / osake = ${dividendTotal} (${reason}).`,
+      },
     },
     actions: {
       add: 'Lisää merkintä',
@@ -114,6 +206,18 @@ const FI = {
     messages: {
       shareCountMismatch: (expected: string, given: string) =>
         `Osakemäärä ei täsmää merkintöihin tällä päivällä. Odotettu ${expected}, annettu ${given}.`,
+    },
+  },
+  sells: {
+    title: 'Osakkeiden myynnit',
+    help: 'Syötä toteutuneet myynnit aikajärjestyksessä. Myynti vähentää myöhempien päivien jäljellä olevia osakkeita ja hankintamenoa FIFO-periaatteella.',
+    fields: {
+      shareCount: 'Myytyjä osakkeita',
+      sellPrice: 'Myyntihinta yhteensä',
+      pricePerShare: 'Myyntihinta / osake',
+    },
+    actions: {
+      add: 'Lisää myynti',
     },
   },
   shareSplits: {
@@ -285,17 +389,47 @@ const FI = {
     title: 'Yhteenveto veroilmoituksista',
     yearWarningMissingMathValue: 'Osinkoverotuksen jakoa ei voitu laskea ilman vuoden matemaattista arvoa / osake.',
     sections: {
+      assets: 'Omaisuus',
       unlisted: 'Listaamaton yhtiö',
       unlistedHelp:
         'Tässä osiossa näkyvät ennen IPO-päivää saadut varojenjaot, jotka tämän laskurin mukaan kuuluvat muun kuin julkisesti noteeratun yhtiön tietoihin. Tarkista, että tiedot näkyvät esitäytetyllä veroilmoituksella. Jos tietoja puuttuu tai ne ovat väärin, korjaa ne OmaVerossa.',
       listed: 'Listattu yhtiö',
+      allocationSummary: 'Merkintäerittäin yhteenveto',
+      allocationDetails: 'Varojenjako merkintäerittäin',
+      ipoSale: 'Luovutusvoitot ja -tappiot',
+    },
+    actions: {
+      showAllocationDetails: 'Näytä merkintäerittäin',
+      hideAllocationDetails: 'Piilota merkintäerittäin',
     },
     fields: {
+      sharesHeld: 'Osakkeita vuoden lopussa',
+      mathematicalShareValuePerShare: 'Matemaattinen arvo / osake',
+      shareholderMathematicalValue: 'Osakkaan matemaattinen arvo',
+      remainingAcquisitionCost: 'Jäljellä oleva hankintameno',
       taxableCapitalIncome: 'Veronalaista pääomatuloa',
       taxFreeCapitalIncome: 'Verotonta pääomatuloa',
       taxableEarnedDividend: 'Veronalaista ansiotulo-osinkoa',
       taxFreeEarnedDividend: 'Verotonta ansiotulo-osinkoa',
-      ipoSaleAllocation: 'IPO-myynnin jako',
+      ipoSaleAllocation: 'IPO-myynnin tiedot',
+      acquisitionDate: 'Hankintapäivä',
+      sellDate: 'Myyntipäivä',
+      soldShares: 'Myytyjä osakkeita',
+      grossSale: 'Myyntihinta yhteensä',
+      actualDeduction: 'Todelliset kulut',
+      hankintamenoOlettaDeduction: 'Hankintameno-olettama',
+      selectedMethod: 'Valittu vähennys',
+      selectedDeduction: 'Vähennys yhteensä',
+      taxableCapitalGainWithLoss: 'Luovutusvoitto tai -tappio',
+      selectedMethodActualCosts: 'Todelliset kulut',
+      selectedMethodHmo: 'Hankintameno-olettama',
+      subscriptionDate: 'Merkintäpäivä',
+      allocationDistributionCount: 'Varojenjakoja',
+      allocationShares: 'Osakkeita',
+      allocationGross: 'Varojenjako yhteensä',
+      allocationCapitalRepayment: 'Pääomanpalautus',
+      allocationDividend: 'Osinko',
+      allocationRemainingCostPerShareAfter: 'Jäljellä / osake jälkeen',
       unlistedCapitalRepaymentHelp:
         'Tämä osa on luovutuksena verotettavaa pääomanpalautusta, ei osinkoa. Tarkista, että se näkyy esitäytetyllä veroilmoituksella pääomanpalautuksena. Jos tieto puuttuu, ilmoita tai korjaa se OmaVerossa arvopaperien luovutuksena.',
       unlistedDividendHelp:
@@ -311,7 +445,7 @@ const FI = {
       loadFromBrowserStorage: 'Lataa selaimesta',
       removeFromBrowserStorage: 'Poista selaimesta',
       copyShareUrl: 'Kopioi yrityksen tiedot URL:iin',
-      saveFile: 'Tallenna',
+      saveFile: 'Tallenna tiedosto',
       loadFile: 'Lataa tiedosto',
       showSmallExample: 'Pienomistaja, 2v',
       showMediumExample: 'Medium, 8v',
@@ -333,6 +467,7 @@ const FI = {
       clearTitle: 'Tyhjennä luvut',
       clearDescription:
         'Voit tyhjentää syötetyt lukemat, mutta se ei poista selaimeen talletettua tietoa tai ladattuja tiedostoja.',
+      shareUrlTitle: 'Kopioi yrityksen tiedot urliin',
       exampleTitle: 'Näytä esimerkki-tilanne',
       exampleDescription: 'Voit tutkia miltä sovellus näyttää esimerkkidatalla.',
     },
@@ -437,7 +572,6 @@ const EN: typeof FI = {
       'This calculator is intended for an unlisted company before listing. From the IPO date onward, distributions are treated as dividends in this view.',
     warningsTitle: 'Warnings',
     warnings: [
-      'This calculator does not support mergers.',
       'This calculator has not yet been thoroughly tested by humans.',
       'For real monetary advice, use a professional service. This is not one.',
     ],
@@ -497,12 +631,105 @@ const EN: typeof FI = {
       totalReimbursementsTooltipLine: (date: string, amountPerShare: string, shares: string, total: string) =>
         `${date}: ${amountPerShare} / share x ${shares} shares = ${total}`,
       capitalRepaymentPerShare: 'Capital repayment / share',
+      capitalRepaymentPerShareTooltipIntro: 'Built from these capital-repayment rows:',
+      capitalRepaymentPerShareTooltipAppliedLine: (
+        date: string,
+        inputPerShare: string,
+        shares: string,
+        appliedPerShare: string,
+        appliedTotal: string
+      ) =>
+        `${date}: input ${inputPerShare} / share x ${shares} shares -> used as capital repayment ${appliedPerShare} / share = ${appliedTotal}`,
+      capitalRepaymentPerShareTooltipDividendLine: (
+        date: string,
+        inputPerShare: string,
+        shares: string,
+        dividendPerShare: string,
+        dividendTotal: string,
+        reason: string
+      ) =>
+        `${date}: input ${inputPerShare} / share x ${shares} shares -> treated as dividend ${dividendPerShare} / share = ${dividendTotal} (${reason})`,
+      capitalRepaymentPerShareTooltipReasonTooOld: 'more than 10 years since subscription',
+      capitalRepaymentPerShareTooltipReasonNoRemainingCost: 'remaining acquisition cost is 0',
+      capitalRepaymentPerShareTooltipReasonRemainingCostLimit:
+        'remaining acquisition cost did not cover the full capital repayment',
+      capitalRepaymentPerShareTooltipReasonListedDividend:
+        'distribution is on or after the IPO date and is treated as dividend',
       remainingCostPerShare: 'Remaining acquisition cost / share',
+      remainingCostPerShareTooltipBase: (totalPrice: string) => `Start: acquisition cost total ${totalPrice}.`,
+      remainingCostPerShareTooltipCapitalRepayment: (
+        date: string,
+        amountPerShare: string,
+        shares: string,
+        total: string
+      ) => `${date}: capital repayment ${amountPerShare} / share x ${shares} shares = ${total}`,
+      remainingCostPerShareTooltipResult: (
+        totalPrice: string,
+        capitalRepayments: string,
+        remainingTotal: string,
+        shares: string,
+        perShare: string
+      ) =>
+        `Final: ${totalPrice} - ${capitalRepayments} = ${remainingTotal}. ${remainingTotal} / ${shares} shares = ${perShare}.`,
     },
     summary: {
       totalShares: 'Total shares',
       vestedShares: 'Vested shares',
       unvestedShares: 'Unvested shares',
+    },
+    history: {
+      show: 'Show history',
+      hide: 'Close history',
+      empty: 'No events',
+      fields: {
+        date: 'Date',
+        event: 'Event',
+        shareCount: 'Shares',
+        shareCost: 'Acquisition cost',
+        pricePerShare: 'Acquisition cost / share',
+        details: 'Effect',
+      },
+      events: {
+        subscription: 'Subscription',
+        split: 'Split',
+        demerger: 'Demerger',
+        sell: 'Sale',
+        capitalRepayment: 'Capital repayment',
+      },
+      details: {
+        subscription: (shares: string, totalPrice: string, pricePerShare: string) =>
+          `${shares} shares, acquisition cost total ${totalPrice}, ${pricePerShare} / share`,
+        split: (beforeShares: string, multiplier: string, afterShares: string) =>
+          `${beforeShares} shares x ${multiplier} = ${afterShares} shares`,
+        demerger: (beforeTotalPrice: string, ratio: string, afterTotalPrice: string) =>
+          `${beforeTotalPrice} x ${ratio} = ${afterTotalPrice}`,
+        sell: (soldShares: string, sellPrice: string, pricePerShare: string) =>
+          `Sold ${soldShares} shares, sale price total ${sellPrice} (${pricePerShare} / share). Share count decreased, acquisition cost / share stayed the same.`,
+        capitalRepaymentAppliedOnly: (
+          inputPerShare: string,
+          shares: string,
+          appliedPerShare: string,
+          appliedTotal: string
+        ) => `Capital repayment ${appliedPerShare} / share * ${shares} shares = ${appliedTotal}.`,
+        capitalRepaymentAppliedAndDividend: (
+          inputPerShare: string,
+          shares: string,
+          appliedPerShare: string,
+          appliedTotal: string,
+          dividendPerShare: string,
+          dividendTotal: string,
+          reason: string
+        ) =>
+          `Capital repayment ${inputPerShare} / share. ${reason}. Capital repayment portion ${appliedPerShare} / share = ${appliedTotal}. Dividend portion ${dividendPerShare} / share = ${dividendTotal}.`,
+        capitalRepaymentDividendOnly: (
+          inputPerShare: string,
+          shares: string,
+          dividendPerShare: string,
+          dividendTotal: string,
+          reason: string
+        ) =>
+          `Capital repayment ${inputPerShare} / share x ${shares} shares. Dividend ${dividendPerShare} / share = ${dividendTotal} (${reason}).`,
+      },
     },
     actions: {
       add: 'Add subscription',
@@ -540,6 +767,18 @@ const EN: typeof FI = {
     messages: {
       shareCountMismatch: (expected: string, given: string) =>
         `Share count does not match subscriptions on this date. Expected ${expected}, given ${given}.`,
+    },
+  },
+  sells: {
+    title: 'Share sales',
+    help: 'Enter completed sales in chronological order. A sale reduces remaining shares and acquisition cost on later dates using FIFO.',
+    fields: {
+      shareCount: 'Shares sold',
+      sellPrice: 'Sale price total',
+      pricePerShare: 'Sale price / share',
+    },
+    actions: {
+      add: 'Add sale',
     },
   },
   shareSplits: {
@@ -712,17 +951,47 @@ const EN: typeof FI = {
     yearWarningMissingMathValue:
       'Dividend tax split could not be calculated without the year-specific mathematical value / share.',
     sections: {
+      assets: 'Assets',
       unlisted: 'Unlisted company',
       unlistedHelp:
         'This section shows pre-IPO distributions that, in this calculator, belong under non-listed company reporting. Check that the data appears on your pre-completed tax return. If information is missing or incorrect, correct it in MyTax.',
       listed: 'Listed company',
+      allocationSummary: 'Summary by subscription lot',
+      allocationDetails: 'Distribution by subscription lot',
+      ipoSale: 'Capital gains and losses',
+    },
+    actions: {
+      showAllocationDetails: 'Show by subscription lot',
+      hideAllocationDetails: 'Hide by subscription lot',
     },
     fields: {
+      sharesHeld: 'Shares at year end',
+      mathematicalShareValuePerShare: 'Mathematical value / share',
+      shareholderMathematicalValue: 'Shareholder mathematical value',
+      remainingAcquisitionCost: 'Remaining acquisition cost',
       taxableCapitalIncome: 'Taxable capital income',
       taxFreeCapitalIncome: 'Tax-free capital income',
       taxableEarnedDividend: 'Taxable earned-income dividend',
       taxFreeEarnedDividend: 'Tax-free earned-income dividend',
-      ipoSaleAllocation: 'IPO sale allocation',
+      ipoSaleAllocation: 'IPO sale details',
+      acquisitionDate: 'Acquisition date',
+      sellDate: 'Sale date',
+      soldShares: 'Shares sold',
+      grossSale: 'Gross sale',
+      actualDeduction: 'Actual costs',
+      hankintamenoOlettaDeduction: 'Deemed acquisition cost',
+      selectedMethod: 'Selected deduction',
+      selectedDeduction: 'Deduction total',
+      taxableCapitalGainWithLoss: 'Capital gain or loss',
+      selectedMethodActualCosts: 'Actual costs',
+      selectedMethodHmo: 'Deemed acquisition cost',
+      subscriptionDate: 'Subscription date',
+      allocationDistributionCount: 'Distributions',
+      allocationShares: 'Shares',
+      allocationGross: 'Distribution total',
+      allocationCapitalRepayment: 'Capital repayment',
+      allocationDividend: 'Dividend',
+      allocationRemainingCostPerShareAfter: 'Remaining / share after',
       unlistedCapitalRepaymentHelp:
         'This part is a capital repayment taxed as a transfer, not as dividend. Check that it appears on the pre-completed tax return as capital repayment. If it is missing, report or correct it in MyTax as a securities transfer.',
       unlistedDividendHelp:
@@ -760,6 +1029,7 @@ const EN: typeof FI = {
       clearTitle: 'Clear values',
       clearDescription:
         'You can clear the entered values, but this does not remove data saved to the browser or downloaded files.',
+      shareUrlTitle: 'Copy company details to URL',
       exampleTitle: 'Show example case',
       exampleDescription: 'You can inspect how the application looks with example data.',
     },

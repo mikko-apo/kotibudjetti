@@ -1,12 +1,13 @@
-import type { OsakkeetFormData } from './osakkeetCalculator'
+import type { OsakkeetFormData } from './osakkeetTypes'
 
 export type ExamplePreset = 'small2y' | 'medium8y' | 'large16y'
 
 type ExamplePresetConfig = Omit<
   OsakkeetFormData,
-  'subscriptions' | 'cashDistributions' | 'shareSplits' | 'demergers' | 'mathematicalShareValues'
+  'subscriptions' | 'sells' | 'cashDistributions' | 'shareSplits' | 'demergers' | 'mathematicalShareValues'
 > & {
   subscriptions: Array<Omit<OsakkeetFormData['subscriptions'][number], 'id'>>
+  sells: Array<Omit<OsakkeetFormData['sells'][number], 'id'>>
   cashDistributions: Array<Omit<OsakkeetFormData['cashDistributions'][number], 'id'>>
   shareSplits: Array<Omit<OsakkeetFormData['shareSplits'][number], 'id'>>
   demergers: Array<Omit<OsakkeetFormData['demergers'][number], 'id'>>
@@ -18,9 +19,22 @@ export const DEFAULT_EXAMPLE_PRESET: ExamplePreset = 'medium8y'
 const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
   small2y: {
     subscriptions: [
-      { date: '15.04.2024', vestingEndsOn: '', amount: '1200', pricePerShare: '2.80', otherTotalAcquisitionCosts: '25' },
-      { date: '15.02.2025', vestingEndsOn: '31.12.2026', amount: '800', pricePerShare: '3.20', otherTotalAcquisitionCosts: '20' },
+      {
+        date: '15.04.2024',
+        vestingEndsOn: '',
+        amount: '1200',
+        pricePerShare: '2.80',
+        otherTotalAcquisitionCosts: '25',
+      },
+      {
+        date: '15.02.2025',
+        vestingEndsOn: '31.12.2026',
+        amount: '800',
+        pricePerShare: '3.20',
+        otherTotalAcquisitionCosts: '20',
+      },
     ],
+    sells: [],
     cashDistributions: [{ type: 'capital_return', date: '30.06.2025', amountPerShare: '0.18', shareCount: '' }],
     shareSplits: [],
     demergers: [],
@@ -40,9 +54,22 @@ const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
   },
   medium8y: {
     subscriptions: [
-      { date: '20.05.2018', vestingEndsOn: '', amount: '12000', pricePerShare: '0.85', otherTotalAcquisitionCosts: '120' },
-      { date: '10.02.2021', vestingEndsOn: '', amount: '12000', pricePerShare: '8.50', otherTotalAcquisitionCosts: '300' },
+      {
+        date: '20.05.2018',
+        vestingEndsOn: '',
+        amount: '12000',
+        pricePerShare: '0.85',
+        otherTotalAcquisitionCosts: '120',
+      },
+      {
+        date: '10.02.2021',
+        vestingEndsOn: '',
+        amount: '12000',
+        pricePerShare: '8.50',
+        otherTotalAcquisitionCosts: '300',
+      },
     ],
+    sells: [],
     cashDistributions: [
       { type: 'capital_return', date: '28.06.2022', amountPerShare: '0.12', shareCount: '' },
       { type: 'capital_return', date: '30.06.2023', amountPerShare: '0.16', shareCount: '' },
@@ -70,9 +97,22 @@ const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
   },
   large16y: {
     subscriptions: [
-      { date: '15.03.2010', vestingEndsOn: '', amount: '85000', pricePerShare: '0.18', otherTotalAcquisitionCosts: '550' },
-      { date: '01.06.2021', vestingEndsOn: '', amount: '20000', pricePerShare: '18.00', otherTotalAcquisitionCosts: '800' },
+      {
+        date: '15.03.2010',
+        vestingEndsOn: '',
+        amount: '85000',
+        pricePerShare: '0.18',
+        otherTotalAcquisitionCosts: '550',
+      },
+      {
+        date: '01.06.2021',
+        vestingEndsOn: '',
+        amount: '20000',
+        pricePerShare: '18.00',
+        otherTotalAcquisitionCosts: '800',
+      },
     ],
+    sells: [],
     cashDistributions: [
       { type: 'capital_return', date: '31.03.2022', amountPerShare: '0.10', shareCount: '' },
       { type: 'capital_return', date: '30.06.2023', amountPerShare: '0.14', shareCount: '' },
@@ -108,6 +148,7 @@ export function createExampleOsakkeetFormData(preset: ExamplePreset, createId: C
   const config = examplePresetConfigs[preset]
   return {
     subscriptions: config.subscriptions.map((row) => ({ id: createId('sub'), ...row })),
+    sells: config.sells.map((row) => ({ id: createId('sell'), ...row })),
     cashDistributions: config.cashDistributions.map((row) => ({ id: createId('distribution'), ...row })),
     shareSplits: config.shareSplits.map((row) => ({ id: createId('split'), ...row })),
     demergers: config.demergers.map((row) => ({ id: createId('demerger'), ...row })),

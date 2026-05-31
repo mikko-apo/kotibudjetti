@@ -75,10 +75,7 @@ type CreateTextNodesFromStateBaseOptions = {
   noInit?: boolean
 }
 
-type CreateTextNodesFromStatePathOptions<
-  TState,
-  TPath extends TuplePath,
-> = CreateTextNodesFromStateBaseOptions & {
+type CreateTextNodesFromStatePathOptions<TState, TPath extends TuplePath> = CreateTextNodesFromStateBaseOptions & {
   path: TPath & StatePath<TState>
 }
 
@@ -98,6 +95,10 @@ type MapStateToDomChildrenRow<TState, TItem> = {
   node: Node
   set?: (item: TItem, index: number, stateValue: TState) => void
   destroy?: () => void
+}
+
+type MountedMapStateToDomChildrenRow<TState, TItem> = MapStateToDomChildrenRow<TState, TItem> & {
+  mountedNodes: ChildNode[]
 }
 
 type MapStateToDomChildrenRender<TState, TItem> = (
@@ -229,9 +230,7 @@ type EditableCollectionTableOptions<TRow extends { id: string; removeLabel: stri
   rowsState: State<TRow[]>
   createRemoveButton: (labelNode: Text, remove: () => void) => Node
   remove: (id: string) => void
-  render: (
-    context: EditableCollectionTableContext<TRow>
-  ) => EditableCollectionTableRenderResult<TRow>
+  render: (context: EditableCollectionTableContext<TRow>) => EditableCollectionTableRenderResult<TRow>
 }
 
 type SectionCounter = DestroyHandle & {
@@ -462,8 +461,7 @@ function mapStatePathsToInputs<TState extends object>(
     const eventType = options?.event || 'input'
     const read = options?.read || ((currentNode: FormElement) => readDefaultNodeValue(currentNode))
     const write =
-      options?.write ||
-      ((currentNode: FormElement, value: unknown) => writeDefaultNodeValue(currentNode, value))
+      options?.write || ((currentNode: FormElement, value: unknown) => writeDefaultNodeValue(currentNode, value))
 
     const writeStateToNode = (stateValue: TState) => {
       write(node, getStateValueAtPath<TState, unknown>(stateValue, path))
@@ -525,35 +523,61 @@ export function mapStateToDomChildren(
     | MapStateToDomChildrenRender<unknown, unknown>
 ): DestroyHandle {
   const options = typeof optionsOrRender === 'function' ? { render: optionsOrRender } : optionsOrRender
-  const rows = new Map<Key, MapStateToDomChildrenRow<unknown, unknown>>()
+  const rows = new Map<Key, MountedMapStateToDomChildrenRow<unknown, unknown>>()
   const itemsSelector = options.items || ((value: unknown) => value as readonly unknown[])
   const keySelector = options.key || ((item: unknown) => (item as { id: Key }).id)
 
-  const destroyRow = (row: MapStateToDomChildrenRow<unknown, unknown>) => {
-    row.destroy?.()
-    if (row.node.parentNode === root) {
-      root.removeChild(row.node)
+  const mountRowNodes = (row: MountedMapStateToDomChildrenRow<unknown, unknown>, before: ChildNode | null) => {
+    if (row.node.nodeType === 11) {
+      row.mountedNodes = Array.from(row.node.childNodes)
+      root.insertBefore(row.node, before)
+      return
     }
+    root.insertBefore(row.node, before)
+    row.mountedNodes = [row.node as ChildNode]
+  }
+
+  const placeRowBefore = (row: MountedMapStateToDomChildrenRow<unknown, unknown>, before: ChildNode | null) => {
+    if (row.mountedNodes.length === 0) {
+      mountRowNodes(row, before)
+      return
+    }
+    if (row.mountedNodes[0] === before) return
+    row.mountedNodes.forEach((node) => {
+      root.insertBefore(node, before)
+    })
+  }
+
+  const destroyRow = (row: MountedMapStateToDomChildrenRow<unknown, unknown>) => {
+    row.destroy?.()
+    row.mountedNodes.forEach((node) => {
+      if (node.parentNode === root) {
+        root.removeChild(node)
+      }
+    })
+    row.mountedNodes = []
   }
 
   const sync = (stateValue: unknown) => {
     const items = itemsSelector(stateValue)
     const nextKeys = new Set<Key>()
+    let insertionPoint = root.firstChild as ChildNode | null
 
     items.forEach((item, index) => {
       const key = keySelector(item, index, stateValue)
       nextKeys.add(key)
       let row = rows.get(key)
       if (!row) {
-        const createdRow = options.render(item, index, stateValue)
+        const createdRow = {
+          ...options.render(item, index, stateValue),
+          mountedNodes: [],
+        }
         rows.set(key, createdRow)
         row = createdRow
       }
       row.set?.(item, index, stateValue)
-      const existingNode = root.childNodes[index] || null
-      if (existingNode !== row.node) {
-        root.insertBefore(row.node, existingNode)
-      }
+      placeRowBefore(row, insertionPoint)
+      insertionPoint = row.mountedNodes[row.mountedNodes.length - 1]?.nextSibling || null
     })
 
     for (const [key, row] of Array.from(rows.entries())) {
@@ -583,31 +607,31 @@ export function createEditableCollectionTable<TRow extends { id: string; removeL
 ) {
   const tbodyNode = document.createElement('tbody')
   const binding = mapStateToDomChildren(options.rowsState, tbodyNode, (row: TRow) => {
-      const rowState = createState({ value: { row } })
-      const rowTextNodes = createTextNodesFromSelector(rowState, ({ row: currentRow }) => currentRow)
-      const removeButton = options.createRemoveButton(rowTextNodes.removeLabel, () => {
-        options.remove(row.id)
-      })
-      const rendered = options.render({
-        row,
-        rowState,
-        rowTextNodes,
-        removeButton,
-      })
-
-      return {
-        node: rendered.node,
-        set(nextRow: TRow) {
-          rendered.set?.(nextRow)
-          rowState.set({ row: nextRow })
-        },
-        destroy() {
-          rendered.destroy?.()
-          rowTextNodes.destroy()
-          rowState.destroy?.()
-        },
-      }
+    const rowState = createState({ value: { row } })
+    const rowTextNodes = createTextNodesFromSelector(rowState, ({ row: currentRow }) => currentRow)
+    const removeButton = options.createRemoveButton(rowTextNodes.removeLabel, () => {
+      options.remove(row.id)
     })
+    const rendered = options.render({
+      row,
+      rowState,
+      rowTextNodes,
+      removeButton,
+    })
+
+    return {
+      node: rendered.node,
+      set(nextRow: TRow) {
+        rendered.set?.(nextRow)
+        rowState.set({ row: nextRow })
+      },
+      destroy() {
+        rendered.destroy?.()
+        rowTextNodes.destroy()
+        rowState.destroy?.()
+      },
+    }
+  })
   return withDestroy(tbodyNode, () => {
     binding.destroy()
   })
@@ -701,7 +725,10 @@ export function createStateCollectionEditor<
   }
 }
 
-function createViewModelState<TState, TValue>(state: State<TState>, selector: StateSelector<TState, TValue>): State<TValue> {
+function createViewModelState<TState, TValue>(
+  state: State<TState>,
+  selector: StateSelector<TState, TValue>
+): State<TValue> {
   const initialValue = selector(state.get())
   const viewModelState = createState<TValue>({ value: initialValue })
   const unsub = state.onValueChange(
@@ -720,7 +747,9 @@ export function createRowViewModelBinder<TState, TRow, TViewModel>(
   selectRows: (stateValue: TState) => readonly TRow[],
   mapRow: (row: TRow, index: number, stateValue: TState) => TViewModel
 ) {
-  return createViewModelState(state, (stateValue) => selectRows(stateValue).map((row, index) => mapRow(row, index, stateValue)))
+  return createViewModelState(state, (stateValue) =>
+    selectRows(stateValue).map((row, index) => mapRow(row, index, stateValue))
+  )
 }
 
 function safeStorageGet(storage: Storage, key: string) {
@@ -775,7 +804,9 @@ export function createStorageSource<TValue>(options: StorageSourceOptions<TValue
 }
 
 // Creates state with optional hydration and persistence backed by a Storage entry.
-export function createStorageBackedState<TValue>(options: StorageBackedStateOptions<TValue>): StorageBackedState<TValue> {
+export function createStorageBackedState<TValue>(
+  options: StorageBackedStateOptions<TValue>
+): StorageBackedState<TValue> {
   const state = createState<TValue>({ value: options.value })
   const persisted = persistState(state, options)
   return Object.assign(
@@ -893,7 +924,9 @@ export function createOptionBoundSelect<Value extends string>(
   }
 }
 
-function toNodeArray(value: Node | string | false | null | undefined | Array<Node | string | false | null | undefined>) {
+function toNodeArray(
+  value: Node | string | false | null | undefined | Array<Node | string | false | null | undefined>
+) {
   if (Array.isArray(value)) {
     return value.filter((item): item is Node | string => item !== false && item != null)
   }
@@ -905,14 +938,19 @@ function toNodeArray(value: Node | string | false | null | undefined | Array<Nod
 export function replaceChildrenFromState<TState, TValue = TState>(
   state: State<TState>,
   root: Node & ParentNode,
-  selectorOrRender: StateSelector<TState, TValue> | ((value: TState) => Node | string | false | null | undefined | Array<Node | string | false | null | undefined>),
+  selectorOrRender:
+    | StateSelector<TState, TValue>
+    | ((value: TState) => Node | string | false | null | undefined | Array<Node | string | false | null | undefined>),
   renderOrOptions?:
     | ((value: TValue) => Node | string | false | null | undefined | Array<Node | string | false | null | undefined>)
     | ReplaceChildrenFromStateOptions,
   maybeOptions?: ReplaceChildrenFromStateOptions
 ): DestroyHandle {
   const hasSelector = typeof renderOrOptions === 'function'
-  const selector = (hasSelector ? selectorOrRender : ((value: TState) => value as unknown as TValue)) as StateSelector<TState, TValue>
+  const selector = (hasSelector ? selectorOrRender : (value: TState) => value as unknown as TValue) as StateSelector<
+    TState,
+    TValue
+  >
   const render = (hasSelector ? renderOrOptions : selectorOrRender) as (
     value: TValue
   ) => Node | string | false | null | undefined | Array<Node | string | false | null | undefined>
@@ -974,7 +1012,9 @@ export function createFormBinder<TState extends object>(state: State<TState>) {
     // Re-renders a root node's children from state changes.
     children(
       root: Node & ParentNode,
-      render: (value: TState) => Node | string | false | null | undefined | Array<Node | string | false | null | undefined>,
+      render: (
+        value: TState
+      ) => Node | string | false | null | undefined | Array<Node | string | false | null | undefined>,
       options?: ReplaceChildrenFromStateOptions
     ) {
       return replaceChildrenFromState(state, root, render, options)
