@@ -60,12 +60,14 @@ function mountApp() {
   const routeState = createState<Route>({ value: getRoute() })
   const sidebar = document.querySelector('.sidebar')
   const bottomNav = ensureBottomNav(routeState)
+  let renderVersion = 0
 
   window.addEventListener('hashchange', () => {
     routeState.set(getRoute())
   })
 
   routeState.onValueChange((route) => {
+    const currentRenderVersion = ++renderVersion
     if (sidebar instanceof HTMLElement) {
       replaceChildren(sidebar, sidebarNavigation(routeState))
     }
@@ -74,7 +76,14 @@ function mountApp() {
       navButton('Osakkeet', 'osakkeet', routeState),
       navButton('Kaukolämpö', 'kaukolampo', routeState)
     )
-    setElementToId('app', route === 'kaukolampo' ? kaukolampoExcessPricingCalculator() : osakkeetIpoCalculatorPage())
+    if (route === 'kaukolampo') {
+      setElementToId('app', kaukolampoExcessPricingCalculator())
+      return
+    }
+    void osakkeetIpoCalculatorPage().then((page) => {
+      if (currentRenderVersion !== renderVersion) return
+      setElementToId('app', page)
+    })
   })
 }
 

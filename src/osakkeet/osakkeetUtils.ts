@@ -14,9 +14,20 @@ export function parseSupportedDate(trimmed: string) {
   return undefined
 }
 
+export function parseSupportedTimestampOrDate(trimmed: string) {
+  const parsedDate = parseSupportedDate(trimmed)
+  if (parsedDate) return parsedDate
+
+  const isoTimestampMatch = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(trimmed)
+  if (!isoTimestampMatch) return undefined
+
+  const parsedTimestamp = new Date(trimmed)
+  return Number.isNaN(parsedTimestamp.getTime()) ? undefined : parsedTimestamp
+}
+
 export function compareDateStrings(a: string, b: string) {
-  const dateA = parseSupportedDate(a.trim())
-  const dateB = parseSupportedDate(b.trim())
+  const dateA = parseSupportedTimestampOrDate(a.trim())
+  const dateB = parseSupportedTimestampOrDate(b.trim())
   if (dateA && dateB) {
     return dateA.getTime() - dateB.getTime()
   }
