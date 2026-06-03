@@ -552,6 +552,8 @@ function createOsakkeetFormData(demo: boolean): OsakkeetFormData {
   }
 }
 
+type CompanyDataPayload = Omit<ShareableOsakkeetUrlData, 'lastModifiedCompanyData' | 'lastModifiedUserData'>
+
 function createShareableOsakkeetUrlData(data: OsakkeetFormData): ShareableOsakkeetUrlData {
   return {
     ...createCompanyDataPayload(data),
@@ -579,9 +581,7 @@ function currentModificationTimestamp() {
   return new Date().toISOString()
 }
 
-function createCompanyDataPayload(
-  data: OsakkeetFormData
-): Omit<ShareableOsakkeetUrlData, 'lastModifiedCompanyData' | 'lastModifiedUserData'> {
+function createCompanyDataPayload(data: OsakkeetFormData): CompanyDataPayload {
   const sanitized = normalizeOsakkeetFormData(data)
   return {
     cashDistributions: sanitized.cashDistributions.map((cashDistribution) => ({
@@ -781,6 +781,18 @@ function createSavedOsakkeetFileData(data: OsakkeetFormData): SavedOsakkeetFileD
 
 function serializeOsakkeetFormData(data: OsakkeetFormData) {
   return JSON.stringify(normalizeOsakkeetFormData(data))
+}
+
+function downloadJsonFile(fileName: string, value: unknown) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], {
+    type: 'application/json',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 async function buildShareUrl(data: OsakkeetFormData) {
@@ -1126,13 +1138,42 @@ function createCollectionAppendEditButton<TItem extends { id: string }>(
   createEmptyItem: () => Omit<TItem, 'id'> & Partial<Pick<TItem, 'id'>>
 ) {
   return createActionButton(labelNode, 'primary', () => {
-    const row = editor.append(createEmptyItem())
-    editingIds.add(row.id)
+    appendAndEditCollectionRow(editor, editingIds, createEmptyItem)
   })
 }
 
 function displayReadOnlyValue(value: string) {
   return value || '-'
+}
+
+function appendAndEditCollectionRow<TItem extends { id: string }>(
+  editor: StateCollectionEditor<TItem>,
+  editingIds: Set<string>,
+  createEmptyItem: () => Omit<TItem, 'id'> & Partial<Pick<TItem, 'id'>>
+) {
+  editingIds.clear()
+  const row = editor.append(createEmptyItem())
+  editingIds.add(row.id)
+  editor.patch(row.id, {})
+}
+
+type EditableCellBinding<TRow> = {
+  cell: HTMLTableCellElement
+  editNode: Node
+  readValue: (row: TRow) => string
+  setEditValue: (row: TRow) => void
+}
+
+function syncEditableCellBindings<TRow>(bindings: EditableCellBinding<TRow>[], row: TRow, editing: boolean) {
+  bindings.forEach(({ cell, editNode, readValue }) => {
+    replaceChildren(cell, editing ? editNode : displayReadOnlyValue(readValue(row)))
+  })
+}
+
+function updateEditableCellBindingInputs<TRow>(bindings: EditableCellBinding<TRow>[], row: TRow) {
+  bindings.forEach(({ setEditValue }) => {
+    setEditValue(row)
+  })
 }
 
 function createRowActionButtons(editButton: Node, removeButton: Node) {
@@ -1151,6 +1192,14 @@ function enableDoubleClickEdit<TRow extends { id: string }>(
     editingIds.add(row.id)
     sync(row)
   })
+}
+
+function toggleSetMembership<T>(set: Set<T>, value: T) {
+  if (set.has(value)) {
+    set.delete(value)
+  } else {
+    set.add(value)
+  }
 }
 
 function createRowEditController<TRow extends { id: string; editLabel: string; doneLabel: string }>(
@@ -1223,17 +1272,22 @@ function createMathematicalShareValuesEditor(
       })
       const yearCell = td()
       const valuePerShareCell = td()
+      const bindings: Array<EditableCellBinding<(typeof row)>> = [
+        {
+          cell: yearCell,
+          editNode: div(pageStyles.compactField, yearInput),
+          readValue: (nextRow) => nextRow.year,
+          setEditValue: (nextRow) => setInputValue(yearInput, nextRow.year),
+        },
+        {
+          cell: valuePerShareCell,
+          editNode: div(pageStyles.compactField, valuePerShareInput),
+          readValue: (nextRow) => nextRow.valuePerShare,
+          setEditValue: (nextRow) => setInputValue(valuePerShareInput, nextRow.valuePerShare),
+        },
+      ]
       const editController = createRowEditController(row, editingRowIds, (nextRow) => {
-        replaceChildren(
-          yearCell,
-          editController.isEditing() ? div(pageStyles.compactField, yearInput) : displayReadOnlyValue(nextRow.year)
-        )
-        replaceChildren(
-          valuePerShareCell,
-          editController.isEditing()
-            ? div(pageStyles.compactField, valuePerShareInput)
-            : displayReadOnlyValue(nextRow.valuePerShare)
-        )
+        syncEditableCellBindings(bindings, nextRow, editController.isEditing())
       })
       editController.sync(row)
       let currentRow = row
@@ -1247,8 +1301,7 @@ function createMathematicalShareValuesEditor(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          setInputValue(yearInput, nextRow.year)
-          setInputValue(valuePerShareInput, nextRow.valuePerShare)
+          updateEditableCellBindingInputs(bindings, nextRow)
           editController.sync(nextRow)
         },
       }
@@ -1328,17 +1381,22 @@ function createShareSplitsSection(
       })
       const dateCell = td()
       const multiplierCell = td()
+      const bindings: Array<EditableCellBinding<ShareSplitRowViewModel>> = [
+        {
+          cell: dateCell,
+          editNode: div(pageStyles.compactField, dateInput),
+          readValue: (nextRow) => nextRow.date,
+          setEditValue: (nextRow) => setInputValue(dateInput, nextRow.date),
+        },
+        {
+          cell: multiplierCell,
+          editNode: div(pageStyles.compactField, multiplierInput),
+          readValue: (nextRow) => nextRow.multiplier,
+          setEditValue: (nextRow) => setInputValue(multiplierInput, nextRow.multiplier),
+        },
+      ]
       const editController = createRowEditController(row, editingRowIds, (nextRow) => {
-        replaceChildren(
-          dateCell,
-          editController.isEditing() ? div(pageStyles.compactField, dateInput) : displayReadOnlyValue(nextRow.date)
-        )
-        replaceChildren(
-          multiplierCell,
-          editController.isEditing()
-            ? div(pageStyles.compactField, multiplierInput)
-            : displayReadOnlyValue(nextRow.multiplier)
-        )
+        syncEditableCellBindings(bindings, nextRow, editController.isEditing())
       })
       editController.sync(row)
       let currentRow = row
@@ -1352,8 +1410,7 @@ function createShareSplitsSection(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          setInputValue(dateInput, nextRow.date)
-          setInputValue(multiplierInput, nextRow.multiplier)
+          updateEditableCellBindingInputs(bindings, nextRow)
           editController.sync(nextRow)
         },
       }
@@ -1426,17 +1483,22 @@ function createDemergersSection(
       })
       const dateCell = td()
       const oldCompanyRatioCell = td()
+      const bindings: Array<EditableCellBinding<DemergerRowViewModel>> = [
+        {
+          cell: dateCell,
+          editNode: div(pageStyles.compactField, dateInput),
+          readValue: (nextRow) => nextRow.date,
+          setEditValue: (nextRow) => setInputValue(dateInput, nextRow.date),
+        },
+        {
+          cell: oldCompanyRatioCell,
+          editNode: div(pageStyles.compactField, oldCompanyRatioInput),
+          readValue: (nextRow) => nextRow.oldCompanyRatio,
+          setEditValue: (nextRow) => setInputValue(oldCompanyRatioInput, nextRow.oldCompanyRatio),
+        },
+      ]
       const editController = createRowEditController(row, editingRowIds, (nextRow) => {
-        replaceChildren(
-          dateCell,
-          editController.isEditing() ? div(pageStyles.compactField, dateInput) : displayReadOnlyValue(nextRow.date)
-        )
-        replaceChildren(
-          oldCompanyRatioCell,
-          editController.isEditing()
-            ? div(pageStyles.compactField, oldCompanyRatioInput)
-            : displayReadOnlyValue(nextRow.oldCompanyRatio)
-        )
+        syncEditableCellBindings(bindings, nextRow, editController.isEditing())
       })
       editController.sync(row)
       let currentRow = row
@@ -1450,8 +1512,7 @@ function createDemergersSection(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          setInputValue(dateInput, nextRow.date)
-          setInputValue(oldCompanyRatioInput, nextRow.oldCompanyRatio)
+          updateEditableCellBindingInputs(bindings, nextRow)
           editController.sync(nextRow)
         },
       }
@@ -1484,43 +1545,6 @@ function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocaliza
   const years = calculation.taxReturns.years
   if (years.length === 0) return false
   type TaxReturnDistributionSection = NonNullable<OsakkeetCalculation['taxReturns']['years'][number]['unlisted']>
-
-  const summarizeAllocationsBySubscription = (entries: TaxReturnDistributionSection['entries']) => {
-    const rows = new Map<
-      string,
-      {
-        subscriptionId: string
-        subscriptionDate: string
-        distributionCount: number
-        grossTotal: Decimal
-        capitalRepaymentTotal: Decimal
-        dividendTotal: Decimal
-      }
-    >()
-
-    entries.forEach((entry) => {
-      entry.allocations.forEach((allocation) => {
-        const existing = rows.get(allocation.subscriptionId)
-        if (existing) {
-          existing.distributionCount += 1
-          existing.grossTotal = existing.grossTotal.add(allocation.gross)
-          existing.capitalRepaymentTotal = existing.capitalRepaymentTotal.add(allocation.capitalRepayment)
-          existing.dividendTotal = existing.dividendTotal.add(allocation.dividend)
-          return
-        }
-        rows.set(allocation.subscriptionId, {
-          subscriptionId: allocation.subscriptionId,
-          subscriptionDate: allocation.subscriptionDate,
-          distributionCount: 1,
-          grossTotal: allocation.gross,
-          capitalRepaymentTotal: allocation.capitalRepayment,
-          dividendTotal: allocation.dividend,
-        })
-      })
-    })
-
-    return [...rows.values()]
-  }
 
   const renderAssetsTable = (assets: OsakkeetCalculation['taxReturns']['years'][number]['assets']) => {
     if (!assets) return false
@@ -1661,42 +1685,6 @@ function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocaliza
           td(euro(totals.taxFreeCapitalIncome)),
           mode === 'unlisted' && td(euro(totals.taxableEarnedDividend)),
           mode === 'unlisted' && td(euro(totals.taxFreeEarnedDividend))
-        )
-      )
-    )
-  }
-
-  const renderAllocationSummaryTable = (sectionSummary: TaxReturnDistributionSection | undefined) => {
-    if (!sectionSummary) return false
-    const rows = summarizeAllocationsBySubscription(sectionSummary.entries)
-    if (rows.length === 0) return false
-    return table(
-      pageStyles.compactTable,
-      thead(
-        tr(
-          th(t.taxReturns.fields.subscriptionDate),
-          th(t.taxReturns.fields.allocationDistributionCount),
-          th(t.taxReturns.fields.allocationGross),
-          th(t.taxReturns.fields.allocationCapitalRepayment),
-          th(t.taxReturns.fields.allocationDividend)
-        )
-      ),
-      tbody(
-        rows.map((row) =>
-          tr(
-            td(row.subscriptionDate),
-            td(String(row.distributionCount)),
-            td(euro(row.grossTotal)),
-            td(euro(row.capitalRepaymentTotal)),
-            td(euro(row.dividendTotal))
-          )
-        ),
-        tr(
-          td(b(t.summary.totalRow)),
-          td(String(rows.reduce((acc, row) => acc + row.distributionCount, 0))),
-          td(euro(sumDecimals(rows.map((row) => row.grossTotal)))),
-          td(euro(sumDecimals(rows.map((row) => row.capitalRepaymentTotal)))),
-          td(euro(sumDecimals(rows.map((row) => row.dividendTotal))))
         )
       )
     )
@@ -1896,29 +1884,34 @@ function createSellsSection(
       const shareCountCell = td()
       const sellPriceCell = td()
       const pricePerShareCell = td()
+      const bindings: Array<EditableCellBinding<SellRowViewModel>> = [
+        {
+          cell: dateCell,
+          editNode: div(pageStyles.compactField, dateInput),
+          readValue: (nextRow) => nextRow.date,
+          setEditValue: (nextRow) => setInputValue(dateInput, nextRow.date),
+        },
+        {
+          cell: shareCountCell,
+          editNode: div(pageStyles.compactField, shareCountInput),
+          readValue: (nextRow) => nextRow.shareCount,
+          setEditValue: (nextRow) => setInputValue(shareCountInput, nextRow.shareCount),
+        },
+        {
+          cell: sellPriceCell,
+          editNode: div(pageStyles.compactField, sellPriceInput),
+          readValue: (nextRow) => nextRow.sellPrice,
+          setEditValue: (nextRow) => setInputValue(sellPriceInput, nextRow.sellPrice),
+        },
+        {
+          cell: pricePerShareCell,
+          editNode: div(pageStyles.compactField, pricePerShareInput),
+          readValue: (nextRow) => nextRow.pricePerShare,
+          setEditValue: (nextRow) => setInputValue(pricePerShareInput, nextRow.pricePerShare),
+        },
+      ]
       const editController = createRowEditController(row, editingRowIds, (nextRow) => {
-        replaceChildren(
-          dateCell,
-          editController.isEditing() ? div(pageStyles.compactField, dateInput) : displayReadOnlyValue(nextRow.date)
-        )
-        replaceChildren(
-          shareCountCell,
-          editController.isEditing()
-            ? div(pageStyles.compactField, shareCountInput)
-            : displayReadOnlyValue(nextRow.shareCount)
-        )
-        replaceChildren(
-          sellPriceCell,
-          editController.isEditing()
-            ? div(pageStyles.compactField, sellPriceInput)
-            : displayReadOnlyValue(nextRow.sellPrice)
-        )
-        replaceChildren(
-          pricePerShareCell,
-          editController.isEditing()
-            ? div(pageStyles.compactField, pricePerShareInput)
-            : displayReadOnlyValue(nextRow.pricePerShare)
-        )
+        syncEditableCellBindings(bindings, nextRow, editController.isEditing())
       })
       editController.sync(row)
       let currentRow = row
@@ -1934,10 +1927,7 @@ function createSellsSection(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          setInputValue(dateInput, nextRow.date)
-          setInputValue(shareCountInput, nextRow.shareCount)
-          setInputValue(sellPriceInput, nextRow.sellPrice)
-          setInputValue(pricePerShareInput, nextRow.pricePerShare)
+          updateEditableCellBindingInputs(bindings, nextRow)
           editController.sync(nextRow)
         },
       }
@@ -2063,31 +2053,47 @@ function createSubscriptionsSection(
       const capitalRepaymentPerShareCell = td(row.capitalRepaymentPerShare)
       const remainingCostPerShareCell = td(row.remainingCostPerShare)
       const capitalRepaymentTotalCell = td(row.capitalRepaymentTotal)
+      const toggleHistory = (subscriptionId: string) => {
+        toggleSetMembership(openHistorySubscriptionIds, subscriptionId)
+      }
       const historyButton = createActionButton(document.createTextNode(row.showHistoryLabel), 'secondary', () => {
-        if (openHistorySubscriptionIds.has(currentRow.id)) {
-          openHistorySubscriptionIds.delete(currentRow.id)
-        } else {
-          openHistorySubscriptionIds.add(currentRow.id)
-        }
+        toggleHistory(currentRow.id)
         syncHistoryVisibility(currentRow)
       })
+      const bindings: Array<EditableCellBinding<SubscriptionRowViewModel>> = [
+        {
+          cell: dateCell,
+          editNode: dateInput,
+          readValue: (nextRow) => nextRow.date,
+          setEditValue: (nextRow) => setInputValue(dateInput, nextRow.date),
+        },
+        {
+          cell: vestingEndsOnCell,
+          editNode: vestingEndsOnInput,
+          readValue: (nextRow) => nextRow.vestingEndsOn,
+          setEditValue: (nextRow) => setInputValue(vestingEndsOnInput, nextRow.vestingEndsOn),
+        },
+        {
+          cell: amountCell,
+          editNode: amountInput,
+          readValue: (nextRow) => nextRow.amount,
+          setEditValue: (nextRow) => setInputValue(amountInput, nextRow.amount),
+        },
+        {
+          cell: pricePerShareCell,
+          editNode: pricePerShareInput,
+          readValue: (nextRow) => nextRow.pricePerShare,
+          setEditValue: (nextRow) => setInputValue(pricePerShareInput, nextRow.pricePerShare),
+        },
+        {
+          cell: otherTotalAcquisitionCostsCell,
+          editNode: otherTotalAcquisitionCostsInput,
+          readValue: (nextRow) => nextRow.otherTotalAcquisitionCosts,
+          setEditValue: (nextRow) => setInputValue(otherTotalAcquisitionCostsInput, nextRow.otherTotalAcquisitionCosts),
+        },
+      ]
       const editController = createRowEditController(row, editingRowIds, (nextRow) => {
-        replaceChildren(dateCell, editController.isEditing() ? dateInput : displayReadOnlyValue(nextRow.date))
-        replaceChildren(
-          vestingEndsOnCell,
-          editController.isEditing() ? vestingEndsOnInput : displayReadOnlyValue(nextRow.vestingEndsOn)
-        )
-        replaceChildren(amountCell, editController.isEditing() ? amountInput : displayReadOnlyValue(nextRow.amount))
-        replaceChildren(
-          pricePerShareCell,
-          editController.isEditing() ? pricePerShareInput : displayReadOnlyValue(nextRow.pricePerShare)
-        )
-        replaceChildren(
-          otherTotalAcquisitionCostsCell,
-          editController.isEditing()
-            ? otherTotalAcquisitionCostsInput
-            : displayReadOnlyValue(nextRow.otherTotalAcquisitionCosts)
-        )
+        syncEditableCellBindings(bindings, nextRow, editController.isEditing())
       })
       const historyContainer = div()
       const detailRow = tr(td({ colSpan: 11 }, pageStyles.historyCell, historyContainer))
@@ -2107,11 +2113,7 @@ function createSubscriptionsSection(
       editController.sync(row)
       let currentRow = row
       rowNode.addEventListener('dblclick', () => {
-        if (openHistorySubscriptionIds.has(currentRow.id)) {
-          openHistorySubscriptionIds.delete(currentRow.id)
-        } else {
-          openHistorySubscriptionIds.add(currentRow.id)
-        }
+        toggleHistory(currentRow.id)
         syncHistoryVisibility(currentRow)
       })
 
@@ -2162,11 +2164,7 @@ function createSubscriptionsSection(
         node: fragment,
         set(nextRow) {
           currentRow = nextRow
-          setInputValue(dateInput, nextRow.date)
-          setInputValue(vestingEndsOnInput, nextRow.vestingEndsOn)
-          setInputValue(amountInput, nextRow.amount)
-          setInputValue(pricePerShareInput, nextRow.pricePerShare)
-          setInputValue(otherTotalAcquisitionCostsInput, nextRow.otherTotalAcquisitionCosts)
+          updateEditableCellBindingInputs(bindings, nextRow)
           replaceChildren(totalPricePerShareCell, nextRow.totalPricePerShare)
           replaceChildren(capitalRepaymentPerShareCell, nextRow.capitalRepaymentPerShare)
           replaceChildren(remainingCostPerShareCell, nextRow.remainingCostPerShare)
@@ -2178,10 +2176,12 @@ function createSubscriptionsSection(
     },
   })
 
-  const addButton = createActionButton(subscriptionTextNodes.actions.add, 'primary', () => {
-    const row = subscriptions.append(createAppendCollectionRow('subscriptions'))
-    editingRowIds.add(row.id)
-  })
+  const addButton = createCollectionAppendEditButton(
+    subscriptions,
+    editingRowIds,
+    subscriptionTextNodes.actions.add,
+    () => createAppendCollectionRow('subscriptions')
+  )
 
   const root = section(
     { class: 'card' },
@@ -2341,13 +2341,34 @@ function createCashDistributionsSection(
       const dividendTotalCell = td(
         row.dividendTotalTooltip ? hoverValue(row.dividendTotal, row.dividendTotalTooltip) : row.dividendTotal
       )
+      const bindings: Array<EditableCellBinding<CashDistributionRowViewModel>> = [
+        {
+          cell: dateCell,
+          editNode: dateInput,
+          readValue: (nextRow) => nextRow.date,
+          setEditValue: (nextRow) => setInputValue(dateInput, nextRow.date),
+        },
+        {
+          cell: typeCell,
+          editNode: typeSelect.node,
+          readValue: (nextRow) => nextRow.typeLabel,
+          setEditValue: (nextRow) => {
+            typeSelect.setOptions([
+              { label: nextRow.capitalReturnLabel, value: 'capital_return' },
+              { label: nextRow.dividendLabel, value: 'dividend' },
+            ])
+            typeSelect.setValue(nextRow.type)
+          },
+        },
+        {
+          cell: amountPerShareCell,
+          editNode: amountPerShareInput,
+          readValue: (nextRow) => nextRow.amountPerShare,
+          setEditValue: (nextRow) => setInputValue(amountPerShareInput, nextRow.amountPerShare),
+        },
+      ]
       const editController = createRowEditController(row, editingRowIds, (nextRow) => {
-        replaceChildren(dateCell, editController.isEditing() ? dateInput : displayReadOnlyValue(nextRow.date))
-        replaceChildren(typeCell, editController.isEditing() ? typeSelect.node : nextRow.typeLabel)
-        replaceChildren(
-          amountPerShareCell,
-          editController.isEditing() ? amountPerShareInput : displayReadOnlyValue(nextRow.amountPerShare)
-        )
+        syncEditableCellBindings(bindings, nextRow, editController.isEditing())
       })
       editController.sync(row)
       const rowNode = tr(
@@ -2369,14 +2390,8 @@ function createCashDistributionsSection(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          setInputValue(dateInput, nextRow.date)
-          typeSelect.setOptions([
-            { label: nextRow.capitalReturnLabel, value: 'capital_return' },
-            { label: nextRow.dividendLabel, value: 'dividend' },
-          ])
-          typeSelect.setValue(nextRow.type)
+          updateEditableCellBindingInputs(bindings, nextRow)
           replaceChildren(shareCountCell, nextRow.shareCount)
-          setInputValue(amountPerShareInput, nextRow.amountPerShare)
           replaceChildren(
             capitalRepaymentTotalCell,
             nextRow.capitalRepaymentTotalTooltip
@@ -2395,10 +2410,12 @@ function createCashDistributionsSection(
     },
   })
 
-  const addButton = createActionButton(cashDistributionTextNodes.actions.add, 'primary', () => {
-    const row = cashDistributions.append(createAppendCollectionRow('cashDistributions'))
-    editingRowIds.add(row.id)
-  })
+  const addButton = createCollectionAppendEditButton(
+    cashDistributions,
+    editingRowIds,
+    cashDistributionTextNodes.actions.add,
+    () => createAppendCollectionRow('cashDistributions')
+  )
 
   const root = section(
     { class: 'card' },
@@ -2925,6 +2942,41 @@ function createTopSection(
   const setStatus = (status: string) => {
     viewState.set((current) => ({ ...current, status }))
   }
+  const loadFile = () => {
+    fileInput.click()
+  }
+  const saveFullFile = () => {
+    downloadJsonFile('osakkeet-input-state.json', createSavedOsakkeetFileData(dataState.get()))
+    const serialized = serializeOsakkeetFormData(dataState.get())
+    lastFileSavedHashSource.save(serialized)
+    setStatus(currentTexts.storage.status.fileSaved)
+    refreshStorageButtons()
+  }
+  const saveCompanyFile = () => {
+    downloadJsonFile('osakkeet-company-state.json', createShareableOsakkeetUrlData(dataState.get()))
+    setStatus(currentTexts.storage.status.fileSaved)
+  }
+  const showExample = (preset: 'small2y' | 'medium8y' | 'large16y') => {
+    dataState.set(createExampleOsakkeetFormData(preset, createId))
+    setStatus(currentTexts.storage.status.exampleShown)
+  }
+  const copyCurrentShareUrl = () => {
+    void (async () => {
+      try {
+        const copied = await copyTextToClipboard(await buildShareUrl(dataState.get()))
+        setStatus(copied ? currentTexts.storage.status.shareUrlCopied : currentTexts.storage.errors.clipboardFailed)
+      } catch {
+        setStatus(currentTexts.storage.errors.shareUrlUnavailable)
+      }
+    })()
+  }
+  const createExampleButtonConfig = (labelNode: Text, preset: 'small2y' | 'medium8y' | 'large16y') => ({
+    labelNode,
+    variant: 'secondary' as const,
+    action: () => {
+      showExample(preset)
+    },
+  })
   const refreshStorageButtons = () => {
     const currentSerialized = serializeOsakkeetFormData(dataState.get())
     const lastFileSavedHash = lastFileSavedHashSource.load()
@@ -2969,69 +3021,21 @@ function createTopSection(
     {
       labelNode: storageTextNodes.actions.saveFile,
       variant: 'secondary' as const,
-      action: () => {
-        const blob = new Blob([JSON.stringify(createSavedOsakkeetFileData(dataState.get()), null, 2)], {
-          type: 'application/json',
-        })
-        const serialized = serializeOsakkeetFormData(dataState.get())
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = 'osakkeet-input-state.json'
-        link.click()
-        URL.revokeObjectURL(url)
-        lastFileSavedHashSource.save(serialized)
-        setStatus(currentTexts.storage.status.fileSaved)
-        refreshStorageButtons()
-      },
+      action: saveFullFile,
     },
     {
       labelNode: storageTextNodes.actions.saveCompanyFile,
       variant: 'secondary' as const,
-      action: () => {
-        const blob = new Blob([JSON.stringify(createShareableOsakkeetUrlData(dataState.get()), null, 2)], {
-          type: 'application/json',
-        })
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = 'osakkeet-company-state.json'
-        link.click()
-        URL.revokeObjectURL(url)
-        setStatus(currentTexts.storage.status.fileSaved)
-      },
+      action: saveCompanyFile,
     },
     {
       labelNode: storageTextNodes.actions.loadFile,
       variant: 'secondary' as const,
-      action: () => {
-        fileInput.click()
-      },
+      action: loadFile,
     },
-    {
-      labelNode: storageTextNodes.actions.showSmallExample,
-      variant: 'secondary' as const,
-      action: () => {
-        dataState.set(createExampleOsakkeetFormData('small2y', createId))
-        setStatus(currentTexts.storage.status.exampleShown)
-      },
-    },
-    {
-      labelNode: storageTextNodes.actions.showMediumExample,
-      variant: 'secondary' as const,
-      action: () => {
-        dataState.set(createExampleOsakkeetFormData('medium8y', createId))
-        setStatus(currentTexts.storage.status.exampleShown)
-      },
-    },
-    {
-      labelNode: storageTextNodes.actions.showLargeExample,
-      variant: 'secondary' as const,
-      action: () => {
-        dataState.set(createExampleOsakkeetFormData('large16y', createId))
-        setStatus(currentTexts.storage.status.exampleShown)
-      },
-    },
+    createExampleButtonConfig(storageTextNodes.actions.showSmallExample, 'small2y'),
+    createExampleButtonConfig(storageTextNodes.actions.showMediumExample, 'medium8y'),
+    createExampleButtonConfig(storageTextNodes.actions.showLargeExample, 'large16y'),
     {
       labelNode: storageTextNodes.actions.clearExample,
       variant: 'secondary' as const,
@@ -3046,16 +3050,7 @@ function createTopSection(
     {
       labelNode: storageTextNodes.actions.copyShareUrl,
       variant: 'secondary' as const,
-      action: () => {
-        void (async () => {
-          try {
-            const copied = await copyTextToClipboard(await buildShareUrl(dataState.get()))
-            setStatus(copied ? currentTexts.storage.status.shareUrlCopied : currentTexts.storage.errors.clipboardFailed)
-          } catch {
-            setStatus(currentTexts.storage.errors.shareUrlUnavailable)
-          }
-        })()
-      },
+      action: copyCurrentShareUrl,
     },
   ]
   const [
@@ -3068,24 +3063,8 @@ function createTopSection(
     clearExampleButton,
     copyShareUrlButton,
   ] = buttonConfigs.map(({ labelNode, variant, action }) => createActionButton(labelNode, variant, action))
-  const stickySaveFileButton = createActionButton(storageTextNodes.actions.saveFile, 'secondary', () => {
-    const blob = new Blob([JSON.stringify(createSavedOsakkeetFileData(dataState.get()), null, 2)], {
-      type: 'application/json',
-    })
-    const serialized = serializeOsakkeetFormData(dataState.get())
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'osakkeet-input-state.json'
-    link.click()
-    URL.revokeObjectURL(url)
-    lastFileSavedHashSource.save(serialized)
-    setStatus(currentTexts.storage.status.fileSaved)
-    refreshStorageButtons()
-  })
-  const stickyLoadFileButton = createActionButton(storageTextNodes.actions.loadFile, 'secondary', () => {
-    fileInput.click()
-  })
+  const stickySaveFileButton = createActionButton(storageTextNodes.actions.saveFile, 'secondary', saveFullFile)
+  const stickyLoadFileButton = createActionButton(storageTextNodes.actions.loadFile, 'secondary', loadFile)
   dataState.onValueChange(() => {
     refreshStorageButtons()
   })

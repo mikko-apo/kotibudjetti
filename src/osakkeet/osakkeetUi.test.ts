@@ -546,6 +546,19 @@ describe('osakkeet UI', () => {
     expect(sectionCard.querySelectorAll('tbody input')).toHaveLength(0)
   })
 
+  it('keeps only the newest added row in edit mode', async () => {
+    await renderOsakkeetPage()
+    toggleMainSection('subscriptionsAndSales')
+
+    const sectionCard = findSectionCard('Osakkeiden myynnit')
+    clickButton('Lisää myynti')
+    expect(sectionCard.querySelectorAll('tbody input')).toHaveLength(4)
+
+    clickButton('Lisää myynti')
+    expect(sectionCard.querySelectorAll('tbody input')).toHaveLength(4)
+    expect(firstColumnTexts('Osakkeiden myynnit')).toEqual(['-', ''])
+  })
+
   it('toggles subscription history on double click instead of editing the row', async () => {
     await renderOsakkeetPage()
     clickButton('Medium, 8v')
