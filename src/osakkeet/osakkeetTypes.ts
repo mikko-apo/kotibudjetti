@@ -65,4 +65,6 @@ export type OsakkeetFormData = {
   mathematicalShareValues: MathematicalShareValueInput[]
   ipo: IpoDetailsInput
   sell: IpoSellDetailsInput
+  lastModifiedCompanyData?: string
+  lastModifiedUserData?: string
 }

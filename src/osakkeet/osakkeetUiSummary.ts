@@ -246,17 +246,26 @@ export function createSharePercent(totalShares: FixedSummaryValue) {
       : `${amount(value)} (0.00 %)`
 }
 
+function formatDateLabel(date: Date) {
+  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const year = String(date.getFullYear())
+  return `${day}.${month}.${year}`
+}
+
 export function createSubscriptionsSummaryCards(
   infoCard: (title: string, value: string, help?: string) => unknown,
   totalShares: FixedSummaryValue,
   vestedShares: FixedSummaryValue,
   unvestedShares: FixedSummaryValue,
+  currentDate: Date,
   texts: OsakkeetLocalization
 ) {
   const sharePercent = createSharePercent(totalShares)
+  const referenceDate = formatDateLabel(currentDate)
   return [
     infoCard(texts.subscriptions.summary.totalShares, amount(totalShares)),
-    infoCard(texts.subscriptions.summary.vestedShares, sharePercent(vestedShares)),
-    infoCard(texts.subscriptions.summary.unvestedShares, sharePercent(unvestedShares)),
+    infoCard(texts.subscriptions.summary.vestedSharesAtDate(referenceDate), sharePercent(vestedShares)),
+    infoCard(texts.subscriptions.summary.unvestedSharesAtDate(referenceDate), sharePercent(unvestedShares)),
   ]
 }

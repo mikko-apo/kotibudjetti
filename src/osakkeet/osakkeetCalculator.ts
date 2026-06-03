@@ -229,6 +229,11 @@ export type OsakkeetCalculation = {
     vestedShares: Decimal
     unvestedShares: Decimal
   }
+  currentVesting: {
+    totalShares: Decimal
+    vestedShares: Decimal
+    unvestedShares: Decimal
+  }
   ipo: {
     ipoDate?: Date
     totalShareCount: Decimal
@@ -1424,6 +1429,7 @@ export function calculateOsakkeet(
   collectUnsupportedYearWarnings(form, ipoDate, sellAmount, warnings, localization, useYearlyRules)
   const vesting = calculateVestingSummary(ipoLots, ipoDate)
   const lots = buildFinalLotsFromShareCalculator(baseLots, baseShareCalculator)
+  const currentVesting = calculateVestingSummary(lots, new Date())
   const cashDistributions = applyCashDistributions(
     lots,
     parsedCashDistributions,
@@ -1480,6 +1486,7 @@ export function calculateOsakkeet(
     subscriptions: buildSubscriptionSummaries(lots),
     cashDistributions,
     vesting,
+    currentVesting,
     ipo,
     sell,
     taxReturns: {

@@ -29,6 +29,8 @@ const FI = {
     amount: 'Määrä',
     type: 'Tyyppi',
     total: 'Yhteensä',
+    edit: 'Muokkaa',
+    done: 'Valmis',
     remove: 'Poista',
   },
   assumptions: {
@@ -43,6 +45,35 @@ const FI = {
       'Pääomatulovero arvioidaan vain tämän myynnin perusteella vuoden 2026 30 % / 34 % verokannoilla.',
     ],
     sourcesLabel: 'Lähteet: ',
+  },
+  mainSections: {
+    actions: {
+      open: 'Avaa osio',
+      close: 'Sulje osio',
+    },
+    units: {
+      shares: 'osaketta',
+      taxYears: 'verovuotta',
+      perShare: '/ osake',
+    },
+    groups: {
+      subscriptionsAndSales: {
+        title: '1. Osakemerkinnät ja myynnit',
+        summary: 'Sisältää: Osakemerkinnät, Osakkeiden myynnit.',
+      },
+      distributionsAndCorporateActions: {
+        title: '2. Varojenjako, jakautuminen ja splitit',
+        summary: 'Sisältää: Osingot ja pääomanpalautukset, Yrityksen jakautuminen hankintamenon mukaan, Osakesplitit.',
+      },
+      taxReturns: {
+        title: '3. Veroilmoitukset',
+        summary: 'Sisältää: Veroilmoitukset.',
+      },
+      ipoCalculator: {
+        title: '4. IPO-laskuri',
+        summary: 'Sisältää: IPO-tiedot ja yhteenveto, IPO-myynnin tiedot.',
+      },
+    },
   },
   subscriptions: {
     title: 'Osakemerkinnät',
@@ -116,10 +147,12 @@ const FI = {
       totalShares: 'Osakkeita yhteensä',
       vestedShares: 'Ansaintajakson päättäneet osakkeet',
       unvestedShares: 'Ansaintajakson piirissä olevat osakkeet',
+      vestedSharesAtDate: (date: string) => `Ansaintajakson päättäneet osakkeet (${date})`,
+      unvestedSharesAtDate: (date: string) => `Ansaintajakson piirissä olevat osakkeet (${date})`,
     },
     history: {
-      show: 'Näytä historia',
-      hide: 'Sulje historia',
+      show: 'Tapahtumat',
+      hide: 'Sulje tapahtumat',
       empty: 'Ei tapahtumia',
       fields: {
         date: 'Päivä',
@@ -306,6 +339,8 @@ const FI = {
         sharesLeft: 'Osakkeita jäljelle',
         sellableShares: 'Myytävissä IPOssa',
         unvestedShares: 'Ei myytävissä IPOssa',
+        sellableSharesAtDate: (date: string) => `Myytävissä IPOssa (${date})`,
+        unvestedSharesAtDate: (date: string) => `Ei myytävissä IPOssa (${date})`,
       },
       explanations: {
         title: 'Osakkeiden myyntihinta ja kulut',
@@ -399,11 +434,15 @@ const FI = {
       ipoSale: 'Luovutusvoitot ja -tappiot',
     },
     actions: {
-      showAllocationDetails: 'Näytä merkintäerittäin',
-      hideAllocationDetails: 'Piilota merkintäerittäin',
+      showAllocationDetails: 'Näytä pääomapalautukset merkintäerittäin',
+      hideAllocationDetails: 'Piilota pääomapalautukset merkintäerittäin',
     },
     fields: {
       sharesHeld: 'Osakkeita vuoden lopussa',
+      distributionShares: 'Osakkeita',
+      distributionSharesTotal: 'Yhteensä',
+      distributionSharesCapitalRepayment: 'Pääomanpalautus',
+      distributionSharesDividend: 'Osinko',
       mathematicalShareValuePerShare: 'Matemaattinen arvo / osake',
       shareholderMathematicalValue: 'Osakkaan matemaattinen arvo',
       remainingAcquisitionCost: 'Jäljellä oleva hankintameno',
@@ -446,6 +485,7 @@ const FI = {
       removeFromBrowserStorage: 'Poista selaimesta',
       copyShareUrl: 'Kopioi yrityksen tiedot URL:iin',
       saveFile: 'Tallenna tiedosto',
+      saveCompanyFile: 'Tallenna yrityksen tiedot tiedostoon',
       loadFile: 'Lataa tiedosto',
       showSmallExample: 'Pienomistaja, 2v',
       showMediumExample: 'Medium, 8v',
@@ -473,6 +513,11 @@ const FI = {
     },
     copyShareUrlHelp: 'Tällä voi jakaa yhtiön tiedot ja varojenjaot toisille.',
     copyShareUrlNote: 'Huom: URL-osoitteissa välitetyt tiedot voivat näkyä muille.',
+    timestamps: {
+      companyData: 'Yrityksen tiedot päivitetty',
+      userData: 'Käyttäjän tiedot päivitetty',
+      unavailable: '-',
+    },
     status: {
       saved: 'Tallennettu automaattisesti',
       browserSaved: 'Tallennettu selaimeen pysyvästi',
@@ -488,6 +533,8 @@ const FI = {
       invalidFile: 'Virheellinen tiedosto',
       fileReadFailed: 'Tiedoston luku epäonnistui',
       clipboardFailed: 'Kopiointi epäonnistui',
+      shareUrlUnavailable: 'URL-jako ei ole tuettu tässä selaimessa.',
+      shareUrlLoadFailed: 'Jaetun URL:n avaus epäonnistui.',
     },
     confirmations: {
       clearExample: 'Tyhjennetäänkö kaikki nykyiset tiedot?',
@@ -589,6 +636,8 @@ const EN: typeof FI = {
     amount: 'Amount',
     type: 'Type',
     total: 'Total',
+    edit: 'Edit',
+    done: 'Done',
     remove: 'Remove',
   },
   assumptions: {
@@ -603,6 +652,36 @@ const EN: typeof FI = {
       'Capital income tax is estimated only for this sale using the 2026 30% / 34% rates.',
     ],
     sourcesLabel: 'Sources: ',
+  },
+  mainSections: {
+    actions: {
+      open: 'Open section',
+      close: 'Close section',
+    },
+    units: {
+      shares: 'shares',
+      taxYears: 'tax years',
+      perShare: '/ share',
+    },
+    groups: {
+      subscriptionsAndSales: {
+        title: '1. Share subscriptions and sales',
+        summary: 'Includes: Share subscriptions, Share sales.',
+      },
+      distributionsAndCorporateActions: {
+        title: '2. Distributions, demergers, and splits',
+        summary:
+          'Includes: Dividends and capital repayments, Company demerger by acquisition-cost allocation, Share splits.',
+      },
+      taxReturns: {
+        title: '3. Tax returns',
+        summary: 'Includes: Tax returns.',
+      },
+      ipoCalculator: {
+        title: '4. IPO calculator',
+        summary: 'Includes: IPO details and summary, IPO sell details.',
+      },
+    },
   },
   subscriptions: {
     title: 'Share subscriptions',
@@ -676,10 +755,12 @@ const EN: typeof FI = {
       totalShares: 'Total shares',
       vestedShares: 'Vested shares',
       unvestedShares: 'Unvested shares',
+      vestedSharesAtDate: (date: string) => `Vested shares (${date})`,
+      unvestedSharesAtDate: (date: string) => `Unvested shares (${date})`,
     },
     history: {
-      show: 'Show history',
-      hide: 'Close history',
+      show: 'Events',
+      hide: 'Close events',
       empty: 'No events',
       fields: {
         date: 'Date',
@@ -867,7 +948,9 @@ const EN: typeof FI = {
         taxableCapitalGain: 'Taxable capital gain',
         sharesLeft: 'Shares remaining',
         sellableShares: 'Sellable at IPO',
-        unvestedShares: 'Unvested at IPO',
+        unvestedShares: 'Not sellable at IPO',
+        sellableSharesAtDate: (date: string) => `Sellable at IPO (${date})`,
+        unvestedSharesAtDate: (date: string) => `Not sellable at IPO (${date})`,
       },
       explanations: {
         title: 'Share sale price and costs',
@@ -961,11 +1044,15 @@ const EN: typeof FI = {
       ipoSale: 'Capital gains and losses',
     },
     actions: {
-      showAllocationDetails: 'Show by subscription lot',
-      hideAllocationDetails: 'Hide by subscription lot',
+      showAllocationDetails: 'Show capital repayments by subscription lot',
+      hideAllocationDetails: 'Hide capital repayments by subscription lot',
     },
     fields: {
       sharesHeld: 'Shares at year end',
+      distributionShares: 'Shares',
+      distributionSharesTotal: 'Total',
+      distributionSharesCapitalRepayment: 'Capital repayment',
+      distributionSharesDividend: 'Dividend',
       mathematicalShareValuePerShare: 'Mathematical value / share',
       shareholderMathematicalValue: 'Shareholder mathematical value',
       remainingAcquisitionCost: 'Remaining acquisition cost',
@@ -1008,6 +1095,7 @@ const EN: typeof FI = {
       removeFromBrowserStorage: 'Remove from browser',
       copyShareUrl: 'Copy company details to URL',
       saveFile: 'Save file',
+      saveCompanyFile: 'Save company details to file',
       loadFile: 'Load file',
       showSmallExample: 'Small holder, 2y',
       showMediumExample: 'Medium, 8y',
@@ -1035,6 +1123,11 @@ const EN: typeof FI = {
     },
     copyShareUrlHelp: 'Use this to share company information and distributions with others.',
     copyShareUrlNote: 'Note: Any data passed in URLs might be visible to others.',
+    timestamps: {
+      companyData: 'Company data updated',
+      userData: 'User data updated',
+      unavailable: '-',
+    },
     status: {
       saved: 'Saved automatically',
       browserSaved: 'Saved to persistent browser storage',
@@ -1050,6 +1143,8 @@ const EN: typeof FI = {
       invalidFile: 'Invalid file',
       fileReadFailed: 'File read failed',
       clipboardFailed: 'Copy failed',
+      shareUrlUnavailable: 'URL sharing is not supported in this browser.',
+      shareUrlLoadFailed: 'Opening the shared URL failed.',
     },
     confirmations: {
       clearExample: 'Clear all current data?',
