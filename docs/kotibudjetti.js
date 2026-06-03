@@ -4386,6 +4386,7 @@
     return {
       date: trimmed,
       timestampMs: parsed.getTime(),
+      calendarDayKey: toDayKey(parsed),
       dayKey: isDateOnly || isMidnightUtc ? toDayKey(parsed) : void 0
     };
   }
@@ -4565,27 +4566,65 @@
       };
     });
   }
+  function getTimestampConflictDescription(event) {
+    return `${event.kind}:${event.id}:${event.date}`;
+  }
+  function getDayConflictFamily(event) {
+    switch (event.kind) {
+      case "subscription":
+        return "subscription";
+      case "sell":
+        return "sell";
+      case "capitalRepaymentOrDividend":
+        return "distribution";
+      case "shareCountChange":
+      case "acquisitionCostChange":
+        return "structure";
+    }
+  }
+  function canShareDayWithoutTime(a2, b2) {
+    return getDayConflictFamily(a2) === getDayConflictFamily(b2);
+  }
   function collectTimestampConflicts(events2, errors) {
-    const seen = /* @__PURE__ */ new Map();
-    for (const event of events2) {
-      if (!event.parsedTimestamp) continue;
-      const collisionKeys = [`time:${event.parsedTimestamp.timestampMs}`];
-      if (event.parsedTimestamp.dayKey) {
-        collisionKeys.push(`day:${event.parsedTimestamp.dayKey}`);
-      }
-      for (const key of collisionKeys) {
-        const description = `${event.kind}:${event.id}:${event.date}`;
-        const existing = seen.get(key);
-        if (existing) {
-          errors.push({
-            kind: "timestamp_conflict",
-            message: `Timestamp conflict between ${existing} and ${description}.`
-          });
-        } else {
-          seen.set(key, description);
+    const parsedEvents = events2.filter(hasParsedTimestamp);
+    const reportedPairs = /* @__PURE__ */ new Set();
+    const reportConflict = (a2, b2) => {
+      const descriptionA = getTimestampConflictDescription(a2);
+      const descriptionB = getTimestampConflictDescription(b2);
+      const pairKey = [descriptionA, descriptionB].sort().join("|");
+      if (reportedPairs.has(pairKey)) return;
+      reportedPairs.add(pairKey);
+      errors.push({
+        kind: "timestamp_conflict",
+        message: `Timestamp conflict between ${descriptionA} and ${descriptionB}.`
+      });
+    };
+    const eventsByCalendarDay = /* @__PURE__ */ new Map();
+    parsedEvents.forEach((event) => {
+      const existing = eventsByCalendarDay.get(event.parsedTimestamp.calendarDayKey) || [];
+      eventsByCalendarDay.set(event.parsedTimestamp.calendarDayKey, [...existing, event]);
+    });
+    eventsByCalendarDay.forEach((dayEvents) => {
+      const sortedEvents = [...dayEvents].sort((a2, b2) => eventTimestampMs(a2) - eventTimestampMs(b2));
+      for (let index = 0; index < sortedEvents.length; index += 1) {
+        for (let nextIndex = index + 1; nextIndex < sortedEvents.length; nextIndex += 1) {
+          const left = sortedEvents[index];
+          const right = sortedEvents[nextIndex];
+          const leftDayPrecision = !!left.parsedTimestamp.dayKey;
+          const rightDayPrecision = !!right.parsedTimestamp.dayKey;
+          const sameExactTimestamp = left.parsedTimestamp.timestampMs === right.parsedTimestamp.timestampMs;
+          if (!leftDayPrecision && !rightDayPrecision && !sameExactTimestamp) {
+            continue;
+          }
+          if (leftDayPrecision && rightDayPrecision && canShareDayWithoutTime(left, right)) {
+            continue;
+          }
+          if (sameExactTimestamp || leftDayPrecision || rightDayPrecision) {
+            reportConflict(left, right);
+          }
         }
       }
-    }
+    });
   }
   function eventTimestampMs(event) {
     var _a2, _b;
@@ -5757,6 +5796,7 @@
     collectUnsupportedYearWarnings(form2, ipoDate, sellAmount, warnings, localization, useYearlyRules);
     const vesting = calculateVestingSummary(ipoLots, ipoDate);
     const lots = buildFinalLotsFromShareCalculator(baseLots, baseShareCalculator);
+    const currentVesting = calculateVestingSummary(lots, /* @__PURE__ */ new Date());
     const cashDistributions = applyCashDistributions(
       lots,
       parsedCashDistributions,
@@ -5808,6 +5848,7 @@
       subscriptions: buildSubscriptionSummaries(lots),
       cashDistributions,
       vesting,
+      currentVesting,
       ipo,
       sell,
       taxReturns: {
@@ -6581,6 +6622,8 @@
       amount: "M\xE4\xE4r\xE4",
       type: "Tyyppi",
       total: "Yhteens\xE4",
+      edit: "Muokkaa",
+      done: "Valmis",
       remove: "Poista"
     },
     assumptions: {
@@ -6595,6 +6638,35 @@
         "P\xE4\xE4omatulovero arvioidaan vain t\xE4m\xE4n myynnin perusteella vuoden 2026 30 % / 34 % verokannoilla."
       ],
       sourcesLabel: "L\xE4hteet: "
+    },
+    mainSections: {
+      actions: {
+        open: "Avaa osio",
+        close: "Sulje osio"
+      },
+      units: {
+        shares: "osaketta",
+        taxYears: "verovuotta",
+        perShare: "/ osake"
+      },
+      groups: {
+        subscriptionsAndSales: {
+          title: "1. Osakemerkinn\xE4t ja myynnit",
+          summary: "Sis\xE4lt\xE4\xE4: Osakemerkinn\xE4t, Osakkeiden myynnit."
+        },
+        distributionsAndCorporateActions: {
+          title: "2. Varojenjako, jakautuminen ja splitit",
+          summary: "Sis\xE4lt\xE4\xE4: Osingot ja p\xE4\xE4omanpalautukset, Yrityksen jakautuminen hankintamenon mukaan, Osakesplitit."
+        },
+        taxReturns: {
+          title: "3. Veroilmoitukset",
+          summary: "Sis\xE4lt\xE4\xE4: Veroilmoitukset."
+        },
+        ipoCalculator: {
+          title: "4. IPO-laskuri",
+          summary: "Sis\xE4lt\xE4\xE4: IPO-tiedot ja yhteenveto, IPO-myynnin tiedot."
+        }
+      }
     },
     subscriptions: {
       title: "Osakemerkinn\xE4t",
@@ -6630,11 +6702,13 @@
       summary: {
         totalShares: "Osakkeita yhteens\xE4",
         vestedShares: "Ansaintajakson p\xE4\xE4tt\xE4neet osakkeet",
-        unvestedShares: "Ansaintajakson piiriss\xE4 olevat osakkeet"
+        unvestedShares: "Ansaintajakson piiriss\xE4 olevat osakkeet",
+        vestedSharesAtDate: (date) => `Ansaintajakson p\xE4\xE4tt\xE4neet osakkeet (${date})`,
+        unvestedSharesAtDate: (date) => `Ansaintajakson piiriss\xE4 olevat osakkeet (${date})`
       },
       history: {
-        show: "N\xE4yt\xE4 historia",
-        hide: "Sulje historia",
+        show: "Tapahtumat",
+        hide: "Sulje tapahtumat",
         empty: "Ei tapahtumia",
         fields: {
           date: "P\xE4iv\xE4",
@@ -6790,7 +6864,9 @@
           taxableCapitalGain: "Verotettava luovutusvoitto",
           sharesLeft: "Osakkeita j\xE4ljelle",
           sellableShares: "Myyt\xE4viss\xE4 IPOssa",
-          unvestedShares: "Ei myyt\xE4viss\xE4 IPOssa"
+          unvestedShares: "Ei myyt\xE4viss\xE4 IPOssa",
+          sellableSharesAtDate: (date) => `Myyt\xE4viss\xE4 IPOssa (${date})`,
+          unvestedSharesAtDate: (date) => `Ei myyt\xE4viss\xE4 IPOssa (${date})`
         },
         explanations: {
           title: "Osakkeiden myyntihinta ja kulut",
@@ -6865,11 +6941,15 @@
         ipoSale: "Luovutusvoitot ja -tappiot"
       },
       actions: {
-        showAllocationDetails: "N\xE4yt\xE4 merkint\xE4eritt\xE4in",
-        hideAllocationDetails: "Piilota merkint\xE4eritt\xE4in"
+        showAllocationDetails: "N\xE4yt\xE4 p\xE4\xE4omapalautukset merkint\xE4eritt\xE4in",
+        hideAllocationDetails: "Piilota p\xE4\xE4omapalautukset merkint\xE4eritt\xE4in"
       },
       fields: {
         sharesHeld: "Osakkeita vuoden lopussa",
+        distributionShares: "Osakkeita",
+        distributionSharesTotal: "Yhteens\xE4",
+        distributionSharesCapitalRepayment: "P\xE4\xE4omanpalautus",
+        distributionSharesDividend: "Osinko",
         mathematicalShareValuePerShare: "Matemaattinen arvo / osake",
         shareholderMathematicalValue: "Osakkaan matemaattinen arvo",
         remainingAcquisitionCost: "J\xE4ljell\xE4 oleva hankintameno",
@@ -6909,6 +6989,7 @@
         removeFromBrowserStorage: "Poista selaimesta",
         copyShareUrl: "Kopioi yrityksen tiedot URL:iin",
         saveFile: "Tallenna tiedosto",
+        saveCompanyFile: "Tallenna yrityksen tiedot tiedostoon",
         loadFile: "Lataa tiedosto",
         showSmallExample: "Pienomistaja, 2v",
         showMediumExample: "Medium, 8v",
@@ -6933,6 +7014,11 @@
       },
       copyShareUrlHelp: "T\xE4ll\xE4 voi jakaa yhti\xF6n tiedot ja varojenjaot toisille.",
       copyShareUrlNote: "Huom: URL-osoitteissa v\xE4litetyt tiedot voivat n\xE4ky\xE4 muille.",
+      timestamps: {
+        companyData: "Yrityksen tiedot p\xE4ivitetty",
+        userData: "K\xE4ytt\xE4j\xE4n tiedot p\xE4ivitetty",
+        unavailable: "-"
+      },
       status: {
         saved: "Tallennettu automaattisesti",
         browserSaved: "Tallennettu selaimeen pysyv\xE4sti",
@@ -6947,7 +7033,9 @@
       errors: {
         invalidFile: "Virheellinen tiedosto",
         fileReadFailed: "Tiedoston luku ep\xE4onnistui",
-        clipboardFailed: "Kopiointi ep\xE4onnistui"
+        clipboardFailed: "Kopiointi ep\xE4onnistui",
+        shareUrlUnavailable: "URL-jako ei ole tuettu t\xE4ss\xE4 selaimessa.",
+        shareUrlLoadFailed: "Jaetun URL:n avaus ep\xE4onnistui."
       },
       confirmations: {
         clearExample: "Tyhjennet\xE4\xE4nk\xF6 kaikki nykyiset tiedot?"
@@ -7040,6 +7128,8 @@
       amount: "Amount",
       type: "Type",
       total: "Total",
+      edit: "Edit",
+      done: "Done",
       remove: "Remove"
     },
     assumptions: {
@@ -7054,6 +7144,35 @@
         "Capital income tax is estimated only for this sale using the 2026 30% / 34% rates."
       ],
       sourcesLabel: "Sources: "
+    },
+    mainSections: {
+      actions: {
+        open: "Open section",
+        close: "Close section"
+      },
+      units: {
+        shares: "shares",
+        taxYears: "tax years",
+        perShare: "/ share"
+      },
+      groups: {
+        subscriptionsAndSales: {
+          title: "1. Share subscriptions and sales",
+          summary: "Includes: Share subscriptions, Share sales."
+        },
+        distributionsAndCorporateActions: {
+          title: "2. Distributions, demergers, and splits",
+          summary: "Includes: Dividends and capital repayments, Company demerger by acquisition-cost allocation, Share splits."
+        },
+        taxReturns: {
+          title: "3. Tax returns",
+          summary: "Includes: Tax returns."
+        },
+        ipoCalculator: {
+          title: "4. IPO calculator",
+          summary: "Includes: IPO details and summary, IPO sell details."
+        }
+      }
     },
     subscriptions: {
       title: "Share subscriptions",
@@ -7089,11 +7208,13 @@
       summary: {
         totalShares: "Total shares",
         vestedShares: "Vested shares",
-        unvestedShares: "Unvested shares"
+        unvestedShares: "Unvested shares",
+        vestedSharesAtDate: (date) => `Vested shares (${date})`,
+        unvestedSharesAtDate: (date) => `Unvested shares (${date})`
       },
       history: {
-        show: "Show history",
-        hide: "Close history",
+        show: "Events",
+        hide: "Close events",
         empty: "No events",
         fields: {
           date: "Date",
@@ -7249,7 +7370,9 @@
           taxableCapitalGain: "Taxable capital gain",
           sharesLeft: "Shares remaining",
           sellableShares: "Sellable at IPO",
-          unvestedShares: "Unvested at IPO"
+          unvestedShares: "Not sellable at IPO",
+          sellableSharesAtDate: (date) => `Sellable at IPO (${date})`,
+          unvestedSharesAtDate: (date) => `Not sellable at IPO (${date})`
         },
         explanations: {
           title: "Share sale price and costs",
@@ -7324,11 +7447,15 @@
         ipoSale: "Capital gains and losses"
       },
       actions: {
-        showAllocationDetails: "Show by subscription lot",
-        hideAllocationDetails: "Hide by subscription lot"
+        showAllocationDetails: "Show capital repayments by subscription lot",
+        hideAllocationDetails: "Hide capital repayments by subscription lot"
       },
       fields: {
         sharesHeld: "Shares at year end",
+        distributionShares: "Shares",
+        distributionSharesTotal: "Total",
+        distributionSharesCapitalRepayment: "Capital repayment",
+        distributionSharesDividend: "Dividend",
         mathematicalShareValuePerShare: "Mathematical value / share",
         shareholderMathematicalValue: "Shareholder mathematical value",
         remainingAcquisitionCost: "Remaining acquisition cost",
@@ -7368,6 +7495,7 @@
         removeFromBrowserStorage: "Remove from browser",
         copyShareUrl: "Copy company details to URL",
         saveFile: "Save file",
+        saveCompanyFile: "Save company details to file",
         loadFile: "Load file",
         showSmallExample: "Small holder, 2y",
         showMediumExample: "Medium, 8y",
@@ -7392,6 +7520,11 @@
       },
       copyShareUrlHelp: "Use this to share company information and distributions with others.",
       copyShareUrlNote: "Note: Any data passed in URLs might be visible to others.",
+      timestamps: {
+        companyData: "Company data updated",
+        userData: "User data updated",
+        unavailable: "-"
+      },
       status: {
         saved: "Saved automatically",
         browserSaved: "Saved to persistent browser storage",
@@ -7406,7 +7539,9 @@
       errors: {
         invalidFile: "Invalid file",
         fileReadFailed: "File read failed",
-        clipboardFailed: "Copy failed"
+        clipboardFailed: "Copy failed",
+        shareUrlUnavailable: "URL sharing is not supported in this browser.",
+        shareUrlLoadFailed: "Opening the shared URL failed."
       },
       confirmations: {
         clearExample: "Clear all current data?"
@@ -7604,12 +7739,19 @@
   function createSharePercent(totalShares) {
     return (value) => totalShares.gt(0) ? `${amount(value)} (${percentage(value.div(totalShares).mul(100))})` : `${amount(value)} (0.00 %)`;
   }
-  function createSubscriptionsSummaryCards(infoCard2, totalShares, vestedShares, unvestedShares, texts) {
+  function formatDateLabel(date) {
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = String(date.getFullYear());
+    return `${day}.${month}.${year}`;
+  }
+  function createSubscriptionsSummaryCards(infoCard2, totalShares, vestedShares, unvestedShares, currentDate, texts) {
     const sharePercent = createSharePercent(totalShares);
+    const referenceDate = formatDateLabel(currentDate);
     return [
       infoCard2(texts.subscriptions.summary.totalShares, amount(totalShares)),
-      infoCard2(texts.subscriptions.summary.vestedShares, sharePercent(vestedShares)),
-      infoCard2(texts.subscriptions.summary.unvestedShares, sharePercent(unvestedShares))
+      infoCard2(texts.subscriptions.summary.vestedSharesAtDate(referenceDate), sharePercent(vestedShares)),
+      infoCard2(texts.subscriptions.summary.unvestedSharesAtDate(referenceDate), sharePercent(unvestedShares))
     ];
   }
 
@@ -7618,10 +7760,37 @@
     stack: styles({ display: "flex", flexDirection: "column", gap: "22px" }),
     denseStack: styles({ display: "flex", flexDirection: "column", gap: "10px" }),
     gridTwo: styles({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "12px" }),
+    mainSection: styles({ display: "flex", flexDirection: "column", gap: "14px" }),
+    mainSectionHeader: styles({
+      display: "flex",
+      gap: "12px",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      padding: "14px 16px",
+      border: "1px solid rgba(15, 23, 42, 0.08)",
+      borderRadius: "8px",
+      backgroundColor: "rgba(15, 23, 42, 0.02)"
+    }),
+    mainSectionHeaderText: styles({ display: "flex", flexDirection: "column", gap: "6px", flex: "1 1 360px" }),
+    mainSectionSummary: styles({ margin: "0", color: "rgb(75, 85, 99)" }),
+    mainSectionMetrics: styles({ display: "flex", gap: "8px", flexWrap: "wrap" }),
+    mainSectionMetric: styles({
+      display: "flex",
+      alignItems: "baseline",
+      gap: "6px",
+      padding: "6px 10px",
+      borderRadius: "8px",
+      backgroundColor: "#fff",
+      border: "1px solid rgba(15, 23, 42, 0.08)"
+    }),
+    mainSectionMetricLabel: styles({ color: "rgb(75, 85, 99)", fontSize: "12px" }),
+    mainSectionContent: styles({ display: "flex", flexDirection: "column", gap: "22px" }),
     field: styles({ display: "flex", flexDirection: "column", gap: "6px" }),
     compactField: styles({ width: "140px" }),
     compactTable: styles({ width: "auto", maxWidth: "fit-content", tableLayout: "auto" }),
     rowButtons: styles({ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }),
+    rowActionButtons: styles({ display: "inline-flex", gap: "8px", flexWrap: "nowrap", alignItems: "center" }),
     topAlignedRowButtons: styles({ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "flex-start" }),
     splitActions: styles({
       display: "flex",
@@ -7966,7 +8135,9 @@
       sell: {
         amount: "",
         otherAnnualCapitalGainsOrLosses: ""
-      }
+      },
+      lastModifiedCompanyData: "",
+      lastModifiedUserData: ""
     };
   }
   function normalizeOsakkeetFormData(data2) {
@@ -7974,11 +8145,11 @@
     const blank = createBlankOsakkeetFormData();
     const ipo = (_a2 = data2.ipo) != null ? _a2 : blank.ipo;
     return {
-      subscriptions: normalizeCollectionRows("subscriptions", data2.subscriptions),
-      sells: normalizeCollectionRows("sells", data2.sells),
-      cashDistributions: normalizeCollectionRows("cashDistributions", data2.cashDistributions),
-      shareSplits: normalizeCollectionRows("shareSplits", data2.shareSplits),
-      demergers: normalizeCollectionRows("demergers", data2.demergers),
+      subscriptions: sortRowsByDate(normalizeCollectionRows("subscriptions", data2.subscriptions)),
+      sells: sortRowsByDate(normalizeCollectionRows("sells", data2.sells)),
+      cashDistributions: sortRowsByDate(normalizeCollectionRows("cashDistributions", data2.cashDistributions)),
+      shareSplits: sortRowsByDate(normalizeCollectionRows("shareSplits", data2.shareSplits)),
+      demergers: sortRowsByDate(normalizeCollectionRows("demergers", data2.demergers)),
       mathematicalShareValues: normalizeCollectionRows("mathematicalShareValues", data2.mathematicalShareValues),
       ipo: {
         ...blank.ipo,
@@ -7994,7 +8165,9 @@
         ...data2.sell,
         amount: ((_b = data2.sell) == null ? void 0 : _b.amount) || "",
         otherAnnualCapitalGainsOrLosses: ((_c = data2.sell) == null ? void 0 : _c.otherAnnualCapitalGainsOrLosses) || ""
-      }
+      },
+      lastModifiedCompanyData: data2.lastModifiedCompanyData || "",
+      lastModifiedUserData: data2.lastModifiedUserData || ""
     };
   }
   function createOsakkeetFormData(demo) {
@@ -8009,6 +8182,16 @@
     };
   }
   function createShareableOsakkeetUrlData(data2) {
+    return {
+      ...createCompanyDataPayload(data2),
+      lastModifiedCompanyData: data2.lastModifiedCompanyData || "",
+      lastModifiedUserData: data2.lastModifiedUserData || ""
+    };
+  }
+  function currentModificationTimestamp() {
+    return (/* @__PURE__ */ new Date()).toISOString();
+  }
+  function createCompanyDataPayload(data2) {
     const sanitized = normalizeOsakkeetFormData(data2);
     return {
       cashDistributions: sanitized.cashDistributions.map((cashDistribution) => ({
@@ -8023,19 +8206,97 @@
       ipo: sanitized.ipo
     };
   }
-  function encodeUrlState(value) {
-    const json = JSON.stringify(value);
-    const bytes = new TextEncoder().encode(json);
+  function createCompanyDataSignature(data2) {
+    return JSON.stringify(createCompanyDataPayload(data2));
+  }
+  function createUserDataSignature(data2) {
+    const sanitized = normalizeOsakkeetFormData(data2);
+    return JSON.stringify({
+      subscriptions: sanitized.subscriptions,
+      sells: sanitized.sells,
+      sell: sanitized.sell
+    });
+  }
+  function syncLastModifiedTimestamps(dataState) {
+    let previousCompanySignature = "";
+    let previousUserSignature = "";
+    const initialize = (current) => {
+      previousCompanySignature = createCompanyDataSignature(current);
+      previousUserSignature = createUserDataSignature(current);
+      if (current.lastModifiedCompanyData && current.lastModifiedUserData) return;
+      const timestamp = currentModificationTimestamp();
+      dataState.set({
+        ...current,
+        lastModifiedCompanyData: current.lastModifiedCompanyData || timestamp,
+        lastModifiedUserData: current.lastModifiedUserData || timestamp
+      });
+    };
+    initialize(dataState.get());
+    dataState.onValueChange(
+      (current) => {
+        const nextCompanySignature = createCompanyDataSignature(current);
+        const nextUserSignature = createUserDataSignature(current);
+        const companyChanged = nextCompanySignature !== previousCompanySignature;
+        const userChanged = nextUserSignature !== previousUserSignature;
+        if (!companyChanged && !userChanged) return;
+        previousCompanySignature = nextCompanySignature;
+        previousUserSignature = nextUserSignature;
+        const timestamp = currentModificationTimestamp();
+        dataState.set({
+          ...current,
+          ...companyChanged ? { lastModifiedCompanyData: timestamp } : {},
+          ...userChanged ? { lastModifiedUserData: timestamp } : {}
+        });
+      },
+      { noInit: true }
+    );
+  }
+  function isUrlCompressionSupported() {
+    return typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined";
+  }
+  function requireUrlCompressionSupport() {
+    if (!isUrlCompressionSupported()) {
+      throw new Error("URL compression is not supported in this browser.");
+    }
+  }
+  async function compressUrlBytes(bytes) {
+    requireUrlCompressionSupport();
+    const sourceBuffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(sourceBuffer).set(bytes);
+    const sourceStream = new Response(sourceBuffer).body;
+    if (!sourceStream) throw new Error("Compression source stream is unavailable.");
+    const compressedStream = sourceStream.pipeThrough(new CompressionStream("gzip"));
+    return new Uint8Array(await new Response(compressedStream).arrayBuffer());
+  }
+  async function decompressUrlBytes(bytes) {
+    requireUrlCompressionSupport();
+    const sourceBuffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(sourceBuffer).set(bytes);
+    const sourceStream = new Response(sourceBuffer).body;
+    if (!sourceStream) throw new Error("Decompression source stream is unavailable.");
+    const decompressedStream = sourceStream.pipeThrough(new DecompressionStream("gzip"));
+    return new Uint8Array(await new Response(decompressedStream).arrayBuffer());
+  }
+  function encodeBase64Url(bytes) {
     const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   }
-  function decodeUrlState(value) {
+  function decodeBase64Url(value) {
     const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
     const paddingLength = (4 - normalized.length % 4) % 4;
     const padded = normalized.padEnd(normalized.length + paddingLength, "=");
     const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    return JSON.parse(new TextDecoder().decode(bytes));
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  }
+  async function encodeUrlState(value) {
+    const json = JSON.stringify(value);
+    const bytes = new TextEncoder().encode(json);
+    return encodeBase64Url(await compressUrlBytes(bytes));
+  }
+  async function decodeUrlState(value) {
+    const bytes = decodeBase64Url(value);
+    const decompressed = await decompressUrlBytes(bytes);
+    return JSON.parse(new TextDecoder().decode(decompressed));
   }
   function tryLoadWindowSavedData() {
     return createStorageSource({
@@ -8045,39 +8306,71 @@
       deserialize: (raw) => normalizeOsakkeetFormData(JSON.parse(raw))
     }).load();
   }
-  function tryLoadSharedUrlData() {
+  async function tryLoadSharedUrlData() {
     const encoded = new URL(window.location.href).searchParams.get(shareUrlQueryKey);
     if (!encoded) return void 0;
-    try {
-      const parsed = decodeUrlState(encoded);
-      const emptyForm = createBlankOsakkeetFormData();
-      return normalizeOsakkeetFormData({
-        ...emptyForm,
-        cashDistributions: parsed.cashDistributions || [],
-        shareSplits: parsed.shareSplits || [],
-        demergers: parsed.demergers || [],
-        mathematicalShareValues: parsed.mathematicalShareValues || [],
-        ipo: {
-          ...emptyForm.ipo,
-          ...parsed.ipo || {}
-        },
-        subscriptions: emptyForm.subscriptions,
-        sells: emptyForm.sells,
-        sell: emptyForm.sell
-      });
-    } catch {
-      return void 0;
-    }
+    const parsed = await decodeUrlState(encoded);
+    const emptyForm = createBlankOsakkeetFormData();
+    return normalizeOsakkeetFormData({
+      ...emptyForm,
+      cashDistributions: parsed.cashDistributions || [],
+      shareSplits: parsed.shareSplits || [],
+      demergers: parsed.demergers || [],
+      mathematicalShareValues: parsed.mathematicalShareValues || [],
+      ipo: {
+        ...emptyForm.ipo,
+        ...parsed.ipo || {}
+      },
+      subscriptions: emptyForm.subscriptions,
+      sells: emptyForm.sells,
+      sell: emptyForm.sell,
+      lastModifiedCompanyData: parsed.lastModifiedCompanyData || "",
+      lastModifiedUserData: parsed.lastModifiedUserData || ""
+    });
   }
-  function tryLoadInitialData() {
-    return tryLoadSharedUrlData() || tryLoadWindowSavedData() || createOsakkeetFormData(true);
+  async function tryLoadInitialData(texts) {
+    const sharedUrlData = new URL(window.location.href).searchParams.get(shareUrlQueryKey);
+    if (sharedUrlData) {
+      try {
+        const sharedData = await tryLoadSharedUrlData();
+        if (sharedData) {
+          return {
+            data: sharedData,
+            initialStatus: ""
+          };
+        }
+      } catch {
+        return {
+          data: tryLoadWindowSavedData() || createOsakkeetFormData(true),
+          initialStatus: isUrlCompressionSupported() ? texts.storage.errors.shareUrlLoadFailed : texts.storage.errors.shareUrlUnavailable
+        };
+      }
+    }
+    return {
+      data: tryLoadWindowSavedData() || createOsakkeetFormData(true),
+      initialStatus: ""
+    };
+  }
+  function normalizeSavedOsakkeetFileData(data2) {
+    return normalizeOsakkeetFormData({
+      ...data2,
+      sell: data2["ipo-sell"]
+    });
+  }
+  function createSavedOsakkeetFileData(data2) {
+    const normalized = normalizeOsakkeetFormData(data2);
+    const { sell, ...rest } = normalized;
+    return {
+      ...rest,
+      "ipo-sell": sell
+    };
   }
   function serializeOsakkeetFormData(data2) {
     return JSON.stringify(normalizeOsakkeetFormData(data2));
   }
-  function buildShareUrl(data2) {
+  async function buildShareUrl(data2) {
     const url = new URL(window.location.href);
-    url.searchParams.set(shareUrlQueryKey, encodeUrlState(createShareableOsakkeetUrlData(data2)));
+    url.searchParams.set(shareUrlQueryKey, await encodeUrlState(createShareableOsakkeetUrlData(data2)));
     return url.toString();
   }
   async function copyTextToClipboard(value) {
@@ -8097,6 +8390,15 @@
     const copied = document.execCommand("copy");
     document.body.removeChild(textarea2);
     return copied;
+  }
+  function formatLastModifiedTimestamp(value, languageSelection, fallback) {
+    if (!value) return fallback;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return new Intl.DateTimeFormat(languageSelection === "fi" ? "fi-FI" : "en-GB", {
+      dateStyle: "medium",
+      timeStyle: "medium"
+    }).format(parsed);
   }
   function numberInput(value, onInput = () => {
   }, numeric = true) {
@@ -8198,6 +8500,46 @@
       })
     );
   }
+  function createMainSectionGroup(key, pageReadState, localizedTextNodes, sections, initiallyOpen = false) {
+    let isOpen = initiallyOpen;
+    const metricsRoot = div({ class: "osakkeet-main-section-metrics" }, pageStyles.mainSectionMetrics);
+    const contentRoot = div(
+      { class: `osakkeet-main-section-content osakkeet-main-section-content--${key}` },
+      pageStyles.mainSectionContent,
+      ...sections.map((sectionController) => sectionController.root)
+    );
+    const buttonLabelNode = document.createTextNode("");
+    const toggleButton = createActionButton(buttonLabelNode, "secondary", () => {
+      isOpen = !isOpen;
+      sync(pageReadState.get().texts);
+    });
+    const sync = (texts) => {
+      buttonLabelNode.textContent = isOpen ? texts.mainSections.actions.close : texts.mainSections.actions.open;
+      contentRoot.style.display = isOpen ? "" : "none";
+    };
+    sync(pageReadState.get().texts);
+    const root = section(
+      { class: `osakkeet-main-section osakkeet-main-section--${key}` },
+      pageStyles.mainSection,
+      div(
+        pageStyles.mainSectionHeader,
+        div(pageStyles.mainSectionHeaderText, h2(localizedTextNodes.mainSections.groups[key].title), metricsRoot),
+        div({ class: "no-print" }, pageStyles.rightAlignedActions, toggleButton)
+      ),
+      contentRoot
+    );
+    replaceChildrenFromState(
+      pageReadState,
+      metricsRoot,
+      ({ osakkeetCalculation, texts }) => createMainSectionStats(key, osakkeetCalculation, texts).map((stat) => mainSectionMetric(stat.label, stat.value))
+    );
+    return createSectionController(root, ({ texts }) => {
+      sync(texts);
+    });
+  }
+  function sortRowsByDate(rows) {
+    return [...rows].sort((a2, b2) => compareDateStrings(a2.date, b2.date));
+  }
   var sourceLinkDefinitions = [
     {
       key: "dividends",
@@ -8246,10 +8588,112 @@
       )
     );
   }
-  function createCollectionAppendButton(editor, labelNode, createEmptyItem) {
+  function mainSectionMetric(label2, value) {
+    return div(
+      { class: "osakkeet-main-section-metric" },
+      pageStyles.mainSectionMetric,
+      span(pageStyles.mainSectionMetricLabel, label2),
+      b(value)
+    );
+  }
+  function createMainSectionStats(key, osakkeetCalculation, texts) {
+    if (key === "subscriptionsAndSales") {
+      return [
+        {
+          label: texts.subscriptions.title,
+          value: `${amount(osakkeetCalculation.currentVesting.totalShares)} ${texts.mainSections.units.shares}`
+        },
+        {
+          label: texts.sells.title,
+          value: `${osakkeetCalculation.formData.sells.length} ${texts.common.rows}`
+        }
+      ];
+    }
+    if (key === "distributionsAndCorporateActions") {
+      const capitalReturns = osakkeetCalculation.cashDistributions.filter(
+        (distribution) => distribution.type === "capital_return"
+      );
+      const dividends = osakkeetCalculation.cashDistributions.filter((distribution) => distribution.type === "dividend");
+      return [
+        {
+          label: texts.cashDistributions.types.capitalReturn,
+          value: `${capitalReturns.length} ${texts.common.rows}, ${euro(sumDecimals(capitalReturns.map((distribution) => distribution.amountPerShare)))} ${texts.mainSections.units.perShare}`
+        },
+        {
+          label: texts.cashDistributions.types.dividend,
+          value: `${dividends.length} ${texts.common.rows}, ${euro(sumDecimals(dividends.map((distribution) => distribution.amountPerShare)))} ${texts.mainSections.units.perShare}`
+        },
+        {
+          label: texts.demergers.title,
+          value: `${osakkeetCalculation.formData.demergers.length} ${texts.common.rows}`
+        },
+        {
+          label: texts.shareSplits.title,
+          value: `${osakkeetCalculation.formData.shareSplits.length} ${texts.common.rows}`
+        }
+      ];
+    }
+    if (key === "taxReturns") {
+      return [
+        {
+          label: texts.taxReturns.title,
+          value: `${osakkeetCalculation.taxReturns.years.length} ${texts.mainSections.units.taxYears}`
+        }
+      ];
+    }
+    return [
+      {
+        label: texts.ipo.title,
+        value: euro(osakkeetCalculation.ipo.ipoPricePerShare)
+      },
+      {
+        label: texts.summary.ipoSell.title,
+        value: `${amount(osakkeetCalculation.sell.amount)} ${texts.mainSections.units.shares}`
+      }
+    ];
+  }
+  function createCollectionAppendEditButton(editor, editingIds, labelNode, createEmptyItem) {
     return createActionButton(labelNode, "primary", () => {
-      editor.append(createEmptyItem());
+      const row = editor.append(createEmptyItem());
+      editingIds.add(row.id);
     });
+  }
+  function displayReadOnlyValue(value) {
+    return value || "-";
+  }
+  function createRowActionButtons(editButton, removeButton) {
+    return div(pageStyles.rowActionButtons, editButton, removeButton);
+  }
+  function enableDoubleClickEdit(rowNode, editingIds, getCurrentRow, sync) {
+    rowNode.addEventListener("dblclick", () => {
+      const row = getCurrentRow();
+      if (editingIds.has(row.id)) return;
+      editingIds.add(row.id);
+      sync(row);
+    });
+  }
+  function createRowEditController(initialRow, editingIds, onToggle) {
+    let currentRow = initialRow;
+    const labelNode = document.createTextNode("");
+    const button2 = createActionButton(labelNode, "secondary", () => {
+      if (editingIds.has(currentRow.id)) {
+        editingIds.delete(currentRow.id);
+      } else {
+        editingIds.add(currentRow.id);
+      }
+      sync(currentRow);
+    });
+    const isEditing = () => editingIds.has(currentRow.id);
+    const sync = (nextRow) => {
+      currentRow = nextRow;
+      labelNode.textContent = isEditing() ? nextRow.doneLabel : nextRow.editLabel;
+      onToggle(nextRow);
+    };
+    return {
+      button: button2,
+      isEditing,
+      sync
+    };
   }
   function createMathematicalShareValuesEditor(dataState, pageReadState, localizedTextNodes) {
     const mathematicalShareValuesTextNodes = localizedTextNodes.mathematicalShareValues;
@@ -8260,10 +8704,13 @@
         id: row.id,
         year: row.year,
         valuePerShare: row.valuePerShare,
+        editLabel: texts.common.edit,
+        doneLabel: texts.common.done,
         removeLabel: texts.common.remove
       })
     );
     const mathematicalShareValues = createStateCollectionEditor(dataState, ["mathematicalShareValues"]);
+    const editingRowIds = /* @__PURE__ */ new Set();
     const tbodyNode = createEditableCollectionTable({
       rowsState,
       createRemoveButton,
@@ -8275,21 +8722,40 @@
         const valuePerShareInput = numberInput(row.valuePerShare, (value) => {
           mathematicalShareValues.patch(row.id, { valuePerShare: value });
         });
+        const yearCell = td();
+        const valuePerShareCell = td();
+        const editController = createRowEditController(row, editingRowIds, (nextRow) => {
+          replaceChildren(
+            yearCell,
+            editController.isEditing() ? div(pageStyles.compactField, yearInput) : displayReadOnlyValue(nextRow.year)
+          );
+          replaceChildren(
+            valuePerShareCell,
+            editController.isEditing() ? div(pageStyles.compactField, valuePerShareInput) : displayReadOnlyValue(nextRow.valuePerShare)
+          );
+        });
+        editController.sync(row);
+        let currentRow = row;
+        const rowNode = tr(
+          yearCell,
+          valuePerShareCell,
+          td({ class: "no-print" }, createRowActionButtons(editController.button, removeButton))
+        );
+        enableDoubleClickEdit(rowNode, editingRowIds, () => currentRow, editController.sync);
         return {
-          node: tr(
-            td(div(pageStyles.compactField, yearInput)),
-            td(div(pageStyles.compactField, valuePerShareInput)),
-            td({ class: "no-print" }, removeButton)
-          ),
+          node: rowNode,
           set(nextRow) {
+            currentRow = nextRow;
             setInputValue(yearInput, nextRow.year);
             setInputValue(valuePerShareInput, nextRow.valuePerShare);
+            editController.sync(nextRow);
           }
         };
       }
     });
-    const addButton = createCollectionAppendButton(
+    const addButton = createCollectionAppendEditButton(
       mathematicalShareValues,
+      editingRowIds,
       mathematicalShareValuesTextNodes.actions.add,
       () => ({
         year: "",
@@ -8319,15 +8785,18 @@
     const shareSplitTextNodes = localizedTextNodes.shareSplits;
     const rowsState = createRowViewModelBinder(
       pageReadState,
-      ({ osakkeetCalculation }) => osakkeetCalculation.formData.shareSplits,
+      ({ osakkeetCalculation }) => sortRowsByDate(osakkeetCalculation.formData.shareSplits),
       (shareSplit, _index, { texts }) => ({
         id: shareSplit.id,
         date: shareSplit.date,
         multiplier: shareSplit.multiplier,
+        editLabel: texts.common.edit,
+        doneLabel: texts.common.done,
         removeLabel: texts.common.remove
       })
     );
     const shareSplits = createStateCollectionEditor(dataState, ["shareSplits"]);
+    const editingRowIds = /* @__PURE__ */ new Set();
     const tbodyNode = createEditableCollectionTable({
       rowsState,
       createRemoveButton,
@@ -8339,20 +8808,38 @@
         const multiplierInput = numberInput(row.multiplier, (value) => {
           shareSplits.patch(row.id, { multiplier: value });
         });
+        const dateCell = td();
+        const multiplierCell = td();
+        const editController = createRowEditController(row, editingRowIds, (nextRow) => {
+          replaceChildren(
+            dateCell,
+            editController.isEditing() ? div(pageStyles.compactField, dateInput) : displayReadOnlyValue(nextRow.date)
+          );
+          replaceChildren(
+            multiplierCell,
+            editController.isEditing() ? div(pageStyles.compactField, multiplierInput) : displayReadOnlyValue(nextRow.multiplier)
+          );
+        });
+        editController.sync(row);
+        let currentRow = row;
+        const rowNode = tr(
+          dateCell,
+          multiplierCell,
+          td({ class: "no-print" }, createRowActionButtons(editController.button, removeButton))
+        );
+        enableDoubleClickEdit(rowNode, editingRowIds, () => currentRow, editController.sync);
         return {
-          node: tr(
-            td(div(pageStyles.compactField, dateInput)),
-            td(div(pageStyles.compactField, multiplierInput)),
-            td({ class: "no-print" }, removeButton)
-          ),
+          node: rowNode,
           set(nextRow) {
+            currentRow = nextRow;
             setInputValue(dateInput, nextRow.date);
             setInputValue(multiplierInput, nextRow.multiplier);
+            editController.sync(nextRow);
           }
         };
       }
     });
-    const addButton = createCollectionAppendButton(shareSplits, shareSplitTextNodes.actions.add, () => ({
+    const addButton = createCollectionAppendEditButton(shareSplits, editingRowIds, shareSplitTextNodes.actions.add, () => ({
       date: "",
       multiplier: ""
     }));
@@ -8376,15 +8863,18 @@
     const demergerTextNodes = localizedTextNodes.demergers;
     const rowsState = createRowViewModelBinder(
       pageReadState,
-      ({ osakkeetCalculation }) => osakkeetCalculation.formData.demergers,
+      ({ osakkeetCalculation }) => sortRowsByDate(osakkeetCalculation.formData.demergers),
       (demerger, _index, { texts }) => ({
         id: demerger.id,
         date: demerger.date,
         oldCompanyRatio: demerger.oldCompanyRatio,
+        editLabel: texts.common.edit,
+        doneLabel: texts.common.done,
         removeLabel: texts.common.remove
       })
     );
     const demergers = createStateCollectionEditor(dataState, ["demergers"]);
+    const editingRowIds = /* @__PURE__ */ new Set();
     const tbodyNode = createEditableCollectionTable({
       rowsState,
       createRemoveButton,
@@ -8396,20 +8886,38 @@
         const oldCompanyRatioInput = numberInput(row.oldCompanyRatio, (value) => {
           demergers.patch(row.id, { oldCompanyRatio: value });
         });
+        const dateCell = td();
+        const oldCompanyRatioCell = td();
+        const editController = createRowEditController(row, editingRowIds, (nextRow) => {
+          replaceChildren(
+            dateCell,
+            editController.isEditing() ? div(pageStyles.compactField, dateInput) : displayReadOnlyValue(nextRow.date)
+          );
+          replaceChildren(
+            oldCompanyRatioCell,
+            editController.isEditing() ? div(pageStyles.compactField, oldCompanyRatioInput) : displayReadOnlyValue(nextRow.oldCompanyRatio)
+          );
+        });
+        editController.sync(row);
+        let currentRow = row;
+        const rowNode = tr(
+          dateCell,
+          oldCompanyRatioCell,
+          td({ class: "no-print" }, createRowActionButtons(editController.button, removeButton))
+        );
+        enableDoubleClickEdit(rowNode, editingRowIds, () => currentRow, editController.sync);
         return {
-          node: tr(
-            td(div(pageStyles.compactField, dateInput)),
-            td(div(pageStyles.compactField, oldCompanyRatioInput)),
-            td({ class: "no-print" }, removeButton)
-          ),
+          node: rowNode,
           set(nextRow) {
+            currentRow = nextRow;
             setInputValue(dateInput, nextRow.date);
             setInputValue(oldCompanyRatioInput, nextRow.oldCompanyRatio);
+            editController.sync(nextRow);
           }
         };
       }
     });
-    const addButton = createCollectionAppendButton(demergers, demergerTextNodes.actions.add, () => ({
+    const addButton = createCollectionAppendEditButton(demergers, editingRowIds, demergerTextNodes.actions.add, () => ({
       date: "",
       oldCompanyRatio: ""
     }));
@@ -8486,7 +8994,7 @@
         t.cashDistributions.fields.dividend,
         mode === "unlisted" ? t.taxReturns.fields.unlistedDividendHelp : t.taxReturns.fields.listedDividendHelp
       );
-      const mainColumnCount = mode === "unlisted" ? 10 : 8;
+      const mainColumnCount = mode === "unlisted" ? 11 : 9;
       const renderAllocationTable = (row) => table(
         pageStyles.compactTable,
         thead(
@@ -8512,11 +9020,34 @@
           )
         )
       );
+      const renderDistributionSharesCell = (row) => {
+        if (row.type !== "capital_return") {
+          return amount(row.sharesHeld);
+        }
+        if (row.dividendShareCount.lte(0)) {
+          return amount(row.capitalRepaymentShareCount);
+        }
+        return div(
+          pageStyles.denseStack,
+          p(pageStyles.compactParagraph, b(`${t.taxReturns.fields.distributionSharesTotal}: `), amount(row.sharesHeld)),
+          p(
+            pageStyles.compactParagraph,
+            b(`${t.taxReturns.fields.distributionSharesCapitalRepayment}: `),
+            amount(row.capitalRepaymentShareCount)
+          ),
+          p(
+            pageStyles.compactParagraph,
+            b(`${t.taxReturns.fields.distributionSharesDividend}: `),
+            amount(row.dividendShareCount)
+          )
+        );
+      };
       return table(
         thead(
           tr(
             th(t.common.date),
             th(t.common.type),
+            th(t.taxReturns.fields.distributionShares),
             th(t.cashDistributions.fields.cashPaid),
             th(t.cashDistributions.fields.withholding),
             mode === "unlisted" && th(capitalRepaymentHeaderNode),
@@ -8532,6 +9063,7 @@
             tr(
               td(row.date),
               td(row.type === "dividend" ? t.cashDistributions.types.dividend : t.cashDistributions.types.capitalReturn),
+              td(renderDistributionSharesCell(row)),
               td(euro(row.paidInCash)),
               td(euro(row.withholdingToTaxOffice)),
               mode === "unlisted" && td(euro(row.capitalRepaymentTotal)),
@@ -8541,7 +9073,7 @@
               mode === "unlisted" && td(euro(row.taxableEarnedDividend)),
               mode === "unlisted" && td(euro(row.taxFreeEarnedDividend))
             ),
-            showAllocationDetails && tr(
+            showAllocationDetails && row.type === "capital_return" && tr(
               td(
                 { colSpan: mainColumnCount },
                 pageStyles.historyCell,
@@ -8551,6 +9083,7 @@
           ]),
           tr(
             td(b(t.summary.totalRow)),
+            td(),
             td(),
             td(euro(totals.paidInCash)),
             td(euro(totals.withholdingToTaxOffice)),
@@ -8610,15 +9143,7 @@
       const contentRoot = div(pageStyles.denseStack);
       const sync = () => {
         labelNode.textContent = showAllocationDetails ? t.taxReturns.actions.hideAllocationDetails : t.taxReturns.actions.showAllocationDetails;
-        replaceChildren(
-          contentRoot,
-          showAllocationDetails && div(
-            pageStyles.denseStack,
-            h4(t.taxReturns.sections.allocationSummary),
-            renderAllocationSummaryTable(sectionSummary)
-          ),
-          renderTaxTable(sectionSummary, showAllocationDetails)
-        );
+        replaceChildren(contentRoot, renderTaxTable(sectionSummary, showAllocationDetails));
       };
       sync();
       return div(
@@ -8713,17 +9238,20 @@
     const sellTextNodes = localizedTextNodes.sells;
     const rowsState = createRowViewModelBinder(
       pageReadState,
-      ({ osakkeetCalculation }) => osakkeetCalculation.formData.sells,
+      ({ osakkeetCalculation }) => sortRowsByDate(osakkeetCalculation.formData.sells),
       (sell, _index, { texts }) => ({
         id: sell.id,
         date: sell.date,
         shareCount: sell.shareCount,
         sellPrice: sell.sellPrice,
         pricePerShare: sell.pricePerShare || "",
+        editLabel: texts.common.edit,
+        doneLabel: texts.common.done,
         removeLabel: texts.common.remove
       })
     );
     const sells = createStateCollectionEditor(dataState, ["sells"]);
+    const editingRowIds = /* @__PURE__ */ new Set();
     const tbodyNode = createEditableCollectionTable({
       rowsState,
       createRemoveButton,
@@ -8741,24 +9269,52 @@
         const pricePerShareInput = numberInput(row.pricePerShare, (value) => {
           sells.patch(row.id, { pricePerShare: value });
         });
+        const dateCell = td();
+        const shareCountCell = td();
+        const sellPriceCell = td();
+        const pricePerShareCell = td();
+        const editController = createRowEditController(row, editingRowIds, (nextRow) => {
+          replaceChildren(
+            dateCell,
+            editController.isEditing() ? div(pageStyles.compactField, dateInput) : displayReadOnlyValue(nextRow.date)
+          );
+          replaceChildren(
+            shareCountCell,
+            editController.isEditing() ? div(pageStyles.compactField, shareCountInput) : displayReadOnlyValue(nextRow.shareCount)
+          );
+          replaceChildren(
+            sellPriceCell,
+            editController.isEditing() ? div(pageStyles.compactField, sellPriceInput) : displayReadOnlyValue(nextRow.sellPrice)
+          );
+          replaceChildren(
+            pricePerShareCell,
+            editController.isEditing() ? div(pageStyles.compactField, pricePerShareInput) : displayReadOnlyValue(nextRow.pricePerShare)
+          );
+        });
+        editController.sync(row);
+        let currentRow = row;
+        const rowNode = tr(
+          dateCell,
+          shareCountCell,
+          sellPriceCell,
+          pricePerShareCell,
+          td({ class: "no-print" }, createRowActionButtons(editController.button, removeButton))
+        );
+        enableDoubleClickEdit(rowNode, editingRowIds, () => currentRow, editController.sync);
         return {
-          node: tr(
-            td(div(pageStyles.compactField, dateInput)),
-            td(div(pageStyles.compactField, shareCountInput)),
-            td(div(pageStyles.compactField, sellPriceInput)),
-            td(div(pageStyles.compactField, pricePerShareInput)),
-            td({ class: "no-print" }, removeButton)
-          ),
+          node: rowNode,
           set(nextRow) {
+            currentRow = nextRow;
             setInputValue(dateInput, nextRow.date);
             setInputValue(shareCountInput, nextRow.shareCount);
             setInputValue(sellPriceInput, nextRow.sellPrice);
             setInputValue(pricePerShareInput, nextRow.pricePerShare);
+            editController.sync(nextRow);
           }
         };
       }
     });
-    const addButton = createCollectionAppendButton(sells, sellTextNodes.actions.add, () => ({
+    const addButton = createCollectionAppendEditButton(sells, editingRowIds, sellTextNodes.actions.add, () => ({
       date: "",
       shareCount: "",
       sellPrice: "",
@@ -8804,6 +9360,8 @@
       historyTooltip: createSubscriptionHistoryTooltip(historyRows, texts),
       showHistoryLabel: texts.subscriptions.history.show,
       hideHistoryLabel: texts.subscriptions.history.hide,
+      editLabel: texts.common.edit,
+      doneLabel: texts.common.done,
       removeLabel: texts.common.remove
     };
   }
@@ -8827,10 +9385,11 @@
     );
     const rowsState = createRowViewModelBinder(
       subscriptionRowsSourceState,
-      ({ pageReadModel }) => pageReadModel.osakkeetCalculation.formData.subscriptions,
+      ({ pageReadModel }) => sortRowsByDate(pageReadModel.osakkeetCalculation.formData.subscriptions),
       (subscription, _index, { pageReadModel, summariesById }) => createSubscriptionRowViewModel(subscription, summariesById[subscription.id], pageReadModel.texts)
     );
     const subscriptions = createStateCollectionEditor(dataState, ["subscriptions"]);
+    const editingRowIds = /* @__PURE__ */ new Set();
     const tbodyNode = createEditableCollectionTable({
       rowsState,
       createRemoveButton,
@@ -8851,6 +9410,11 @@
         const otherTotalAcquisitionCostsInput = numberInput(row.otherTotalAcquisitionCosts, (value) => {
           subscriptions.patch(row.id, { otherTotalAcquisitionCosts: value });
         });
+        const dateCell = td();
+        const vestingEndsOnCell = td();
+        const amountCell = td();
+        const pricePerShareCell = td();
+        const otherTotalAcquisitionCostsCell = td();
         const totalPricePerShareCell = td(row.totalPricePerShare);
         const capitalRepaymentPerShareCell = td(row.capitalRepaymentPerShare);
         const remainingCostPerShareCell = td(row.remainingCostPerShare);
@@ -8863,22 +9427,47 @@
           }
           syncHistoryVisibility(currentRow);
         });
+        const editController = createRowEditController(row, editingRowIds, (nextRow) => {
+          replaceChildren(dateCell, editController.isEditing() ? dateInput : displayReadOnlyValue(nextRow.date));
+          replaceChildren(
+            vestingEndsOnCell,
+            editController.isEditing() ? vestingEndsOnInput : displayReadOnlyValue(nextRow.vestingEndsOn)
+          );
+          replaceChildren(amountCell, editController.isEditing() ? amountInput : displayReadOnlyValue(nextRow.amount));
+          replaceChildren(
+            pricePerShareCell,
+            editController.isEditing() ? pricePerShareInput : displayReadOnlyValue(nextRow.pricePerShare)
+          );
+          replaceChildren(
+            otherTotalAcquisitionCostsCell,
+            editController.isEditing() ? otherTotalAcquisitionCostsInput : displayReadOnlyValue(nextRow.otherTotalAcquisitionCosts)
+          );
+        });
         const historyContainer = div();
         const detailRow = tr(td({ colSpan: 11 }, pageStyles.historyCell, historyContainer));
         const rowNode = tr(
-          td(dateInput),
-          td(vestingEndsOnInput),
-          td(amountInput),
-          td(pricePerShareInput),
-          td(otherTotalAcquisitionCostsInput),
+          dateCell,
+          vestingEndsOnCell,
+          amountCell,
+          pricePerShareCell,
+          otherTotalAcquisitionCostsCell,
           totalPricePerShareCell,
           capitalRepaymentPerShareCell,
           remainingCostPerShareCell,
           capitalRepaymentTotalCell,
           td({ class: "no-print" }, historyButton),
-          td({ class: "no-print" }, removeButton)
+          td({ class: "no-print" }, createRowActionButtons(editController.button, removeButton))
         );
+        editController.sync(row);
         let currentRow = row;
+        rowNode.addEventListener("dblclick", () => {
+          if (openHistorySubscriptionIds.has(currentRow.id)) {
+            openHistorySubscriptionIds.delete(currentRow.id);
+          } else {
+            openHistorySubscriptionIds.add(currentRow.id);
+          }
+          syncHistoryVisibility(currentRow);
+        });
         const renderHistoryTable = (historyRows) => table(
           pageStyles.historyTable,
           thead(
@@ -8929,13 +9518,15 @@
             replaceChildren(capitalRepaymentPerShareCell, nextRow.capitalRepaymentPerShare);
             replaceChildren(remainingCostPerShareCell, nextRow.remainingCostPerShare);
             replaceChildren(capitalRepaymentTotalCell, nextRow.capitalRepaymentTotal);
+            editController.sync(nextRow);
             syncHistoryVisibility(nextRow);
           }
         };
       }
     });
     const addButton = createActionButton(subscriptionTextNodes.actions.add, "primary", () => {
-      subscriptions.append(createAppendCollectionRow("subscriptions"));
+      const row = subscriptions.append(createAppendCollectionRow("subscriptions"));
+      editingRowIds.add(row.id);
     });
     const root = section(
       { class: "card" },
@@ -8967,9 +9558,10 @@
       summaryRoot,
       ({ osakkeetCalculation, texts }) => createSubscriptionsSummaryCards(
         infoCard,
-        osakkeetCalculation.vesting.totalShares,
-        osakkeetCalculation.vesting.vestedShares,
-        osakkeetCalculation.vesting.unvestedShares,
+        osakkeetCalculation.currentVesting.totalShares,
+        osakkeetCalculation.currentVesting.vestedShares,
+        osakkeetCalculation.currentVesting.unvestedShares,
+        /* @__PURE__ */ new Date(),
         texts
       )
     );
@@ -8982,14 +9574,11 @@
     });
   }
   function createCashDistributionRowViewModel(cashDistribution, summary2, texts) {
-    const expectedShareCount = summary2 ? amount(summary2.sharesHeld) : "";
-    const givenShareCount = cashDistribution.shareCount || "";
-    const hasShareCountMismatch = givenShareCount !== "" && summary2 && (Number.isNaN(Number(givenShareCount)) || Number(givenShareCount) !== Number(expectedShareCount));
     return {
       id: cashDistribution.id,
       date: cashDistribution.date,
       type: cashDistribution.type,
-      shareCount: givenShareCount,
+      shareCount: summary2 ? amount(summary2.sharesHeld) : "-",
       amountPerShare: cashDistribution.amountPerShare,
       grossTotal: summary2 ? euro(summary2.grossTotal) : "-",
       withholdingToTaxOffice: summary2 ? euro(summary2.withholdingToTaxOffice) : "-",
@@ -8998,7 +9587,9 @@
       capitalRepaymentTotalTooltip: summary2 ? texts.cashDistributions.fields.capitalRepaymentSharesHelp(amount(summary2.capitalRepaymentShareCount)) : "",
       dividendTotal: summary2 ? euro(summary2.dividendTotal) : "-",
       dividendTotalTooltip: summary2 ? texts.cashDistributions.fields.dividendSharesHelp(amount(summary2.dividendShareCount)) : "",
-      shareCountMismatch: hasShareCountMismatch ? texts.cashDistributions.messages.shareCountMismatch(expectedShareCount, givenShareCount) : "",
+      typeLabel: cashDistribution.type === "capital_return" ? texts.cashDistributions.types.capitalReturn : texts.cashDistributions.types.dividend,
+      editLabel: texts.common.edit,
+      doneLabel: texts.common.done,
       removeLabel: texts.common.remove,
       capitalReturnLabel: texts.cashDistributions.types.capitalReturn,
       dividendLabel: texts.cashDistributions.types.dividend
@@ -9020,10 +9611,11 @@
     );
     const rowsState = createRowViewModelBinder(
       cashDistributionRowsSourceState,
-      ({ pageReadModel }) => pageReadModel.osakkeetCalculation.formData.cashDistributions,
+      ({ pageReadModel }) => sortRowsByDate(pageReadModel.osakkeetCalculation.formData.cashDistributions),
       (cashDistribution, _index, { pageReadModel, summariesById }) => createCashDistributionRowViewModel(cashDistribution, summariesById[cashDistribution.id], pageReadModel.texts)
     );
     const cashDistributions = createStateCollectionEditor(dataState, ["cashDistributions"]);
+    const editingRowIds = /* @__PURE__ */ new Set();
     const tbodyNode = createEditableCollectionTable({
       rowsState,
       createRemoveButton,
@@ -9043,43 +9635,53 @@
           }
         );
         setStyle(typeSelect.node, pageStyles.input);
-        const shareCountInput = numberInput(row.shareCount, (value) => {
-          cashDistributions.patch(row.id, { shareCount: value });
-        });
         const amountPerShareInput = numberInput(row.amountPerShare, (value) => {
           cashDistributions.patch(row.id, { amountPerShare: value });
         });
-        const shareCountCell = td(
-          div(pageStyles.denseStack, shareCountInput, span(pageStyles.rowErrorText, rowTextNodes.shareCountMismatch))
-        );
+        const dateCell = td();
+        const typeCell = td();
+        const shareCountCell = td(rowTextNodes.shareCount);
+        const amountPerShareCell = td();
         const capitalRepaymentTotalCell = td(
           row.capitalRepaymentTotalTooltip ? hoverValue(row.capitalRepaymentTotal, row.capitalRepaymentTotalTooltip) : row.capitalRepaymentTotal
         );
         const dividendTotalCell = td(
           row.dividendTotalTooltip ? hoverValue(row.dividendTotal, row.dividendTotalTooltip) : row.dividendTotal
         );
+        const editController = createRowEditController(row, editingRowIds, (nextRow) => {
+          replaceChildren(dateCell, editController.isEditing() ? dateInput : displayReadOnlyValue(nextRow.date));
+          replaceChildren(typeCell, editController.isEditing() ? typeSelect.node : nextRow.typeLabel);
+          replaceChildren(
+            amountPerShareCell,
+            editController.isEditing() ? amountPerShareInput : displayReadOnlyValue(nextRow.amountPerShare)
+          );
+        });
+        editController.sync(row);
         const rowNode = tr(
-          td(dateInput),
-          td(typeSelect.node),
+          dateCell,
+          typeCell,
           shareCountCell,
-          td(amountPerShareInput),
+          amountPerShareCell,
           td(rowTextNodes.grossTotal),
           td(rowTextNodes.paidInCash),
           td(rowTextNodes.withholdingToTaxOffice),
           capitalRepaymentTotalCell,
           dividendTotalCell,
-          td({ class: "no-print" }, removeButton)
+          td({ class: "no-print" }, createRowActionButtons(editController.button, removeButton))
         );
+        let currentRow = row;
+        enableDoubleClickEdit(rowNode, editingRowIds, () => currentRow, editController.sync);
         return {
           node: rowNode,
           set(nextRow) {
+            currentRow = nextRow;
             setInputValue(dateInput, nextRow.date);
             typeSelect.setOptions([
               { label: nextRow.capitalReturnLabel, value: "capital_return" },
               { label: nextRow.dividendLabel, value: "dividend" }
             ]);
             typeSelect.setValue(nextRow.type);
-            setInputValue(shareCountInput, nextRow.shareCount);
+            replaceChildren(shareCountCell, nextRow.shareCount);
             setInputValue(amountPerShareInput, nextRow.amountPerShare);
             replaceChildren(
               capitalRepaymentTotalCell,
@@ -9089,14 +9691,14 @@
               dividendTotalCell,
               nextRow.dividendTotalTooltip ? hoverValue(nextRow.dividendTotal, nextRow.dividendTotalTooltip) : nextRow.dividendTotal
             );
-            rowTextNodes.shareCountMismatch.parentElement.style.display = nextRow.shareCountMismatch ? "" : "none";
-            rowNode.className = nextRow.shareCountMismatch ? String(pageStyles.mismatchRow) : "";
+            editController.sync(nextRow);
           }
         };
       }
     });
     const addButton = createActionButton(cashDistributionTextNodes.actions.add, "primary", () => {
-      cashDistributions.append(createAppendCollectionRow("cashDistributions"));
+      const row = cashDistributions.append(createAppendCollectionRow("cashDistributions"));
+      editingRowIds.add(row.id);
     });
     const root = section(
       { class: "card" },
@@ -9132,9 +9734,16 @@
   }
   function createSellOverviewCards(osakkeetCalculation, texts) {
     const sharePercent = createSharePercent(osakkeetCalculation.vesting.totalShares);
+    const ipoDate = osakkeetCalculation.formData.ipo.ipoDate;
     return [
-      infoCard(texts.summary.ipoSell.cards.sellableShares, sharePercent(osakkeetCalculation.vesting.vestedShares)),
-      infoCard(texts.summary.ipoSell.cards.unvestedShares, sharePercent(osakkeetCalculation.vesting.unvestedShares)),
+      infoCard(
+        ipoDate ? texts.summary.ipoSell.cards.sellableSharesAtDate(ipoDate) : texts.summary.ipoSell.cards.sellableShares,
+        sharePercent(osakkeetCalculation.vesting.vestedShares)
+      ),
+      infoCard(
+        ipoDate ? texts.summary.ipoSell.cards.unvestedSharesAtDate(ipoDate) : texts.summary.ipoSell.cards.unvestedShares,
+        sharePercent(osakkeetCalculation.vesting.unvestedShares)
+      ),
       infoCard(texts.summary.ipoSell.cards.sharesLeft, amount(osakkeetCalculation.sell.remainingUnsoldShares))
     ];
   }
@@ -9509,10 +10118,10 @@
     return createSectionController(root, () => {
     });
   }
-  function createTopSection(dataState, pageReadState, languageSelectionState, localizedTextNodes) {
+  function createTopSection(dataState, pageReadState, languageSelectionState, localizedTextNodes, initialStatus = "") {
     const viewState = createState({
       value: {
-        status: ""
+        status: initialStatus
       }
     });
     const storageTextNodes = localizedTextNodes.storage;
@@ -9521,7 +10130,30 @@
     const statusNode = createTextNodesFromState(viewState, { path: ["status"] });
     let currentTexts = pageReadState.get().texts;
     const assumptionsRoot = div();
+    const timestampsRoot = div(pageStyles.denseStack);
     replaceChildrenFromState(pageReadState, assumptionsRoot, ({ texts }) => assumptionsContent(texts));
+    replaceChildrenFromState(pageReadState, timestampsRoot, ({ formData, texts, languageSelection }) => [
+      p(
+        { class: "muted" },
+        pageStyles.compactParagraph,
+        b(`${texts.storage.timestamps.companyData}: `),
+        formatLastModifiedTimestamp(
+          formData.lastModifiedCompanyData,
+          languageSelection,
+          texts.storage.timestamps.unavailable
+        )
+      ),
+      p(
+        { class: "muted" },
+        pageStyles.compactParagraph,
+        b(`${texts.storage.timestamps.userData}: `),
+        formatLastModifiedTimestamp(
+          formData.lastModifiedUserData,
+          languageSelection,
+          texts.storage.timestamps.unavailable
+        )
+      )
+    ]);
     const fiButton = button(
       "FI",
       pageStyles.smallButton,
@@ -9570,7 +10202,7 @@
           reader.onload = () => {
             try {
               const parsed = JSON.parse(String(reader.result || "{}"));
-              const normalized = normalizeOsakkeetFormData(parsed);
+              const normalized = normalizeSavedOsakkeetFileData(parsed);
               dataState.set(normalized);
               lastFileSavedHashSource.save(serializeOsakkeetFormData(normalized));
               setStatus(currentTexts.storage.status.loaded);
@@ -9593,7 +10225,7 @@
         labelNode: storageTextNodes.actions.saveFile,
         variant: "secondary",
         action: () => {
-          const blob = new Blob([JSON.stringify(normalizeOsakkeetFormData(dataState.get()), null, 2)], {
+          const blob = new Blob([JSON.stringify(createSavedOsakkeetFileData(dataState.get()), null, 2)], {
             type: "application/json"
           });
           const serialized = serializeOsakkeetFormData(dataState.get());
@@ -9606,6 +10238,22 @@
           lastFileSavedHashSource.save(serialized);
           setStatus(currentTexts.storage.status.fileSaved);
           refreshStorageButtons();
+        }
+      },
+      {
+        labelNode: storageTextNodes.actions.saveCompanyFile,
+        variant: "secondary",
+        action: () => {
+          const blob = new Blob([JSON.stringify(createShareableOsakkeetUrlData(dataState.get()), null, 2)], {
+            type: "application/json"
+          });
+          const url = URL.createObjectURL(blob);
+          const link2 = document.createElement("a");
+          link2.href = url;
+          link2.download = "osakkeet-company-state.json";
+          link2.click();
+          URL.revokeObjectURL(url);
+          setStatus(currentTexts.storage.status.fileSaved);
         }
       },
       {
@@ -9654,19 +10302,20 @@
         labelNode: storageTextNodes.actions.copyShareUrl,
         variant: "secondary",
         action: () => {
-          void copyTextToClipboard(buildShareUrl(dataState.get())).then(
-            (copied) => {
+          void (async () => {
+            try {
+              const copied = await copyTextToClipboard(await buildShareUrl(dataState.get()));
               setStatus(copied ? currentTexts.storage.status.shareUrlCopied : currentTexts.storage.errors.clipboardFailed);
-            },
-            () => {
-              setStatus(currentTexts.storage.errors.clipboardFailed);
+            } catch {
+              setStatus(currentTexts.storage.errors.shareUrlUnavailable);
             }
-          );
+          })();
         }
       }
     ];
     const [
       topSaveFileButton,
+      topSaveCompanyFileButton,
       topLoadFileButton,
       smallExampleButton,
       mediumExampleButton,
@@ -9675,7 +10324,7 @@
       copyShareUrlButton
     ] = buttonConfigs.map(({ labelNode, variant, action }) => createActionButton(labelNode, variant, action));
     const stickySaveFileButton = createActionButton(storageTextNodes.actions.saveFile, "secondary", () => {
-      const blob = new Blob([JSON.stringify(normalizeOsakkeetFormData(dataState.get()), null, 2)], {
+      const blob = new Blob([JSON.stringify(createSavedOsakkeetFileData(dataState.get()), null, 2)], {
         type: "application/json"
       });
       const serialized = serializeOsakkeetFormData(dataState.get());
@@ -9712,13 +10361,7 @@
           div(
             pageStyles.stickyWarningHeader,
             h3(pageStyles.stickyWarningTitle, introTextNodes.warningsTitle),
-            div(
-              pageStyles.stickyWarningActions,
-              stickySaveFileButton,
-              stickyLoadFileButton,
-              clearExampleButton,
-              copyShareUrlButton
-            )
+            div(pageStyles.stickyWarningActions, stickySaveFileButton, stickyLoadFileButton, clearExampleButton)
           ),
           stickyWarningListRoot
         )
@@ -9751,6 +10394,7 @@
         div({ class: "heading" }, h3(storageTextNodes.title), span({ class: "muted" }, statusNode)),
         div(
           pageStyles.denseStack,
+          timestampsRoot,
           div(
             pageStyles.denseStack,
             p(
@@ -9768,7 +10412,13 @@
               b(storageTextNodes.table.fileTitle, ": "),
               storageTextNodes.table.fileDescription
             ),
-            div({ class: "no-print" }, pageStyles.topAlignedRowButtons, topSaveFileButton, topLoadFileButton)
+            div(
+              { class: "no-print" },
+              pageStyles.topAlignedRowButtons,
+              topSaveCompanyFileButton,
+              copyShareUrlButton,
+              topLoadFileButton
+            )
           ),
           div(
             pageStyles.denseStack,
@@ -9813,9 +10463,9 @@
     return createSectionController(root, () => {
     });
   }
-  function osakkeetIpoCalculatorPage() {
+  function renderOsakkeetIpoCalculatorPage(initialData, initialLanguageSelection, initialStatus = "") {
     const dataStateHandle = createStorageBackedState({
-      value: tryLoadInitialData(),
+      value: initialData,
       storage: sessionStorage,
       key: storageKeys.windowFormData,
       serialize: serializeOsakkeetFormData,
@@ -9823,7 +10473,7 @@
       hydrate: false
     });
     const languageSelectionStateHandle = createStorageBackedState({
-      value: tryLoadLanguage(),
+      value: initialLanguageSelection,
       storage: localStorage,
       key: storageKeys.language,
       serialize: (languageSelection) => languageSelection,
@@ -9832,6 +10482,7 @@
     });
     const dataState = dataStateHandle.state;
     const languageSelectionState = languageSelectionStateHandle.state;
+    syncLastModifiedTimestamps(dataState);
     const localizationTexts = languageSelectionState.map(
       (languageSelection) => getOsakkeetLocalization(languageSelection)
     );
@@ -9847,7 +10498,13 @@
         };
       }
     );
-    const topSection = createTopSection(dataState, pageReadState, languageSelectionState, localizedTextNodes);
+    const topSection = createTopSection(
+      dataState,
+      pageReadState,
+      languageSelectionState,
+      localizedTextNodes,
+      initialStatus
+    );
     const subscriptionsSection = createSubscriptionsSection(
       dataState,
       pageReadState,
@@ -9881,6 +10538,25 @@
     const taxSummarySectionController = createTaxSummarySection(dataState, pageReadState, localizedTextNodes);
     const ipoSection = createIpoSection(dataState, pageReadState, localizedTextNodes);
     const resultsSection = createResultsSection(dataState, pageReadState, localizedTextNodes);
+    const subscriptionsAndSalesSection = createMainSectionGroup(
+      "subscriptionsAndSales",
+      pageReadState,
+      localizedTextNodes,
+      [subscriptionsSection, sellsSection]
+    );
+    const distributionsAndCorporateActionsSection = createMainSectionGroup(
+      "distributionsAndCorporateActions",
+      pageReadState,
+      localizedTextNodes,
+      [cashDistributionsSection, demergersSection, shareSplitsSection]
+    );
+    const taxReturnsSection = createMainSectionGroup("taxReturns", pageReadState, localizedTextNodes, [
+      taxSummarySectionController
+    ]);
+    const ipoCalculatorSection = createMainSectionGroup("ipoCalculator", pageReadState, localizedTextNodes, [
+      ipoSection,
+      resultsSection
+    ]);
     const root = div(pageStyles.stack);
     const applyPageReadModel = (pageReadModel) => {
       topSection.set(pageReadModel);
@@ -9892,6 +10568,10 @@
       taxSummarySectionController.set(pageReadModel);
       ipoSection.set(pageReadModel);
       resultsSection.set(pageReadModel);
+      subscriptionsAndSalesSection.set(pageReadModel);
+      distributionsAndCorporateActionsSection.set(pageReadModel);
+      taxReturnsSection.set(pageReadModel);
+      ipoCalculatorSection.set(pageReadModel);
     };
     pageReadState.onValueChange(applyPageReadModel);
     const initialPageReadModel = pageReadState.get();
@@ -9899,16 +10579,18 @@
     replaceChildren(
       root,
       topSection.root,
-      subscriptionsSection.root,
-      sellsSection.root,
-      cashDistributionsSection.root,
-      demergersSection.root,
-      shareSplitsSection.root,
-      taxSummarySectionController.root,
-      ipoSection.root,
-      resultsSection.root
+      subscriptionsAndSalesSection.root,
+      distributionsAndCorporateActionsSection.root,
+      taxReturnsSection.root,
+      ipoCalculatorSection.root
     );
     return root;
+  }
+  async function osakkeetIpoCalculatorPage() {
+    const initialLanguageSelection = tryLoadLanguage();
+    const initialTexts = getOsakkeetLocalization(initialLanguageSelection);
+    const { data: data2, initialStatus } = await tryLoadInitialData(initialTexts);
+    return renderOsakkeetIpoCalculatorPage(data2, initialLanguageSelection, initialStatus);
   }
 
   // src/kotibudjetti.ts
@@ -9959,10 +10641,12 @@
     const routeState = createState({ value: getRoute() });
     const sidebar = document.querySelector(".sidebar");
     const bottomNav = ensureBottomNav(routeState);
+    let renderVersion = 0;
     window.addEventListener("hashchange", () => {
       routeState.set(getRoute());
     });
     routeState.onValueChange((route) => {
+      const currentRenderVersion = ++renderVersion;
       if (sidebar instanceof HTMLElement) {
         replaceChildren(sidebar, sidebarNavigation(routeState));
       }
@@ -9971,7 +10655,14 @@
         navButton("Osakkeet", "osakkeet", routeState),
         navButton("Kaukol\xE4mp\xF6", "kaukolampo", routeState)
       );
-      setElementToId("app", route === "kaukolampo" ? kaukolampoExcessPricingCalculator() : osakkeetIpoCalculatorPage());
+      if (route === "kaukolampo") {
+        setElementToId("app", kaukolampoExcessPricingCalculator());
+        return;
+      }
+      void osakkeetIpoCalculatorPage().then((page) => {
+        if (currentRenderVersion !== renderVersion) return;
+        setElementToId("app", page);
+      });
     });
   }
   mountApp();
