@@ -6045,12 +6045,19 @@
       });
       row.mountedNodes = [];
     };
+    const rowContainsNode = (row, target) => {
+      if (!target) return false;
+      return row.mountedNodes.some(
+        (node) => node === target || "contains" in node && typeof node.contains === "function" && node.contains(target)
+      );
+    };
     const sync = (stateValue) => {
+      var _a2, _b;
       const items = itemsSelector(stateValue);
       const nextKeys = /* @__PURE__ */ new Set();
-      let insertionPoint = root.firstChild;
+      const orderedRows = [];
       items.forEach((item, index) => {
-        var _a2, _b;
+        var _a3;
         const key = keySelector(item, index, stateValue);
         nextKeys.add(key);
         let row = rows.get(key);
@@ -6062,10 +6069,31 @@
           rows.set(key, createdRow);
           row = createdRow;
         }
-        (_a2 = row.set) == null ? void 0 : _a2.call(row, item, index, stateValue);
-        placeRowBefore(row, insertionPoint);
-        insertionPoint = ((_b = row.mountedNodes[row.mountedNodes.length - 1]) == null ? void 0 : _b.nextSibling) || null;
+        (_a3 = row.set) == null ? void 0 : _a3.call(row, item, index, stateValue);
+        orderedRows.push({ key, row });
       });
+      const activeElement = document.activeElement instanceof Node ? document.activeElement : null;
+      const pinnedRowIndex = activeElement == null ? -1 : orderedRows.findIndex(({ row }) => rowContainsNode(row, activeElement));
+      if (pinnedRowIndex === -1) {
+        let insertionPoint = root.firstChild;
+        orderedRows.forEach(({ row }) => {
+          var _a3;
+          placeRowBefore(row, insertionPoint);
+          insertionPoint = ((_a3 = row.mountedNodes[row.mountedNodes.length - 1]) == null ? void 0 : _a3.nextSibling) || null;
+        });
+      } else {
+        const pinnedRow = (_a2 = orderedRows[pinnedRowIndex]) == null ? void 0 : _a2.row;
+        const pinnedFirstNode = (pinnedRow == null ? void 0 : pinnedRow.mountedNodes[0]) || null;
+        orderedRows.slice(0, pinnedRowIndex).forEach(({ row }) => {
+          placeRowBefore(row, pinnedFirstNode);
+        });
+        let insertionPoint = ((_b = pinnedRow == null ? void 0 : pinnedRow.mountedNodes[pinnedRow.mountedNodes.length - 1]) == null ? void 0 : _b.nextSibling) || null;
+        orderedRows.slice(pinnedRowIndex + 1).forEach(({ row }) => {
+          var _a3;
+          placeRowBefore(row, insertionPoint);
+          insertionPoint = ((_a3 = row.mountedNodes[row.mountedNodes.length - 1]) == null ? void 0 : _a3.nextSibling) || null;
+        });
+      }
       for (const [key, row] of Array.from(rows.entries())) {
         if (nextKeys.has(key)) continue;
         destroyRow(row);
@@ -8679,11 +8707,21 @@
   }
   function syncEditableCellBindings(bindings, row, editing) {
     bindings.forEach(({ cell, editNode, readValue }) => {
-      replaceChildren(cell, editing ? editNode : displayReadOnlyValue(readValue(row)));
+      if (editing) {
+        if (cell.firstChild !== editNode) {
+          replaceChildren(cell, editNode);
+        }
+        return;
+      }
+      replaceChildren(cell, displayReadOnlyValue(readValue(row)));
     });
   }
-  function updateEditableCellBindingInputs(bindings, row) {
-    bindings.forEach(({ setEditValue }) => {
+  function updateInactiveEditableCellBindingInputs(bindings, row, editing) {
+    const activeElement = document.activeElement;
+    bindings.forEach(({ editNode, setEditValue }) => {
+      if (editing && activeElement instanceof Node && (editNode === activeElement || "contains" in editNode && editNode.contains(activeElement))) {
+        return;
+      }
       setEditValue(row);
     });
   }
@@ -8786,7 +8824,7 @@
           node: rowNode,
           set(nextRow) {
             currentRow = nextRow;
-            updateEditableCellBindingInputs(bindings, nextRow);
+            updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing());
             editController.sync(nextRow);
           }
         };
@@ -8878,7 +8916,7 @@
           node: rowNode,
           set(nextRow) {
             currentRow = nextRow;
-            updateEditableCellBindingInputs(bindings, nextRow);
+            updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing());
             editController.sync(nextRow);
           }
         };
@@ -8962,7 +9000,7 @@
           node: rowNode,
           set(nextRow) {
             currentRow = nextRow;
-            updateEditableCellBindingInputs(bindings, nextRow);
+            updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing());
             editController.sync(nextRow);
           }
         };
@@ -9308,7 +9346,7 @@
           node: rowNode,
           set(nextRow) {
             currentRow = nextRow;
-            updateEditableCellBindingInputs(bindings, nextRow);
+            updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing());
             editController.sync(nextRow);
           }
         };
@@ -9523,7 +9561,7 @@
           node: fragment,
           set(nextRow) {
             currentRow = nextRow;
-            updateEditableCellBindingInputs(bindings, nextRow);
+            updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing());
             replaceChildren(totalPricePerShareCell, nextRow.totalPricePerShare);
             replaceChildren(capitalRepaymentPerShareCell, nextRow.capitalRepaymentPerShare);
             replaceChildren(remainingCostPerShareCell, nextRow.remainingCostPerShare);
@@ -9708,7 +9746,7 @@
           node: rowNode,
           set(nextRow) {
             currentRow = nextRow;
-            updateEditableCellBindingInputs(bindings, nextRow);
+            updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing());
             replaceChildren(shareCountCell, nextRow.shareCount);
             replaceChildren(
               capitalRepaymentTotalCell,

@@ -1166,12 +1166,30 @@ type EditableCellBinding<TRow> = {
 
 function syncEditableCellBindings<TRow>(bindings: EditableCellBinding<TRow>[], row: TRow, editing: boolean) {
   bindings.forEach(({ cell, editNode, readValue }) => {
-    replaceChildren(cell, editing ? editNode : displayReadOnlyValue(readValue(row)))
+    if (editing) {
+      if (cell.firstChild !== editNode) {
+        replaceChildren(cell, editNode)
+      }
+      return
+    }
+    replaceChildren(cell, displayReadOnlyValue(readValue(row)))
   })
 }
 
-function updateEditableCellBindingInputs<TRow>(bindings: EditableCellBinding<TRow>[], row: TRow) {
-  bindings.forEach(({ setEditValue }) => {
+function updateInactiveEditableCellBindingInputs<TRow>(
+  bindings: EditableCellBinding<TRow>[],
+  row: TRow,
+  editing: boolean
+) {
+  const activeElement = document.activeElement
+  bindings.forEach(({ editNode, setEditValue }) => {
+    if (
+      editing &&
+      activeElement instanceof Node &&
+      (editNode === activeElement || ('contains' in editNode && editNode.contains(activeElement)))
+    ) {
+      return
+    }
     setEditValue(row)
   })
 }
@@ -1301,7 +1319,7 @@ function createMathematicalShareValuesEditor(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          updateEditableCellBindingInputs(bindings, nextRow)
+          updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing())
           editController.sync(nextRow)
         },
       }
@@ -1410,7 +1428,7 @@ function createShareSplitsSection(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          updateEditableCellBindingInputs(bindings, nextRow)
+          updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing())
           editController.sync(nextRow)
         },
       }
@@ -1512,7 +1530,7 @@ function createDemergersSection(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          updateEditableCellBindingInputs(bindings, nextRow)
+          updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing())
           editController.sync(nextRow)
         },
       }
@@ -1927,7 +1945,7 @@ function createSellsSection(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          updateEditableCellBindingInputs(bindings, nextRow)
+          updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing())
           editController.sync(nextRow)
         },
       }
@@ -2164,7 +2182,7 @@ function createSubscriptionsSection(
         node: fragment,
         set(nextRow) {
           currentRow = nextRow
-          updateEditableCellBindingInputs(bindings, nextRow)
+          updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing())
           replaceChildren(totalPricePerShareCell, nextRow.totalPricePerShare)
           replaceChildren(capitalRepaymentPerShareCell, nextRow.capitalRepaymentPerShare)
           replaceChildren(remainingCostPerShareCell, nextRow.remainingCostPerShare)
@@ -2390,7 +2408,7 @@ function createCashDistributionsSection(
         node: rowNode,
         set(nextRow) {
           currentRow = nextRow
-          updateEditableCellBindingInputs(bindings, nextRow)
+          updateInactiveEditableCellBindingInputs(bindings, nextRow, editController.isEditing())
           replaceChildren(shareCountCell, nextRow.shareCount)
           replaceChildren(
             capitalRepaymentTotalCell,
