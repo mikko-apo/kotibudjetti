@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, expectTypeOf, it } from 'vitest'
-import { createState } from '../../../ki-frame/src'
-import { div, input, text } from '../../../ki-frame/src/domBuilder'
-import { setJsdomDoc } from '../../../ki-frame/src/tests/testUtil'
+import { createState } from '../../../../ki-frame/src'
+import { div, input, text } from '../../../../ki-frame/src/domBuilder'
+import { setJsdomDoc } from '../../../../ki-frame/src/tests/testUtil'
 import {
   type CollectionPath,
   createTextNodesFromState,
@@ -10,7 +10,7 @@ import {
   mapStatePathToInput,
   persistState,
   type StatePath,
-} from './ki-frame-extensions'
+} from '../ki-frame-extensions'
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()

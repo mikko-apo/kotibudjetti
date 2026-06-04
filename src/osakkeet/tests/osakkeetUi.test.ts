@@ -4,8 +4,8 @@ import {
   CompressionStream as NodeCompressionStream,
   DecompressionStream as NodeDecompressionStream,
 } from 'node:stream/web'
-import { setCreateElementContext } from '../../../ki-frame/src/domBuilder'
-import { osakkeetIpoCalculatorPage } from './osakkeetUi'
+import { setCreateElementContext } from '../../../../ki-frame/src/domBuilder'
+import { osakkeetIpoCalculatorPage } from '../osakkeetUi'
 
 function setOsakkeetDom(url = 'https://example.test/') {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { parseShareCalculatorInputs } from './osakkeetParsedData'
-import { createShareCalculator } from './shareCalculator'
+import { parseShareCalculatorInputs } from '../osakkeetParsedData'
+import { createShareCalculator } from '../shareCalculator'
 
 describe(createShareCalculator, () => {
   it('tracks remaining shares and acquisition cost through splits capital repayments and sells', () => {

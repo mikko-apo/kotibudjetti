@@ -4,9 +4,9 @@ import {
   calculateOsakkeet,
   type OsakkeetTaxRules,
   yearlyTaxCalculator,
-} from './osakkeetCalculator'
-import { getOsakkeetLocalization } from './osakkeetLocalizations'
-import type { OsakkeetFormData } from './osakkeetTypes'
+} from '../osakkeetCalculator'
+import { getOsakkeetLocalization } from '../osakkeetLocalizations'
+import type { OsakkeetFormData } from '../osakkeetTypes'
 
 const localization = getOsakkeetLocalization('fi')
 
