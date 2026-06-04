@@ -1,6 +1,7 @@
 import type { OsakkeetCalculation } from './osakkeetUiCalculator'
 import { amount, euro, multiplier, percentage } from './osakkeetFormat'
 import type { OsakkeetLocalization } from './osakkeetLocalizations'
+import type { WorkingLot } from './osakkeetParsedData'
 import type { ShareCalculatorLogEntry } from './shareCalculatorTypes'
 
 type FixedSummaryValue = OsakkeetCalculation['vesting']['totalShares']
@@ -144,6 +145,18 @@ export function createSubscriptionHistoryRows(
   })
 }
 
+function getTotalPricePerShare(lot: WorkingLot) {
+  return lot.shareCount.gt(0) ? lot.baseShareAcquisitionCost.div(lot.shareCount) : lot.baseShareAcquisitionCost.mul(0)
+}
+
+function getCapitalRepaymentPerShare(lot: WorkingLot) {
+  return lot.shareCount.gt(0) ? lot.capitalRepaymentTotal.div(lot.shareCount) : lot.capitalRepaymentTotal.mul(0)
+}
+
+function getRemainingCostPerShare(lot: WorkingLot) {
+  return lot.shareCount.gt(0) ? lot.shareAcquisitionCost.div(lot.shareCount) : lot.shareAcquisitionCost.mul(0)
+}
+
 export function createSubscriptionHistoryTooltip(historyRows: SubscriptionHistoryRow[], texts: OsakkeetLocalization) {
   if (historyRows.length === 0) return texts.subscriptions.history.empty
   const header = [
@@ -165,18 +178,17 @@ export function createTotalPricePerShareTooltip(
   texts: OsakkeetLocalization
 ) {
   if (!summary) return ''
-  const explanation = summary.acquisitionCostExplanation
 
   const lines = [
     texts.subscriptions.fields.totalPricePerShareTooltipBase(
-      amount(explanation.originalAmount),
-      euro(explanation.originalPricePerShare),
-      euro(explanation.originalOtherTotalAcquisitionCosts),
-      euro(explanation.originalTotalPrice)
+      amount(summary.originalShareCount),
+      euro(summary.originalSharePrice),
+      euro(summary.originalOtherTotalAcquisitionCosts),
+      euro(summary.originalShareAcquisitionCost)
     ),
   ]
 
-  for (const event of explanation.adjustments) {
+  for (const event of summary.acquisitionCostAdjustments) {
     if (event.kind === 'demerger') {
       lines.push(
         texts.subscriptions.fields.totalPricePerShareTooltipDemerger(
@@ -201,9 +213,9 @@ export function createTotalPricePerShareTooltip(
 
   lines.push(
     texts.subscriptions.fields.totalPricePerShareTooltipResult(
-      euro(summary.totalPrice),
-      amount(summary.amount),
-      euro(summary.totalPricePerShare)
+      euro(summary.baseShareAcquisitionCost),
+      amount(summary.shareCount),
+      euro(getTotalPricePerShare(summary))
     )
   )
   return lines.join('\n')
@@ -215,7 +227,7 @@ export function createRemainingCostPerShareTooltip(
 ) {
   if (!summary) return ''
 
-  const lines = [texts.subscriptions.fields.remainingCostPerShareTooltipBase(euro(summary.totalPrice))]
+  const lines = [texts.subscriptions.fields.remainingCostPerShareTooltipBase(euro(summary.baseShareAcquisitionCost))]
   for (const entry of summary.capitalRepaymentBreakdown) {
     lines.push(
       texts.subscriptions.fields.remainingCostPerShareTooltipCapitalRepayment(
@@ -228,11 +240,11 @@ export function createRemainingCostPerShareTooltip(
   }
   lines.push(
     texts.subscriptions.fields.remainingCostPerShareTooltipResult(
-      euro(summary.totalPrice),
+      euro(summary.baseShareAcquisitionCost),
       euro(summary.capitalRepaymentTotal),
-      euro(summary.remainingCostTotal),
-      amount(summary.amount),
-      euro(summary.remainingCostPerShare)
+      euro(summary.shareAcquisitionCost),
+      amount(summary.shareCount),
+      euro(getRemainingCostPerShare(summary))
     )
   )
 

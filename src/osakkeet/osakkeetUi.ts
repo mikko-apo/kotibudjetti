@@ -1747,6 +1747,7 @@ function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocaliza
 
   const renderIpoSaleTable = (ipoSale: OsakkeetCalculation['taxReturns']['years'][number]['ipoSale']) => {
     if (!ipoSale) return false
+    const { summary } = ipoSale
     return table(
       thead(
         tr(
@@ -1762,12 +1763,12 @@ function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocaliza
         )
       ),
       tbody(
-        ipoSale.entries.map((row) =>
+        summary.usedLots.map((row) =>
           tr(
-            td(row.subscriptionDate),
-            td(row.sellDate),
-            td(amount(row.soldShareCount)),
-            td(euro(row.grossSale)),
+            td(row.lotDate),
+            td(ipoSale.sellDate),
+            td(amount(row.soldAmount)),
+            td(euro(row.gross)),
             td(euro(row.actualDeduction)),
             td(euro(row.hankintamenoOlettaDeduction)),
             td(
@@ -1776,19 +1777,19 @@ function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocaliza
                 : t.taxReturns.fields.selectedMethodHmo
             ),
             td(euro(row.selectedDeduction)),
-            td(euro(row.taxableCapitalGain))
+            td(euro(row.taxableGain))
           )
         ),
         tr(
           td(b(t.summary.totalRow)),
           td(),
-          td(amount(ipoSale.soldShareCount)),
-          td(euro(ipoSale.grossSale)),
-          td(euro(ipoSale.actualDeductionTotal)),
-          td(euro(ipoSale.hankintamenoOlettaDeductionTotal)),
+          td(amount(sumDecimals(summary.usedLots.map((row) => row.soldAmount)))),
+          td(euro(summary.grossTotal)),
+          td(euro(sumDecimals(summary.usedLots.map((row) => row.actualDeduction)))),
+          td(euro(sumDecimals(summary.usedLots.map((row) => row.hankintamenoOlettaDeduction)))),
           td(),
-          td(euro(ipoSale.selectedDeductionTotal)),
-          td(euro(ipoSale.taxableCapitalGain))
+          td(euro(summary.selectedDeductionTotal)),
+          td(euro(summary.taxableGainTotal))
         )
       )
     )
@@ -1823,9 +1824,9 @@ function taxSummarySection(calculation: OsakkeetCalculation, t: OsakkeetLocaliza
             renderIpoSaleTable(yearSummary.ipoSale),
             div(
               pageStyles.summaryGrid,
-              infoCard(t.summary.ipoSell.cards.ipoCostsAllocated, euro(yearSummary.ipoSale.totalIpoCostAllocated)),
-              infoCard(t.summary.ipoSell.cards.taxMan, euro(yearSummary.ipoSale.estimatedTax)),
-              infoCard(t.summary.ipoSell.cards.netCash, euro(yearSummary.ipoSale.netCash))
+              infoCard(t.summary.ipoSell.cards.ipoCostsAllocated, euro(yearSummary.ipoSale.summary.totalAllocatedSellCost)),
+              infoCard(t.summary.ipoSell.cards.taxMan, euro(yearSummary.ipoSale.summary.estimatedTax)),
+              infoCard(t.summary.ipoSell.cards.netCash, euro(yearSummary.ipoSale.summary.netAfterTaxAndSellCost))
             )
           )
       )
@@ -2004,10 +2005,16 @@ function createSubscriptionRowViewModel(
     amount: subscription.amount,
     pricePerShare: subscription.pricePerShare || '',
     otherTotalAcquisitionCosts: subscription.otherTotalAcquisitionCosts || '',
-    totalPricePerShare: summary ? euro(summary.totalPricePerShare) : '-',
+    totalPricePerShare: summary
+      ? euro(summary.shareCount.gt(0) ? summary.baseShareAcquisitionCost.div(summary.shareCount) : summary.baseShareAcquisitionCost.mul(0))
+      : '-',
     capitalRepaymentTotal: summary ? euro(summary.capitalRepaymentTotal) : '-',
-    capitalRepaymentPerShare: summary ? euro(summary.capitalRepaymentPerShare) : '-',
-    remainingCostPerShare: summary ? euro(summary.remainingCostPerShare) : '-',
+    capitalRepaymentPerShare: summary
+      ? euro(summary.shareCount.gt(0) ? summary.capitalRepaymentTotal.div(summary.shareCount) : summary.capitalRepaymentTotal.mul(0))
+      : '-',
+    remainingCostPerShare: summary
+      ? euro(summary.shareCount.gt(0) ? summary.shareAcquisitionCost.div(summary.shareCount) : summary.shareAcquisitionCost.mul(0))
+      : '-',
     historyRows,
     historyTooltip: createSubscriptionHistoryTooltip(historyRows, texts),
     showHistoryLabel: texts.subscriptions.history.show,
