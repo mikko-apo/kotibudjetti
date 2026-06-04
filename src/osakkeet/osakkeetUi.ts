@@ -26,7 +26,7 @@ import {
 } from '../../../ki-frame/src/domBuilder'
 import { events } from '../../../ki-frame/src/domBuilderEvents'
 import { setStyle, styles } from '../../../ki-frame/src/domBuilderStyles'
-import { calculateOsakkeet, type OsakkeetCalculation } from './osakkeetCalculator'
+import { calculateOsakkeet, type OsakkeetCalculation } from './osakkeetUiCalculator'
 import type { OsakkeetFormData } from './osakkeetTypes'
 import {
   createComputedTextState,

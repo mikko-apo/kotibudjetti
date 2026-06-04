@@ -1,4 +1,4 @@
-import type { OsakkeetCalculation } from './osakkeetCalculator'
+import type { OsakkeetCalculation } from './osakkeetUiCalculator'
 import { amount, euro, multiplier, percentage } from './osakkeetFormat'
 import type { OsakkeetLocalization } from './osakkeetLocalizations'
 import type { ShareCalculatorLogEntry } from './shareCalculator'

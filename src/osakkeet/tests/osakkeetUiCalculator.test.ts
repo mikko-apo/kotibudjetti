@@ -4,7 +4,7 @@ import {
   calculateOsakkeet,
   type OsakkeetTaxRules,
   yearlyTaxCalculator,
-} from '../osakkeetCalculator'
+} from '../osakkeetUiCalculator'
 import { getOsakkeetLocalization } from '../osakkeetLocalizations'
 import type { OsakkeetFormData } from '../osakkeetTypes'
 
