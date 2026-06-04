@@ -558,10 +558,24 @@ export function mapStateToDomChildren(
     row.mountedNodes = []
   }
 
+  const rowContainsNode = (
+    row: MountedMapStateToDomChildrenRow<unknown, unknown>,
+    target: Node | null
+  ) => {
+    if (!target) return false
+    return row.mountedNodes.some(
+      (node) =>
+        node === target ||
+        ('contains' in node &&
+          typeof (node as { contains?: unknown }).contains === 'function' &&
+          (node as unknown as Node & ParentNode).contains(target))
+    )
+  }
+
   const sync = (stateValue: unknown) => {
     const items = itemsSelector(stateValue)
     const nextKeys = new Set<Key>()
-    let insertionPoint = root.firstChild as ChildNode | null
+    const orderedRows: Array<{ key: Key; row: MountedMapStateToDomChildrenRow<unknown, unknown> }> = []
 
     items.forEach((item, index) => {
       const key = keySelector(item, index, stateValue)
@@ -576,9 +590,32 @@ export function mapStateToDomChildren(
         row = createdRow
       }
       row.set?.(item, index, stateValue)
-      placeRowBefore(row, insertionPoint)
-      insertionPoint = row.mountedNodes[row.mountedNodes.length - 1]?.nextSibling || null
+      orderedRows.push({ key, row })
     })
+
+    const activeElement = document.activeElement instanceof Node ? document.activeElement : null
+    const pinnedRowIndex =
+      activeElement == null ? -1 : orderedRows.findIndex(({ row }) => rowContainsNode(row, activeElement))
+
+    if (pinnedRowIndex === -1) {
+      let insertionPoint = root.firstChild as ChildNode | null
+      orderedRows.forEach(({ row }) => {
+        placeRowBefore(row, insertionPoint)
+        insertionPoint = row.mountedNodes[row.mountedNodes.length - 1]?.nextSibling || null
+      })
+    } else {
+      const pinnedRow = orderedRows[pinnedRowIndex]?.row
+      const pinnedFirstNode = pinnedRow?.mountedNodes[0] || null
+      orderedRows.slice(0, pinnedRowIndex).forEach(({ row }) => {
+        placeRowBefore(row, pinnedFirstNode)
+      })
+
+      let insertionPoint = pinnedRow?.mountedNodes[pinnedRow.mountedNodes.length - 1]?.nextSibling || null
+      orderedRows.slice(pinnedRowIndex + 1).forEach(({ row }) => {
+        placeRowBefore(row, insertionPoint)
+        insertionPoint = row.mountedNodes[row.mountedNodes.length - 1]?.nextSibling || null
+      })
+    }
 
     for (const [key, row] of Array.from(rows.entries())) {
       if (nextKeys.has(key)) continue

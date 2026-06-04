@@ -559,6 +559,108 @@ describe('osakkeet UI', () => {
     expect(firstColumnTexts('Osakkeiden myynnit')).toEqual(['-', ''])
   })
 
+  it('keeps focus in an edited row input while typing', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        subscriptions: [],
+        sells: [
+          {
+            id: 'sell-1',
+            date: '06.02.2025',
+            shareCount: '5',
+            sellPrice: '50',
+            pricePerShare: '10',
+          },
+        ],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        ipo: {
+          ipoDate: '',
+          totalShareCount: '',
+          totalIpoCost: '',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        sell: {
+          amount: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('subscriptionsAndSales')
+    doubleClickRow('Osakkeiden myynnit', 0)
+
+    const firstInput = findSectionCard('Osakkeiden myynnit').querySelector('tbody input') as HTMLInputElement
+    firstInput.focus()
+    firstInput.value = '07.02.2025'
+    firstInput.dispatchEvent(new window.Event('input', { bubbles: true }))
+
+    expect(document.activeElement).toBe(firstInput)
+  })
+
+  it('keeps the focused row node in place and moves other rows around it when sorting changes', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        subscriptions: [],
+        sells: [
+          {
+            id: 'sell-1',
+            date: '06.02.2025',
+            shareCount: '5',
+            sellPrice: '50',
+            pricePerShare: '10',
+          },
+          {
+            id: 'sell-2',
+            date: '07.02.2025',
+            shareCount: '3',
+            sellPrice: '30',
+            pricePerShare: '10',
+          },
+        ],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        ipo: {
+          ipoDate: '',
+          totalShareCount: '',
+          totalIpoCost: '',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        sell: {
+          amount: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('subscriptionsAndSales')
+    doubleClickRow('Osakkeiden myynnit', 1)
+
+    const editedRow = mainTableRows('Osakkeiden myynnit')[1]
+    const dateInput = editedRow.querySelector('input') as HTMLInputElement
+    dateInput.focus()
+    dateInput.value = '05.02.2025'
+    dateInput.dispatchEvent(new window.Event('input', { bubbles: true }))
+
+    expect(mainTableRows('Osakkeiden myynnit')[0]).toBe(dateInput.closest('tr'))
+    expect(firstColumnTexts('Osakkeiden myynnit')[1]).toBe('06.02.2025')
+    expect(dateInput.isConnected).toBe(true)
+    expect(dateInput.value).toBe('05.02.2025')
+    expect(document.activeElement).toBe(dateInput)
+  })
+
   it('toggles subscription history on double click instead of editing the row', async () => {
     await renderOsakkeetPage()
     clickButton('Medium, 8v')
