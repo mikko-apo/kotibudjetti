@@ -1,12 +1,5 @@
 import { mergeStates, type State } from '../../../ki-frame/src'
-import {
-  b,
-  div,
-  h2,
-  replaceChildren,
-  section,
-  span,
-} from '../../../ki-frame/src/domBuilder'
+import { b, div, h2, replaceChildren, section, span } from '../../../ki-frame/src/domBuilder'
 import { calculateOsakkeet, type OsakkeetCalculation } from './osakkeetUiCalculator'
 import type { OsakkeetFormData } from './osakkeetTypes'
 import {
@@ -42,11 +35,7 @@ import { createIpoSection, createResultsSection } from './osakkeetUiOutcomeSecti
 import { createTaxSummarySection, createTopSection } from './osakkeetUiPageSections'
 import { createActionButton } from './osakkeetUiUtils'
 import { pageStyles } from './osakkeetUiStyles'
-import {
-  createId,
-  createOsakkeetFormData,
-  tryLoadLanguage,
-} from './osakkeetUiBootstrap'
+import { createId, createOsakkeetFormData, tryLoadLanguage } from './osakkeetUiBootstrap'
 
 function currentModificationTimestamp() {
   return new Date().toISOString()
@@ -278,7 +267,6 @@ function createMainSectionStats(
   ]
 }
 
-
 type OsakkeetPageReadModel = {
   formData: OsakkeetFormData
   languageSelection: Language
@@ -334,12 +322,7 @@ function renderOsakkeetIpoCalculatorPage(
     localizedTextNodes,
     initialStatus
   )
-  const subscriptionsSection = createSubscriptionsSection(
-    dataState,
-    pageReadState,
-    localizedTextNodes,
-    commonTextNodes
-  )
+  const subscriptionsSection = createSubscriptionsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes)
   const sellsSection = createSellsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes)
   const cashDistributionsSection = createCashDistributionsSection(
     dataState,

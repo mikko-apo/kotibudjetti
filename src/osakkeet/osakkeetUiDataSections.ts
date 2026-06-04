@@ -1,7 +1,21 @@
 import { type State } from '../../../ki-frame/src'
-import { div, h2, h3, p, replaceChildren, section, span, table, tbody, td, th, thead, tr } from '../../../ki-frame/src/domBuilder'
+import {
+  div,
+  h2,
+  h3,
+  p,
+  replaceChildren,
+  section,
+  span,
+  table,
+  tbody,
+  td,
+  th,
+  thead,
+  tr,
+} from '../../../ki-frame/src/domBuilder'
 import { setStyle } from '../../../ki-frame/src/domBuilderStyles'
-import { amount, euro } from './osakkeetFormat'
+import { amount, euro, formatDateLabel } from './osakkeetFormat'
 import { createAppendCollectionRow } from './osakkeetFormData'
 import {
   createEditableCollectionTable,
@@ -200,6 +214,10 @@ export function createSubscriptionsSection(
     subscriptionTextNodes.fields.totalReimbursements,
     ''
   )
+  const remainingShareCountHeaderNode = th()
+  replaceChildrenFromState(pageReadState, remainingShareCountHeaderNode, ({ texts }) => [
+    texts.subscriptions.fields.remainingShareCountCurrentDate(formatDateLabel(new Date())),
+  ])
   const rowsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
     withSummaryRows(
       sortRowsByDate(osakkeetCalculation.formData.subscriptions),
@@ -236,6 +254,7 @@ export function createSubscriptionsSection(
       const dateCell = td()
       const vestingEndsOnCell = td()
       const amountCell = td()
+      const remainingShareCountCell = td()
       const pricePerShareCell = td()
       const otherTotalAcquisitionCostsCell = td()
       const totalPricePerShareCell = td()
@@ -279,8 +298,9 @@ export function createSubscriptionsSection(
         },
       ]
       const historyContainer = div()
-      const detailRow = tr(td({ colSpan: 11 }, pageStyles.historyCell, historyContainer))
+      const detailRow = tr(td({ colSpan: 12 }, pageStyles.historyCell, historyContainer))
       const syncSummaryCells = (nextRow: typeof row) => {
+        replaceChildren(remainingShareCountCell, nextRow.summary ? amount(nextRow.summary.shareCount) : '-')
         replaceChildren(
           totalPricePerShareCell,
           nextRow.summary
@@ -335,6 +355,7 @@ export function createSubscriptionsSection(
         dateCell,
         vestingEndsOnCell,
         amountCell,
+        remainingShareCountCell,
         pricePerShareCell,
         otherTotalAcquisitionCostsCell,
         totalPricePerShareCell,
@@ -429,7 +450,8 @@ export function createSubscriptionsSection(
         tr(
           th(commonTextNodes.date),
           th(vestingEndsOnHeaderNode),
-          th(commonTextNodes.amount),
+          th(subscriptionTextNodes.fields.originalShareCount),
+          remainingShareCountHeaderNode,
           th(subscriptionTextNodes.fields.pricePerShare),
           th(otherTotalAcquisitionCostsHeaderNode),
           th(subscriptionTextNodes.fields.totalPricePerShare),
@@ -460,7 +482,8 @@ export function createSubscriptionsSection(
     const current = osakkeetCalculation.formData
     counter.setCount(current.subscriptions.length, texts.common.rows)
     ;(vestingEndsOnHeaderNode as HTMLElement).title = texts.subscriptions.fields.vestingEndsOnHelp
-    ;(otherTotalAcquisitionCostsHeaderNode as HTMLElement).title = texts.subscriptions.fields.otherTotalAcquisitionCostsHelp
+    ;(otherTotalAcquisitionCostsHeaderNode as HTMLElement).title =
+      texts.subscriptions.fields.otherTotalAcquisitionCostsHelp
     ;(totalReimbursementsHeaderNode as HTMLElement).title = texts.subscriptions.fields.totalReimbursementsHelp
   })
 }
@@ -473,15 +496,30 @@ export function createCashDistributionsSection(
 ) {
   const counter = createSectionCounter()
   const cashDistributionTextNodes = localizedTextNodes.cashDistributions
-  const withholdingHeaderNode = withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, cashDistributionTextNodes.fields.withholding, '')
-  const cashPaidHeaderNode = withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, cashDistributionTextNodes.fields.cashPaid, '')
+  const withholdingHeaderNode = withHoverInfo(
+    pageStyles.hoverInfo,
+    pageStyles.hoverInfoIcon,
+    cashDistributionTextNodes.fields.withholding,
+    ''
+  )
+  const cashPaidHeaderNode = withHoverInfo(
+    pageStyles.hoverInfo,
+    pageStyles.hoverInfoIcon,
+    cashDistributionTextNodes.fields.cashPaid,
+    ''
+  )
   const capitalRepaymentHeaderNode = withHoverInfo(
     pageStyles.hoverInfo,
     pageStyles.hoverInfoIcon,
     cashDistributionTextNodes.fields.capitalRepayment,
     ''
   )
-  const dividendHeaderNode = withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, cashDistributionTextNodes.fields.dividend, '')
+  const dividendHeaderNode = withHoverInfo(
+    pageStyles.hoverInfo,
+    pageStyles.hoverInfoIcon,
+    cashDistributionTextNodes.fields.dividend,
+    ''
+  )
   const rowsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
     withSummaryRows(
       sortRowsByDate(osakkeetCalculation.formData.cashDistributions),

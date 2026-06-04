@@ -18,7 +18,13 @@ import {
   type WorkingLot,
 } from './osakkeetParsedData'
 import type { SellSummary } from './osakkeetSellCalculator'
-import type { TaxReturnAssetSummary, TaxReturnIpoSaleSummary, TaxReturnSectionSummary, TaxReturnTotals, TaxReturnYearSummary } from './osakkeetTaxReturnTypes'
+import type {
+  TaxReturnAssetSummary,
+  TaxReturnIpoSaleSummary,
+  TaxReturnSectionSummary,
+  TaxReturnTotals,
+  TaxReturnYearSummary,
+} from './osakkeetTaxReturnTypes'
 import type { OsakkeetFormData } from './osakkeetTypes'
 import { createShareCalculator, type ShareCalculator, type ShareCalculatorError } from './shareCalculator'
 import { compareDateStrings, isWithinYearsInclusive, sumDecimals } from './osakkeetUtils'
@@ -640,26 +646,26 @@ function buildTaxReturnYearSummaries(
       assets,
       unlisted:
         unlistedEntries.length > 0
-          ? {
+          ? ({
               mode: 'unlisted' as const,
               entries: unlistedEntries,
               totals: createTaxReturnTotals(unlistedEntries),
-            } satisfies TaxReturnSectionSummary<CashDistributionSummary>
+            } satisfies TaxReturnSectionSummary<CashDistributionSummary>)
           : undefined,
       listed:
         listedEntries.length > 0
-          ? {
+          ? ({
               mode: 'listed' as const,
               entries: listedEntries,
               totals: createTaxReturnTotals(listedEntries),
-            } satisfies TaxReturnSectionSummary<CashDistributionSummary>
+            } satisfies TaxReturnSectionSummary<CashDistributionSummary>)
           : undefined,
       ipoSale:
         ipoYear === year && ipoSell.grossTotal.gt(0)
-          ? {
+          ? ({
               sellDate: ipoDate!.toISOString().slice(0, 10),
               summary: ipoSell,
-            } satisfies TaxReturnIpoSaleSummary
+            } satisfies TaxReturnIpoSaleSummary)
           : undefined,
     } satisfies TaxReturnYearSummary<CashDistributionSummary>
   })
@@ -694,7 +700,9 @@ export function calculateOsakkeet(
   )
   mapShareCalculatorErrors(baseShareCalculatorErrors, errors)
 
-  const ipoLots = baseLots.map((lot) => deriveWorkingLot(lot, baseShareCalculator, { atDate: ipoDate, inclusive: true }))
+  const ipoLots = baseLots.map((lot) =>
+    deriveWorkingLot(lot, baseShareCalculator, { atDate: ipoDate, inclusive: true })
+  )
   const totalSubscribedShares = sumDecimals(ipoLots.map((lot) => lot.shareCount))
   const { ipoSellAmount, otherAnnualCapitalGainsOrLosses, ipo } = buildIpoSummaryFromInputs(
     parsedIpo.ipo,

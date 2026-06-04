@@ -1,8 +1,5 @@
 import { DEFAULT_EXAMPLE_PRESET, createExampleOsakkeetFormData } from './osakkeetExamples'
-import {
-  createBlankOsakkeetFormData,
-  createEmptyCollectionRow,
-} from './osakkeetFormData'
+import { createBlankOsakkeetFormData, createEmptyCollectionRow } from './osakkeetFormData'
 import { storageKeys } from './osakkeetPersistence'
 import type { OsakkeetFormData } from './osakkeetTypes'
 
