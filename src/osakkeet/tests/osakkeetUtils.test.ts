@@ -1,6 +1,6 @@
 import Decimal from 'decimal.js'
 import { describe, expect, it } from 'vitest'
-import { amount, euro, multiplier, percentage } from './osakkeetFormat'
+import { amount, euro, multiplier, percentage } from '../osakkeetFormat'
 import {
   compareDateStrings,
   isAtLeastYears,
@@ -8,7 +8,7 @@ import {
   parseSupportedDate,
   parseSupportedTimestampOrDate,
   sumDecimals,
-} from './osakkeetUtils'
+} from '../osakkeetUtils'
 
 describe(parseSupportedDate, () => {
   it('parses Finnish and ISO date formats as UTC dates', () => {

@@ -1,7 +1,8 @@
-import type { OsakkeetCalculation } from './osakkeetCalculator'
-import { amount, euro, multiplier, percentage } from './osakkeetFormat'
+import type { OsakkeetCalculation } from './osakkeetUiCalculator'
+import { amount, createSharePercentFormatter, euro, formatDateLabel, multiplier } from './osakkeetFormat'
 import type { OsakkeetLocalization } from './osakkeetLocalizations'
-import type { ShareCalculatorLogEntry } from './shareCalculator'
+import type { WorkingLot } from './osakkeetParsedData'
+import type { ShareCalculatorLogEntry } from './shareCalculatorTypes'
 
 type FixedSummaryValue = OsakkeetCalculation['vesting']['totalShares']
 export type SubscriptionHistoryRow = {
@@ -26,12 +27,15 @@ function capitalRepaymentDividendReasonText(
   return texts.subscriptions.fields.capitalRepaymentPerShareTooltipReasonListedDividend
 }
 
-export function createSummaryById<TSummary extends { id: string }>(summaries: TSummary[]) {
-  const summariesById: Record<string, TSummary | undefined> = {}
-  summaries.forEach((summary) => {
-    summariesById[summary.id] = summary
-  })
-  return summariesById
+export function zipRowsWithSummaries<TRow extends { id: string }, TSummary extends { id: string }>(
+  rows: readonly TRow[],
+  summaries: readonly TSummary[]
+) {
+  const summariesById = new Map(summaries.map((summary) => [summary.id, summary]))
+  return rows.map((row) => ({
+    row,
+    summary: summariesById.get(row.id),
+  }))
 }
 
 export function createSubscriptionHistoryRows(
@@ -144,6 +148,14 @@ export function createSubscriptionHistoryRows(
   })
 }
 
+function getTotalPricePerShare(lot: WorkingLot) {
+  return lot.shareCount.gt(0) ? lot.baseShareAcquisitionCost.div(lot.shareCount) : lot.baseShareAcquisitionCost.mul(0)
+}
+
+function getRemainingCostPerShare(lot: WorkingLot) {
+  return lot.shareCount.gt(0) ? lot.shareAcquisitionCost.div(lot.shareCount) : lot.shareAcquisitionCost.mul(0)
+}
+
 export function createSubscriptionHistoryTooltip(historyRows: SubscriptionHistoryRow[], texts: OsakkeetLocalization) {
   if (historyRows.length === 0) return texts.subscriptions.history.empty
   const header = [
@@ -165,18 +177,17 @@ export function createTotalPricePerShareTooltip(
   texts: OsakkeetLocalization
 ) {
   if (!summary) return ''
-  const explanation = summary.acquisitionCostExplanation
 
   const lines = [
     texts.subscriptions.fields.totalPricePerShareTooltipBase(
-      amount(explanation.originalAmount),
-      euro(explanation.originalPricePerShare),
-      euro(explanation.originalOtherTotalAcquisitionCosts),
-      euro(explanation.originalTotalPrice)
+      amount(summary.originalShareCount),
+      euro(summary.originalSharePrice),
+      euro(summary.originalOtherTotalAcquisitionCosts),
+      euro(summary.originalShareAcquisitionCost)
     ),
   ]
 
-  for (const event of explanation.adjustments) {
+  for (const event of summary.acquisitionCostAdjustments) {
     if (event.kind === 'demerger') {
       lines.push(
         texts.subscriptions.fields.totalPricePerShareTooltipDemerger(
@@ -201,9 +212,9 @@ export function createTotalPricePerShareTooltip(
 
   lines.push(
     texts.subscriptions.fields.totalPricePerShareTooltipResult(
-      euro(summary.totalPrice),
-      amount(summary.amount),
-      euro(summary.totalPricePerShare)
+      euro(summary.baseShareAcquisitionCost),
+      amount(summary.shareCount),
+      euro(getTotalPricePerShare(summary))
     )
   )
   return lines.join('\n')
@@ -215,7 +226,7 @@ export function createRemainingCostPerShareTooltip(
 ) {
   if (!summary) return ''
 
-  const lines = [texts.subscriptions.fields.remainingCostPerShareTooltipBase(euro(summary.totalPrice))]
+  const lines = [texts.subscriptions.fields.remainingCostPerShareTooltipBase(euro(summary.baseShareAcquisitionCost))]
   for (const entry of summary.capitalRepaymentBreakdown) {
     lines.push(
       texts.subscriptions.fields.remainingCostPerShareTooltipCapitalRepayment(
@@ -228,29 +239,15 @@ export function createRemainingCostPerShareTooltip(
   }
   lines.push(
     texts.subscriptions.fields.remainingCostPerShareTooltipResult(
-      euro(summary.totalPrice),
+      euro(summary.baseShareAcquisitionCost),
       euro(summary.capitalRepaymentTotal),
-      euro(summary.remainingCostTotal),
-      amount(summary.amount),
-      euro(summary.remainingCostPerShare)
+      euro(summary.shareAcquisitionCost),
+      amount(summary.shareCount),
+      euro(getRemainingCostPerShare(summary))
     )
   )
 
   return lines.join('\n')
-}
-
-export function createSharePercent(totalShares: FixedSummaryValue) {
-  return (value: FixedSummaryValue) =>
-    totalShares.gt(0)
-      ? `${amount(value)} (${percentage(value.div(totalShares).mul(100))})`
-      : `${amount(value)} (0.00 %)`
-}
-
-function formatDateLabel(date: Date) {
-  const day = String(date.getDate()).padStart(2, '0')
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const year = String(date.getFullYear())
-  return `${day}.${month}.${year}`
 }
 
 export function createSubscriptionsSummaryCards(
@@ -261,7 +258,7 @@ export function createSubscriptionsSummaryCards(
   currentDate: Date,
   texts: OsakkeetLocalization
 ) {
-  const sharePercent = createSharePercent(totalShares)
+  const sharePercent = createSharePercentFormatter(totalShares)
   const referenceDate = formatDateLabel(currentDate)
   return [
     infoCard(texts.subscriptions.summary.totalShares, amount(totalShares)),

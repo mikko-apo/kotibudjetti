@@ -1,11 +1,17 @@
 import Decimal from 'decimal.js'
-import type {
-  CashDistributionInput,
-  DemergerInput,
-  ShareSellInput,
-  ShareSplitInput,
-  ShareSubscriptionInput,
-} from './osakkeetTypes'
+import {
+  hasParsedTimestamp,
+  parseEventTimestamp,
+  type ParsedCapitalRepaymentOrDividend,
+  type ParsedEvent,
+  type ParsedEventTimestamp,
+  type ParsedShareCalculatorInputs,
+  type ParsedSubscription,
+} from './osakkeetParsedData'
+import {
+  type ShareCalculatorLogEntry,
+  type ShareCalculatorSellForThisSubscriptionLogEntry,
+} from './shareCalculatorTypes'
 import { parseSupportedTimestampOrDate } from './osakkeetUtils'
 
 type ShareCalculatorRemainingValues = {
@@ -19,77 +25,15 @@ type ShareCalculatorLotState = {
   baseShareAcquisitionCost: Decimal
 }
 
-type ShareCalculatorSubscriptionLogEntry = {
-  kind: 'subscription'
-  id: string
-  date: string
-  shareCount: Decimal
-  shareAcquisitionCost: Decimal
-  originalSharePrice: Decimal
-  remainingAfter: ShareCalculatorRemainingValues
-}
-
-type ShareCalculatorSellForThisSubscriptionLogEntry = {
-  kind: 'sellForThisSubscription'
-  id: string
-  sellId: string
-  date: string
-  soldShareCount: Decimal
-  soldShareAcquisitionCost: Decimal
-  soldBaseShareAcquisitionCost: Decimal
-  sellPrice: Decimal
-  pricePerShare: Decimal
-  remainingAfter: ShareCalculatorRemainingValues
-}
-
-type ShareCalculatorCompanyShareCountChangeLogEntry = {
-  kind: 'companyShareCountChange'
-  id: string
-  changeId: string
-  date: string
-  type: string
-  shareCountMultiplier: Decimal
-  remainingAfter: ShareCalculatorRemainingValues
-}
-
-type ShareCalculatorCompanyAcquisitionCostChangeLogEntry = {
-  kind: 'companyAcquisitionCostChange'
-  id: string
-  changeId: string
-  date: string
-  type: string
-  shareAcquisitionCostMultiplier: Decimal
-  remainingAfter: ShareCalculatorRemainingValues
-}
-
-type ShareCalculatorCapitalRepaymentLogEntry = {
-  kind: 'capitalRepayment'
-  id: string
-  capitalRepaymentId: string
-  date: string
-  amountPerShare: Decimal
-  shareCountAtEvent: Decimal
-  appliedShareAcquisitionCost: Decimal
-  directedToDividendTotal: Decimal
-  dividendReason?: 'too_old' | 'no_remaining_cost' | 'remaining_cost_limit' | 'listed_dividend'
-  remainingAfter: ShareCalculatorRemainingValues
-}
-
-export type ShareCalculatorLogEntry =
-  | ShareCalculatorSubscriptionLogEntry
-  | ShareCalculatorSellForThisSubscriptionLogEntry
-  | ShareCalculatorCompanyShareCountChangeLogEntry
-  | ShareCalculatorCompanyAcquisitionCostChangeLogEntry
-  | ShareCalculatorCapitalRepaymentLogEntry
-
-export type ShareCalculatorSellForThisSubscriptionLot = Extract<
-  ShareCalculatorLogEntry,
-  { kind: 'sellForThisSubscription' }
->
-
-export type ShareCalculatorResult = {
+type ShareCalculatorResult = {
   remaining: ShareCalculatorRemainingValues
   log: ShareCalculatorLogEntry[]
+}
+
+export type ShareCalculator = {
+  sellsForThisSubscriptionLotsBySubscriptionId: Record<string, ShareCalculatorSellForThisSubscriptionLogEntry[]>
+  subscriptionIds: string[]
+  getRemainingCountAndAcquisitionCost(shareSubscriptionId: string, timestamp: string | Date): ShareCalculatorResult
 }
 
 export type ShareCalculatorError = {
@@ -97,64 +41,10 @@ export type ShareCalculatorError = {
   message: string
 }
 
-type ParsedEventTimestamp = {
-  date: string
-  timestampMs: number
-  calendarDayKey: string
-  dayKey?: string
+type CreateShareCalculatorResult = {
+  shareCalculator: ShareCalculator
+  errors: ShareCalculatorError[]
 }
-
-type ParsedSubscription = {
-  kind: 'subscription'
-  id: string
-  date: string
-  parsedTimestamp: ParsedEventTimestamp
-  shareCount: Decimal
-  shareAcquisitionCost: Decimal
-  originalSharePrice: Decimal
-}
-
-type ParsedSell = {
-  kind: 'sell'
-  id: string
-  date: string
-  parsedTimestamp: ParsedEventTimestamp
-  shareCount: Decimal
-  sellPrice: Decimal
-  pricePerShare: Decimal
-}
-
-type ParsedShareCountChange = {
-  kind: 'shareCountChange'
-  id: string
-  date: string
-  parsedTimestamp: ParsedEventTimestamp
-  shareCountMultiplier: Decimal
-}
-
-type ParsedAcquisitionCostChange = {
-  kind: 'acquisitionCostChange'
-  id: string
-  date: string
-  parsedTimestamp: ParsedEventTimestamp
-  shareAcquisitionCostMultiplier: Decimal
-}
-
-type ParsedCapitalRepaymentOrDividend = {
-  kind: 'capitalRepaymentOrDividend'
-  id: string
-  date: string
-  parsedTimestamp: ParsedEventTimestamp
-  type: 'capital_return' | 'dividend'
-  amountPerShare: Decimal
-}
-
-type ParsedEvent =
-  | ParsedSubscription
-  | ParsedSell
-  | ParsedShareCountChange
-  | ParsedAcquisitionCostChange
-  | ParsedCapitalRepaymentOrDividend
 
 type WorkingLotState = {
   id: string
@@ -167,234 +57,11 @@ type WorkingLotState = {
 
 type ShareCalculatorInternalState = {
   logsBySubscriptionId: Map<string, ShareCalculatorLogEntry[]>
-  sellsForThisSubscriptionLotsBySubscriptionId: Record<string, ShareCalculatorSellForThisSubscriptionLot[]>
+  sellsForThisSubscriptionLotsBySubscriptionId: Record<string, ShareCalculatorSellForThisSubscriptionLogEntry[]>
 }
 
 const zero = new Decimal(0)
 const CAPITAL_REPAYMENT_ELIGIBILITY_YEARS = 10
-
-function toDayKey(date: Date) {
-  return date.toISOString().slice(0, 10)
-}
-
-function parseEventTimestamp(date: string): ParsedEventTimestamp | undefined {
-  const parsed = parseSupportedTimestampOrDate(date.trim())
-  if (!parsed || Number.isNaN(parsed.getTime())) return undefined
-  const trimmed = date.trim()
-  const isDateOnly = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.test(trimmed) || /^(\d{4})-(\d{2})-(\d{2})$/.test(trimmed)
-  const isMidnightUtc =
-    parsed.getUTCHours() === 0 &&
-    parsed.getUTCMinutes() === 0 &&
-    parsed.getUTCSeconds() === 0 &&
-    parsed.getUTCMilliseconds() === 0
-
-  return {
-    date: trimmed,
-    timestampMs: parsed.getTime(),
-    calendarDayKey: toDayKey(parsed),
-    dayKey: isDateOnly || isMidnightUtc ? toDayKey(parsed) : undefined,
-  }
-}
-
-function parseDecimal(
-  value: string,
-  field: string,
-  errors: ShareCalculatorError[],
-  options?: { positive?: boolean; emptyAsZero?: boolean }
-) {
-  const trimmed = value.trim()
-  if (options?.emptyAsZero && trimmed === '') {
-    if (options.positive) {
-      errors.push({
-        kind: 'invalid_input',
-        message: `${field} must be greater than zero.`,
-      })
-    }
-    return zero
-  }
-  try {
-    const parsed = new Decimal(trimmed)
-    if (options?.positive && !parsed.gt(0)) {
-      errors.push({
-        kind: 'invalid_input',
-        message: `${field} must be greater than zero.`,
-      })
-    }
-    return parsed
-  } catch {
-    errors.push({
-      kind: 'invalid_input',
-      message: `${field} is not a valid number.`,
-    })
-    return zero
-  }
-}
-
-function parseOptionalDecimal(
-  value: string | undefined,
-  field: string,
-  errors: ShareCalculatorError[],
-  options?: { positive?: boolean }
-) {
-  const trimmed = (value || '').trim()
-  if (trimmed === '') return undefined
-  return parseDecimal(trimmed, field, errors, options)
-}
-
-function parseSubscriptionAcquisitionCost(input: ShareSubscriptionInput, errors: ShareCalculatorError[]) {
-  const shareCount = parseDecimal(input.amount, `Subscription ${input.id} amount`, errors, {
-    positive: true,
-    emptyAsZero: true,
-  })
-  const pricePerShare = parseDecimal(input.pricePerShare || '0', `Subscription ${input.id} pricePerShare`, [], {
-    emptyAsZero: true,
-  })
-  const otherTotalAcquisitionCosts = parseDecimal(
-    input.otherTotalAcquisitionCosts || '0',
-    `Subscription ${input.id} otherTotalAcquisitionCosts`,
-    [],
-    { emptyAsZero: true }
-  )
-  const fallbackTotalPrice = parseDecimal(input.totalPrice || '0', `Subscription ${input.id} totalPrice`, [], {
-    emptyAsZero: true,
-  })
-  const totalPrice = shareCount.mul(pricePerShare).add(otherTotalAcquisitionCosts)
-  const effectiveTotalPrice =
-    totalPrice.gt(0) ||
-    (input.pricePerShare || '').trim() !== '' ||
-    (input.otherTotalAcquisitionCosts || '').trim() !== ''
-      ? totalPrice
-      : fallbackTotalPrice
-
-  return {
-    shareCount,
-    shareAcquisitionCost: effectiveTotalPrice,
-    originalSharePrice: pricePerShare,
-  }
-}
-
-function parseSubscriptions(inputs: ShareSubscriptionInput[], errors: ShareCalculatorError[]) {
-  return inputs.map((input) => {
-    const parsedTimestamp = parseEventTimestamp(input.date)
-    if (!parsedTimestamp) {
-      errors.push({
-        kind: 'invalid_input',
-        message: `Subscription ${input.id} date is not valid.`,
-      })
-    }
-    const parsedValues = parseSubscriptionAcquisitionCost(input, errors)
-    return {
-      kind: 'subscription' as const,
-      id: input.id,
-      date: input.date,
-      parsedTimestamp,
-      shareCount: parsedValues.shareCount,
-      shareAcquisitionCost: parsedValues.shareAcquisitionCost,
-      originalSharePrice: parsedValues.originalSharePrice,
-    }
-  })
-}
-
-function parseSells(inputs: ShareSellInput[], errors: ShareCalculatorError[]) {
-  return inputs.map((input) => {
-    const parsedTimestamp = parseEventTimestamp(input.date)
-    if (!parsedTimestamp) {
-      errors.push({
-        kind: 'invalid_input',
-        message: `Sell ${input.id} date is not valid.`,
-      })
-    }
-    const shareCount = parseDecimal(input.shareCount, `Sell ${input.id} shareCount`, errors, { positive: true })
-    const pricePerShareInput = parseOptionalDecimal(input.pricePerShare, `Sell ${input.id} pricePerShare`, errors, {
-      positive: true,
-    })
-    const sellPriceInput = parseOptionalDecimal(input.sellPrice, `Sell ${input.id} sellPrice`, errors, {
-      positive: true,
-    })
-    if (!sellPriceInput && !pricePerShareInput) {
-      errors.push({
-        kind: 'invalid_input',
-        message: `Sell ${input.id} sellPrice or pricePerShare must be provided.`,
-      })
-    }
-    const sellPrice = sellPriceInput || (pricePerShareInput ? shareCount.mul(pricePerShareInput) : zero)
-    const pricePerShare = shareCount.gt(0) ? sellPrice.div(shareCount) : pricePerShareInput || zero
-    return {
-      kind: 'sell' as const,
-      id: input.id,
-      date: input.date,
-      parsedTimestamp,
-      shareCount,
-      sellPrice,
-      pricePerShare,
-    }
-  })
-}
-
-function parseShareSplits(inputs: ShareSplitInput[], errors: ShareCalculatorError[]) {
-  return inputs.map((input) => {
-    const parsedTimestamp = parseEventTimestamp(input.date)
-    if (!parsedTimestamp) {
-      errors.push({
-        kind: 'invalid_input',
-        message: `Share split ${input.id} date is not valid.`,
-      })
-    }
-    return {
-      kind: 'shareCountChange' as const,
-      id: input.id,
-      date: input.date,
-      parsedTimestamp,
-      shareCountMultiplier: parseDecimal(input.multiplier, `Share split ${input.id} multiplier`, errors, {
-        positive: true,
-      }),
-    }
-  })
-}
-
-function parseDemergers(inputs: DemergerInput[], errors: ShareCalculatorError[]) {
-  return inputs.map((input) => {
-    const parsedTimestamp = parseEventTimestamp(input.date)
-    if (!parsedTimestamp) {
-      errors.push({
-        kind: 'invalid_input',
-        message: `Demerger ${input.id} date is not valid.`,
-      })
-    }
-    return {
-      kind: 'acquisitionCostChange' as const,
-      id: input.id,
-      date: input.date,
-      parsedTimestamp,
-      shareAcquisitionCostMultiplier: parseDecimal(
-        input.oldCompanyRatio,
-        `Demerger ${input.id} oldCompanyRatio`,
-        errors,
-        { positive: true }
-      ),
-    }
-  })
-}
-
-function parseCashDistributions(inputs: CashDistributionInput[], errors: ShareCalculatorError[]) {
-  return inputs.map((input) => {
-    const parsedTimestamp = parseEventTimestamp(input.date)
-    if (!parsedTimestamp) {
-      errors.push({
-        kind: 'invalid_input',
-        message: `Cash distribution ${input.id} date is not valid.`,
-      })
-    }
-    return {
-      kind: 'capitalRepaymentOrDividend' as const,
-      id: input.id,
-      date: input.date,
-      parsedTimestamp,
-      type: input.type,
-      amountPerShare: parseDecimal(input.amountPerShare, `Cash distribution ${input.id} amountPerShare`, errors),
-    }
-  })
-}
 
 function getTimestampConflictDescription(event: ParsedEvent) {
   return `${event.kind}:${event.id}:${event.date}`
@@ -433,7 +100,7 @@ function collectTimestampConflicts(events: ParsedEvent[], errors: ShareCalculato
     })
   }
 
-  const eventsByCalendarDay = new Map<string, ParsedEvent[]>()
+  const eventsByCalendarDay = new Map<string, (ParsedEvent & { parsedTimestamp: ParsedEventTimestamp })[]>()
   parsedEvents.forEach((event) => {
     const existing = eventsByCalendarDay.get(event.parsedTimestamp.calendarDayKey) || []
     eventsByCalendarDay.set(event.parsedTimestamp.calendarDayKey, [...existing, event])
@@ -467,12 +134,6 @@ function collectTimestampConflicts(events: ParsedEvent[], errors: ShareCalculato
 
 function eventTimestampMs(event: ParsedEvent) {
   return event.parsedTimestamp?.timestampMs ?? Number.POSITIVE_INFINITY
-}
-
-function hasParsedTimestamp<T extends { parsedTimestamp?: ParsedEventTimestamp }>(
-  event: T
-): event is T & { parsedTimestamp: ParsedEventTimestamp } {
-  return !!event.parsedTimestamp
 }
 
 function sortEvents(events: ParsedEvent[]) {
@@ -795,38 +456,34 @@ function resolveStateFromLogEntries(
   }
 }
 
-export type ShareCalculatorOptions = {
+type ShareCalculatorOptions = {
   capitalReturnCutoffDateExclusive?: string | Date
 }
 
 export function createShareCalculator(
-  subscriptions: ShareSubscriptionInput[],
-  sells: ShareSellInput[],
-  shareSplits: ShareSplitInput[],
-  demergers: DemergerInput[],
-  cashDistributions: CashDistributionInput[] = [],
+  inputs: ParsedShareCalculatorInputs,
   options: ShareCalculatorOptions = {}
-) {
+): CreateShareCalculatorResult {
   const errors: ShareCalculatorError[] = []
   const capitalReturnCutoffTimestampMs =
     typeof options.capitalReturnCutoffDateExclusive === 'string'
       ? parseSupportedTimestampOrDate(options.capitalReturnCutoffDateExclusive.trim())?.getTime()
       : options.capitalReturnCutoffDateExclusive?.getTime()
   const parsedEvents = [
-    ...parseSubscriptions(subscriptions, errors),
-    ...parseSells(sells, errors),
-    ...parseShareSplits(shareSplits, errors),
-    ...parseDemergers(demergers, errors),
-    ...parseCashDistributions(cashDistributions, errors),
+    ...inputs.subscriptions,
+    ...inputs.sells,
+    ...inputs.shareSplits,
+    ...inputs.demergers,
+    ...inputs.cashDistributions,
   ].filter(hasParsedTimestamp)
 
   collectTimestampConflicts(parsedEvents, errors)
 
   const internalState = processEvents(parsedEvents, errors, { capitalReturnCutoffTimestampMs })
 
-  const shareCalculator = {
+  const shareCalculator: ShareCalculator = {
     sellsForThisSubscriptionLotsBySubscriptionId: internalState.sellsForThisSubscriptionLotsBySubscriptionId,
-    subscriptionIds: subscriptions.map((subscription) => subscription.id),
+    subscriptionIds: inputs.subscriptions.map((subscription) => subscription.id),
     getRemainingCountAndAcquisitionCost(shareSubscriptionId: string, timestamp: string | Date): ShareCalculatorResult {
       const normalized = typeof timestamp === 'string' ? parseSupportedTimestampOrDate(timestamp.trim()) : timestamp
       const timestampMs = normalized?.getTime()

@@ -50,7 +50,7 @@ const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
       estimatedPreIpoValue: '9000000',
       estimatedSecondaryShareSellPercentage: '3',
     },
-    sell: { amount: '900', otherAnnualCapitalGainsOrLosses: '' },
+    ipoSell: { amount: '900', otherAnnualCapitalGainsOrLosses: '' },
   },
   medium8y: {
     subscriptions: [
@@ -93,7 +93,7 @@ const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
       estimatedPreIpoValue: '40000000',
       estimatedSecondaryShareSellPercentage: '10',
     },
-    sell: { amount: '18000', otherAnnualCapitalGainsOrLosses: '-12000' },
+    ipoSell: { amount: '18000', otherAnnualCapitalGainsOrLosses: '-12000' },
   },
   large16y: {
     subscriptions: [
@@ -138,7 +138,7 @@ const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
       estimatedPreIpoValue: '66000000',
       estimatedSecondaryShareSellPercentage: '12',
     },
-    sell: { amount: '90000', otherAnnualCapitalGainsOrLosses: '25000' },
+    ipoSell: { amount: '90000', otherAnnualCapitalGainsOrLosses: '25000' },
   },
 }
 
@@ -154,6 +154,6 @@ export function createExampleOsakkeetFormData(preset: ExamplePreset, createId: C
     demergers: config.demergers.map((row) => ({ id: createId('demerger'), ...row })),
     mathematicalShareValues: config.mathematicalShareValues.map((row) => ({ id: createId('math'), ...row })),
     ipo: { ...config.ipo },
-    sell: { ...config.sell },
+    ipoSell: { ...config.ipoSell },
   }
 }

@@ -580,7 +580,7 @@ const FI = {
       currentShareValue: 'Nykyinen osakkeen arvo',
       estimatedPreIpoValue: 'Arvioitu pre-IPO-arvo',
       estimatedSecondaryShareSellPercentage: 'Arvioitu secondary-myyntiprosentti',
-      sellAmount: 'Myytävien osakkeiden määrä',
+      ipoSellAmount: 'Myytävien osakkeiden määrä',
       otherAnnualCapitalGainsOrLosses: 'Muut luovutusvoitot tai tappiot',
       cashDistributionDate: (id: string) => `Varojenjako ${id} päivä`,
       cashDistributionAmountPerShare: (id: string) => `Varojenjako ${id} €/osake`,
@@ -596,12 +596,13 @@ const FI = {
       noSharesHeldForDistribution: (date: string) => `Varojenjaolle ${date} ei löytynyt omistettuja osakkeita.`,
       unsupportedYearRange: (year: number) =>
         `Vuositason vero-, osinko- ja pääomanpalautuslaskenta on tuettu verovuosille 2016 ja sitä uudemmille. Syötteissä on vuosi ${year}.`,
-      sellAmountExceedsEstimatedSecondary: 'Myyntimäärä ylittää arvioidun secondary-myyntimäärän koko yhtiön tasolla.',
+      ipoSellAmountExceedsEstimatedSecondary:
+        'Myyntimäärä ylittää arvioidun secondary-myyntimäärän koko yhtiön tasolla.',
       vestingBlockedWithoutIpoDate:
         'IPO-päivä puuttuu, joten ansaintajakson rajoittamia merkintäeriä ei voitu ottaa mukaan myyntiin.',
     },
     errors: {
-      sellAmountExceedsSellable: (shares: string) =>
+      ipoSellAmountExceedsSellable: (shares: string) =>
         `Myytävien osakkeiden määrä ylittää IPO-päivänä myytävissä olevien osakkeiden määrän (${shares}).`,
     },
   },
@@ -1190,7 +1191,7 @@ const EN: typeof FI = {
       currentShareValue: 'Current share value',
       estimatedPreIpoValue: 'Estimated pre-IPO value',
       estimatedSecondaryShareSellPercentage: 'Estimated secondary sell percentage',
-      sellAmount: 'Number of shares to sell',
+      ipoSellAmount: 'Number of shares to sell',
       otherAnnualCapitalGainsOrLosses: 'Other capital gains or losses',
       cashDistributionDate: (id: string) => `Distribution ${id} date`,
       cashDistributionAmountPerShare: (id: string) => `Distribution ${id} EUR/share`,
@@ -1206,13 +1207,13 @@ const EN: typeof FI = {
       noSharesHeldForDistribution: (date: string) => `No held shares were found for the distribution on ${date}.`,
       unsupportedYearRange: (year: number) =>
         `Year-level tax, dividend, and capital-repayment calculations are supported for tax years 2016 and later. The input contains year ${year}.`,
-      sellAmountExceedsEstimatedSecondary:
+      ipoSellAmountExceedsEstimatedSecondary:
         'Sell amount exceeds the estimated secondary sell amount at whole-company level.',
       vestingBlockedWithoutIpoDate:
         'IPO date is missing, so vesting-restricted subscription lots were excluded from the sale.',
     },
     errors: {
-      sellAmountExceedsSellable: (shares: string) =>
+      ipoSellAmountExceedsSellable: (shares: string) =>
         `The number of shares to sell exceeds the shares sellable on the IPO date (${shares}).`,
     },
   },
