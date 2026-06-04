@@ -64,7 +64,7 @@ export type OsakkeetFormData = {
   demergers: DemergerInput[]
   mathematicalShareValues: MathematicalShareValueInput[]
   ipo: IpoDetailsInput
-  sell: IpoSellDetailsInput
+  ipoSell: IpoSellDetailsInput
   lastModifiedCompanyData?: string
   lastModifiedUserData?: string
 }

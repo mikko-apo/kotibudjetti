@@ -1,7 +1,7 @@
 import type { OsakkeetCalculation } from './osakkeetUiCalculator'
 import { amount, euro, multiplier, percentage } from './osakkeetFormat'
 import type { OsakkeetLocalization } from './osakkeetLocalizations'
-import type { ShareCalculatorLogEntry } from './shareCalculator'
+import type { ShareCalculatorLogEntry } from './shareCalculatorTypes'
 
 type FixedSummaryValue = OsakkeetCalculation['vesting']['totalShares']
 export type SubscriptionHistoryRow = {

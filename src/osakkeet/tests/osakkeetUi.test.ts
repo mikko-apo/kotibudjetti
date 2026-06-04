@@ -367,7 +367,7 @@ describe('osakkeet UI', () => {
           estimatedPreIpoValue: '',
           estimatedSecondaryShareSellPercentage: '',
         },
-        sell: {
+        ipoSell: {
           amount: '',
           otherAnnualCapitalGainsOrLosses: '',
         },
@@ -428,7 +428,7 @@ describe('osakkeet UI', () => {
           estimatedPreIpoValue: '',
           estimatedSecondaryShareSellPercentage: '',
         },
-        sell: {
+        ipoSell: {
           amount: '',
           otherAnnualCapitalGainsOrLosses: '',
         },
@@ -484,7 +484,7 @@ describe('osakkeet UI', () => {
           estimatedPreIpoValue: '',
           estimatedSecondaryShareSellPercentage: '',
         },
-        sell: {
+        ipoSell: {
           amount: '',
           otherAnnualCapitalGainsOrLosses: '',
         },
@@ -525,7 +525,7 @@ describe('osakkeet UI', () => {
           estimatedPreIpoValue: '',
           estimatedSecondaryShareSellPercentage: '',
         },
-        sell: {
+        ipoSell: {
           amount: '',
           otherAnnualCapitalGainsOrLosses: '',
         },
@@ -585,7 +585,7 @@ describe('osakkeet UI', () => {
           estimatedPreIpoValue: '',
           estimatedSecondaryShareSellPercentage: '',
         },
-        sell: {
+        ipoSell: {
           amount: '',
           otherAnnualCapitalGainsOrLosses: '',
         },
@@ -637,7 +637,7 @@ describe('osakkeet UI', () => {
           estimatedPreIpoValue: '',
           estimatedSecondaryShareSellPercentage: '',
         },
-        sell: {
+        ipoSell: {
           amount: '',
           otherAnnualCapitalGainsOrLosses: '',
         },
@@ -713,7 +713,7 @@ describe('osakkeet UI', () => {
             estimatedPreIpoValue: '100',
             estimatedSecondaryShareSellPercentage: '10',
           },
-          sell: {
+          ipoSell: {
             amount: '',
             otherAnnualCapitalGainsOrLosses: '',
           },

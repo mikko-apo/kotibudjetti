@@ -8,6 +8,7 @@ import type {
   ShareSplitInput,
   ShareSubscriptionInput,
 } from './osakkeetTypes'
+import type { ShareCalculatorLogEntry } from './shareCalculatorTypes'
 import { parseSupportedDate, parseSupportedTimestampOrDate } from './osakkeetUtils'
 
 const zero = new Decimal(0)
@@ -42,6 +43,52 @@ export type ParsedSubscription = {
   shareAcquisitionCost: Decimal
   originalSharePrice: Decimal
   originalOtherTotalAcquisitionCosts: Decimal
+}
+
+export type CapitalRepaymentBreakdown = {
+  distributionDate: string
+  shares: Decimal
+  capitalRepaymentPerShare: Decimal
+  capitalRepaymentTotal: Decimal
+}
+
+export type CapitalRepaymentHoverEntry = {
+  distributionDate: string
+  shares: Decimal
+  inputAmountPerShare: Decimal
+  appliedCapitalRepaymentPerShare: Decimal
+  appliedCapitalRepaymentTotal: Decimal
+  directedToDividendPerShare: Decimal
+  directedToDividendTotal: Decimal
+  dividendReason?: 'too_old' | 'no_remaining_cost' | 'listed_dividend' | 'remaining_cost_limit'
+}
+
+export type AcquisitionCostAdjustment =
+  | {
+      kind: 'split'
+      date: string
+      beforeShares: Decimal
+      afterShares: Decimal
+      multiplier: Decimal
+    }
+  | {
+      kind: 'demerger'
+      date: string
+      beforeTotalPrice: Decimal
+      afterTotalPrice: Decimal
+      oldCompanyRatio: Decimal
+    }
+
+export type WorkingLot = ParsedSubscription & {
+  originalShareCount: Decimal
+  originalShareAcquisitionCost: Decimal
+  baseShareAcquisitionCost: Decimal
+  capitalRepaymentTotal: Decimal
+  cashDistributionGrossTotal: Decimal
+  capitalRepaymentBreakdown: CapitalRepaymentBreakdown[]
+  capitalRepaymentHoverEntries: CapitalRepaymentHoverEntry[]
+  shareCalculatorLog: ShareCalculatorLogEntry[]
+  acquisitionCostAdjustments: AcquisitionCostAdjustment[]
 }
 
 type ParsedSell = {
@@ -96,7 +143,7 @@ export type ParsedIpoInputs = {
   estimatedSecondaryShareSellPercentage: Decimal
 }
 
-export type ParsedSellInputs = {
+export type ParsedIpoSellInputs = {
   amount: Decimal
   otherAnnualCapitalGainsOrLosses: Decimal
 }
@@ -109,11 +156,14 @@ export type ParsedShareCalculatorInputs = {
   cashDistributions: ParsedCapitalRepaymentOrDividend[]
 }
 
-type ParsedOsakkeetCalculatorInputs = ParsedShareCalculatorInputs & {
+export type ParsedOsakkeetCalculatorInputs = ParsedShareCalculatorInputs & {
   mathematicalShareValuesByYear: Map<number, Decimal>
+}
+
+export type ParsedOsakkeetIpoCalculatorInputs = {
   ipoDate?: Date
   ipo: ParsedIpoInputs
-  sell: ParsedSellInputs
+  ipoSell: ParsedIpoSellInputs
 }
 
 function toDayKey(date: Date) {
@@ -501,7 +551,6 @@ export function parseOsakkeetCalculatorInputs(
     if (year.gt(0)) mathematicalShareValuesByYear.set(year.toNumber(), valuePerShare)
   })
 
-  const ipoDate = parseOptionalDateInput(form.ipo.ipoDate, localization.calculator.fields.ipoDate, errors, validation)
   const parsed = {
     subscriptions,
     sells,
@@ -509,51 +558,71 @@ export function parseOsakkeetCalculatorInputs(
     demergers,
     cashDistributions,
     mathematicalShareValuesByYear,
-    ipoDate,
-    ipo: {
-      ipoDateText: form.ipo.ipoDate,
-      totalShareCountInput: parseDecimalInput(
-        form.ipo.totalShareCount,
-        localization.calculator.fields.totalShareCount,
-        errors,
-        validation
-      ),
-      totalIpoCost: parseDecimalInput(
-        form.ipo.totalIpoCost,
-        localization.calculator.fields.totalIpoCost,
-        errors,
-        validation
-      ),
-      currentShareValue: parseDecimalInput(
-        form.ipo.currentShareValue,
-        localization.calculator.fields.currentShareValue,
-        errors,
-        validation
-      ),
-      estimatedPreIpoValue: parseDecimalInput(
-        form.ipo.estimatedPreIpoValue,
-        localization.calculator.fields.estimatedPreIpoValue,
-        errors,
-        validation
-      ),
-      estimatedSecondaryShareSellPercentage: parseDecimalInput(
-        form.ipo.estimatedSecondaryShareSellPercentage,
-        localization.calculator.fields.estimatedSecondaryShareSellPercentage,
-        errors,
-        validation
-      ),
-    },
-    sell: {
-      amount: parseDecimalInput(form.sell.amount, localization.calculator.fields.sellAmount, errors, validation),
-      otherAnnualCapitalGainsOrLosses: parseDecimalInput(
-        form.sell.otherAnnualCapitalGainsOrLosses || '',
-        localization.calculator.fields.otherAnnualCapitalGainsOrLosses,
-        errors,
-        validation,
-        { allowNegative: true }
-      ),
-    },
   } satisfies ParsedOsakkeetCalculatorInputs
 
   return { parsed, errors }
+}
+
+export function parseOsakkeetIpoCalculatorInputs(
+  form: OsakkeetFormData,
+  localization: OsakkeetLocalization
+): { parsed: ParsedOsakkeetIpoCalculatorInputs; errors: string[] } {
+  const errors: string[] = []
+  const validation = localization.calculator.validation
+  const ipoDate = parseOptionalDateInput(form.ipo.ipoDate, localization.calculator.fields.ipoDate, errors, validation)
+
+  return {
+    parsed: {
+      ipoDate,
+      ipo: {
+        ipoDateText: form.ipo.ipoDate,
+        totalShareCountInput: parseDecimalInput(
+          form.ipo.totalShareCount,
+          localization.calculator.fields.totalShareCount,
+          errors,
+          validation
+        ),
+        totalIpoCost: parseDecimalInput(
+          form.ipo.totalIpoCost,
+          localization.calculator.fields.totalIpoCost,
+          errors,
+          validation
+        ),
+        currentShareValue: parseDecimalInput(
+          form.ipo.currentShareValue,
+          localization.calculator.fields.currentShareValue,
+          errors,
+          validation
+        ),
+        estimatedPreIpoValue: parseDecimalInput(
+          form.ipo.estimatedPreIpoValue,
+          localization.calculator.fields.estimatedPreIpoValue,
+          errors,
+          validation
+        ),
+        estimatedSecondaryShareSellPercentage: parseDecimalInput(
+          form.ipo.estimatedSecondaryShareSellPercentage,
+          localization.calculator.fields.estimatedSecondaryShareSellPercentage,
+          errors,
+          validation
+        ),
+      },
+      ipoSell: {
+        amount: parseDecimalInput(
+          form.ipoSell.amount,
+          localization.calculator.fields.ipoSellAmount,
+          errors,
+          validation
+        ),
+        otherAnnualCapitalGainsOrLosses: parseDecimalInput(
+          form.ipoSell.otherAnnualCapitalGainsOrLosses || '',
+          localization.calculator.fields.otherAnnualCapitalGainsOrLosses,
+          errors,
+          validation,
+          { allowNegative: true }
+        ),
+      },
+    },
+    errors,
+  }
 }

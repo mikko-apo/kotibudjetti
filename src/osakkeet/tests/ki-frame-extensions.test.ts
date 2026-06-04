@@ -83,7 +83,7 @@ function assertMapStatePathToInputPathTypes() {
       currentShareValue: string
       totalShareCount: string
     }
-    sell: {
+    ipoSell: {
       amount: string
     }
   }
@@ -94,7 +94,7 @@ function assertMapStatePathToInputPathTypes() {
         currentShareValue: '',
         totalShareCount: '',
       },
-      sell: {
+      ipoSell: {
         amount: '',
       },
     },

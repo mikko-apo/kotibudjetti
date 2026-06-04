@@ -501,7 +501,7 @@ function createBlankOsakkeetFormData(): OsakkeetFormData {
       estimatedPreIpoValue: '',
       estimatedSecondaryShareSellPercentage: '',
     },
-    sell: {
+    ipoSell: {
       amount: '',
       otherAnnualCapitalGainsOrLosses: '',
     },
@@ -513,6 +513,8 @@ function createBlankOsakkeetFormData(): OsakkeetFormData {
 function normalizeOsakkeetFormData(data: Partial<OsakkeetFormData>): OsakkeetFormData {
   const blank = createBlankOsakkeetFormData()
   const ipo = data.ipo ?? blank.ipo
+  const legacyIpoSell = (data as Partial<OsakkeetFormData> & { sell?: OsakkeetFormData['ipoSell'] }).sell
+  const ipoSell = data.ipoSell ?? legacyIpoSell ?? blank.ipoSell
   return {
     subscriptions: sortRowsByDate(normalizeCollectionRows('subscriptions', data.subscriptions)),
     sells: sortRowsByDate(normalizeCollectionRows('sells', data.sells)),
@@ -529,11 +531,11 @@ function normalizeOsakkeetFormData(data: Partial<OsakkeetFormData>): OsakkeetFor
       estimatedPreIpoValue: ipo.estimatedPreIpoValue || '',
       estimatedSecondaryShareSellPercentage: ipo.estimatedSecondaryShareSellPercentage || '',
     },
-    sell: {
-      ...blank.sell,
-      ...data.sell,
-      amount: data.sell?.amount || '',
-      otherAnnualCapitalGainsOrLosses: data.sell?.otherAnnualCapitalGainsOrLosses || '',
+    ipoSell: {
+      ...blank.ipoSell,
+      ...ipoSell,
+      amount: ipoSell.amount || '',
+      otherAnnualCapitalGainsOrLosses: ipoSell.otherAnnualCapitalGainsOrLosses || '',
     },
     lastModifiedCompanyData: data.lastModifiedCompanyData || '',
     lastModifiedUserData: data.lastModifiedUserData || '',
@@ -573,8 +575,8 @@ type ShareableOsakkeetUrlData = Pick<
   | 'lastModifiedUserData'
 >
 
-type SavedOsakkeetFileData = Omit<OsakkeetFormData, 'sell'> & {
-  'ipo-sell'?: OsakkeetFormData['sell']
+type SavedOsakkeetFileData = Omit<OsakkeetFormData, 'ipoSell'> & {
+  'ipo-sell'?: OsakkeetFormData['ipoSell']
 }
 
 function currentModificationTimestamp() {
@@ -606,7 +608,7 @@ function createUserDataSignature(data: OsakkeetFormData) {
   return JSON.stringify({
     subscriptions: sanitized.subscriptions,
     sells: sanitized.sells,
-    sell: sanitized.sell,
+    ipoSell: sanitized.ipoSell,
   })
 }
 
@@ -730,7 +732,7 @@ async function tryLoadSharedUrlData(): Promise<OsakkeetFormData | undefined> {
     },
     subscriptions: emptyForm.subscriptions,
     sells: emptyForm.sells,
-    sell: emptyForm.sell,
+    ipoSell: emptyForm.ipoSell,
     lastModifiedCompanyData: parsed.lastModifiedCompanyData || '',
     lastModifiedUserData: parsed.lastModifiedUserData || '',
   })
@@ -766,16 +768,16 @@ async function tryLoadInitialData(texts: OsakkeetLocalization) {
 function normalizeSavedOsakkeetFileData(data: Partial<SavedOsakkeetFileData>): OsakkeetFormData {
   return normalizeOsakkeetFormData({
     ...data,
-    sell: data['ipo-sell'],
+    ipoSell: data['ipo-sell'],
   })
 }
 
 function createSavedOsakkeetFileData(data: OsakkeetFormData): SavedOsakkeetFileData {
   const normalized = normalizeOsakkeetFormData(data)
-  const { sell, ...rest } = normalized
+  const { ipoSell, ...rest } = normalized
   return {
     ...rest,
-    'ipo-sell': sell,
+    'ipo-sell': ipoSell,
   }
 }
 
@@ -1126,7 +1128,7 @@ function createMainSectionStats(
     },
     {
       label: texts.summary.ipoSell.title,
-      value: `${amount(osakkeetCalculation.sell.amount)} ${texts.mainSections.units.shares}`,
+      value: `${amount(osakkeetCalculation.ipoSell.amount)} ${texts.mainSections.units.shares}`,
     },
   ]
 }
@@ -2489,7 +2491,7 @@ function createSellOverviewCards(osakkeetCalculation: OsakkeetCalculation, texts
       ipoDate ? texts.summary.ipoSell.cards.unvestedSharesAtDate(ipoDate) : texts.summary.ipoSell.cards.unvestedShares,
       sharePercent(osakkeetCalculation.vesting.unvestedShares)
     ),
-    infoCard(texts.summary.ipoSell.cards.sharesLeft, amount(osakkeetCalculation.sell.remainingUnsoldShares)),
+    infoCard(texts.summary.ipoSell.cards.sharesLeft, amount(osakkeetCalculation.ipoSell.remainingUnsoldShares)),
   ]
 }
 
@@ -2506,17 +2508,17 @@ function createSellAllocationTable(osakkeetCalculation: OsakkeetCalculation, tex
       )
     ),
     tbody([
-      osakkeetCalculation.sell.usedSubscriptions.map((lot) =>
+      osakkeetCalculation.ipoSell.usedLots.map((lot) =>
         tr(
-          td(lot.subscriptionDate || '-'),
-          td(`${amount(lot.soldAmount)} / ${amount(lot.totalSubscriptionShares)}`),
+          td(lot.lotDate || '-'),
+          td(`${amount(lot.soldAmount)} / ${amount(lot.totalLotShares)}`),
           td(euro(lot.gross)),
           td(
             hoverValue(
               euro(lot.actualDeduction),
               texts.summary.ipoSell.tooltips.actualCosts(
                 euro(lot.realCostBasis),
-                euro(lot.allocatedIpoCost),
+                euro(lot.allocatedSellCost),
                 euro(lot.actualDeduction)
               ),
               lot.selectedMethod === 'actual_costs'
@@ -2539,10 +2541,10 @@ function createSellAllocationTable(osakkeetCalculation: OsakkeetCalculation, tex
       tr(
         td(b(texts.summary.totalRow)),
         td(),
-        td(euro(osakkeetCalculation.sell.grossTotal)),
-        td(b(euro(osakkeetCalculation.sell.selectedActualDeductionTotal))),
-        td(b(euro(osakkeetCalculation.sell.selectedHmoDeductionTotal))),
-        td(euro(osakkeetCalculation.sell.taxableGainTotal))
+        td(euro(osakkeetCalculation.ipoSell.grossTotal)),
+        td(b(euro(osakkeetCalculation.ipoSell.selectedActualDeductionTotal))),
+        td(b(euro(osakkeetCalculation.ipoSell.selectedHmoDeductionTotal))),
+        td(euro(osakkeetCalculation.ipoSell.taxableGainTotal))
       ),
     ])
   )
@@ -2552,21 +2554,21 @@ function createSellExplanationCards(osakkeetCalculation: OsakkeetCalculation, te
   return [
     infoCard(
       texts.summary.ipoSell.explanations.ipoPriceTotal,
-      euro(osakkeetCalculation.sell.grossTotal),
-      texts.summary.ipoSell.explanations.ipoPriceTotalHelp(euro(osakkeetCalculation.sell.grossTotal))
+      euro(osakkeetCalculation.ipoSell.grossTotal),
+      texts.summary.ipoSell.explanations.ipoPriceTotalHelp(euro(osakkeetCalculation.ipoSell.grossTotal))
     ),
     infoCard(
       texts.summary.ipoSell.explanations.ipoCostsAllocated,
-      euro(osakkeetCalculation.sell.totalIpoCostAllocated),
-      texts.summary.ipoSell.explanations.ipoCostsAllocatedHelp(euro(osakkeetCalculation.sell.totalIpoCostAllocated))
+      euro(osakkeetCalculation.ipoSell.totalAllocatedSellCost),
+      texts.summary.ipoSell.explanations.ipoCostsAllocatedHelp(euro(osakkeetCalculation.ipoSell.totalAllocatedSellCost))
     ),
     infoCard(
       texts.summary.ipoSell.explanations.netCash,
-      euro(osakkeetCalculation.sell.cashAfterIpoCosts),
+      euro(osakkeetCalculation.ipoSell.cashAfterSellCosts),
       texts.summary.ipoSell.explanations.netCashHelp(
-        euro(osakkeetCalculation.sell.grossTotal),
-        euro(osakkeetCalculation.sell.totalIpoCostAllocated),
-        euro(osakkeetCalculation.sell.cashAfterIpoCosts)
+        euro(osakkeetCalculation.ipoSell.grossTotal),
+        euro(osakkeetCalculation.ipoSell.totalAllocatedSellCost),
+        euro(osakkeetCalculation.ipoSell.cashAfterSellCosts)
       )
     ),
   ]
@@ -2581,51 +2583,51 @@ function createCapitalGainCards(osakkeetCalculation: OsakkeetCalculation, texts:
     ),
     infoCard(
       texts.summary.ipoSell.explanations.selectedDeductions,
-      euro(osakkeetCalculation.sell.selectedDeductionTotal),
+      euro(osakkeetCalculation.ipoSell.selectedDeductionTotal),
       texts.summary.ipoSell.explanations.selectedDeductionsHelp(
-        euro(osakkeetCalculation.sell.selectedActualDeductionTotal),
-        euro(osakkeetCalculation.sell.selectedHmoDeductionTotal)
+        euro(osakkeetCalculation.ipoSell.selectedActualDeductionTotal),
+        euro(osakkeetCalculation.ipoSell.selectedHmoDeductionTotal)
       )
     ),
     infoCard(
       texts.summary.ipoSell.explanations.capitalGain,
-      euro(osakkeetCalculation.sell.taxableGainTotal),
+      euro(osakkeetCalculation.ipoSell.taxableGainTotal),
       texts.summary.ipoSell.explanations.capitalGainHelp(
-        euro(osakkeetCalculation.sell.grossTotal),
-        euro(osakkeetCalculation.sell.selectedDeductionTotal)
+        euro(osakkeetCalculation.ipoSell.grossTotal),
+        euro(osakkeetCalculation.ipoSell.selectedDeductionTotal)
       )
     ),
     infoCard(
       texts.summary.ipoSell.explanations.taxOnCapitalGain,
-      euro(osakkeetCalculation.sell.estimatedTax),
+      euro(osakkeetCalculation.ipoSell.estimatedTax),
       texts.summary.ipoSell.explanations.taxOnCapitalGainHelp(
-        euro(osakkeetCalculation.sell.taxableGainTotal),
-        euro(osakkeetCalculation.sell.taxableGainAtLowRate),
-        euro(osakkeetCalculation.sell.taxableGainAtHighRate),
-        euro(osakkeetCalculation.sell.estimatedTax)
+        euro(osakkeetCalculation.ipoSell.taxableGainTotal),
+        euro(osakkeetCalculation.ipoSell.taxableGainAtLowRate),
+        euro(osakkeetCalculation.ipoSell.taxableGainAtHighRate),
+        euro(osakkeetCalculation.ipoSell.estimatedTax)
       )
     ),
   ]
 }
 
 function createCashReserveCards(osakkeetCalculation: OsakkeetCalculation, texts: OsakkeetLocalization) {
-  const keepAfterTaxesPercentage = osakkeetCalculation.sell.grossTotal.gt(0)
-    ? ` (${percentage(osakkeetCalculation.sell.netAfterTaxAndIpoCost.div(osakkeetCalculation.sell.grossTotal).mul(100))})`
+  const keepAfterTaxesPercentage = osakkeetCalculation.ipoSell.grossTotal.gt(0)
+    ? ` (${percentage(osakkeetCalculation.ipoSell.netAfterTaxAndSellCost.div(osakkeetCalculation.ipoSell.grossTotal).mul(100))})`
     : ''
   return [
     infoCard(
       texts.summary.ipoSell.cashReserve.keepAfterTaxes,
-      `${euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost)}${keepAfterTaxesPercentage}`,
+      `${euro(osakkeetCalculation.ipoSell.netAfterTaxAndSellCost)}${keepAfterTaxesPercentage}`,
       texts.summary.ipoSell.cashReserve.keepAfterTaxesHelp(
-        euro(osakkeetCalculation.sell.cashAfterIpoCosts),
-        euro(osakkeetCalculation.sell.estimatedTax),
-        euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost)
+        euro(osakkeetCalculation.ipoSell.cashAfterSellCosts),
+        euro(osakkeetCalculation.ipoSell.estimatedTax),
+        euro(osakkeetCalculation.ipoSell.netAfterTaxAndSellCost)
       )
     ),
     infoCard(
       texts.summary.ipoSell.cashReserve.reserveForTaxes,
-      euro(osakkeetCalculation.sell.estimatedTax),
-      texts.summary.ipoSell.cashReserve.reserveForTaxesHelp(euro(osakkeetCalculation.sell.estimatedTax))
+      euro(osakkeetCalculation.ipoSell.estimatedTax),
+      texts.summary.ipoSell.cashReserve.reserveForTaxesHelp(euro(osakkeetCalculation.ipoSell.estimatedTax))
     ),
     infoCard(
       texts.summary.ipoSell.cashReserve.taxPaymentStatus,
@@ -2636,10 +2638,10 @@ function createCashReserveCards(osakkeetCalculation: OsakkeetCalculation, texts:
 }
 
 function createSaleResultComparisonCards(osakkeetCalculation: OsakkeetCalculation, texts: OsakkeetLocalization) {
-  const netResultPercent = osakkeetCalculation.sell.soldShareAcquisitionCostTotal.gt(0)
+  const netResultPercent = osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal.gt(0)
     ? percentage(
-        osakkeetCalculation.sell.netResultAgainstSubscriptionCost
-          .div(osakkeetCalculation.sell.soldShareAcquisitionCostTotal)
+        osakkeetCalculation.ipoSell.netResultAgainstAcquisitionCost
+          .div(osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal)
           .mul(100)
       )
     : '0.00 %'
@@ -2647,16 +2649,16 @@ function createSaleResultComparisonCards(osakkeetCalculation: OsakkeetCalculatio
     infoCard(
       texts.summary.ipoSell.saleResultComparison.cardTitle,
       texts.summary.ipoSell.saleResultComparison.value(
-        euro(osakkeetCalculation.sell.soldShareOriginalCostTotal),
-        euro(osakkeetCalculation.sell.soldShareAcquisitionCostTotal),
-        euro(osakkeetCalculation.sell.netResultAgainstSubscriptionCost),
+        euro(osakkeetCalculation.ipoSell.soldShareOriginalCostTotal),
+        euro(osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal),
+        euro(osakkeetCalculation.ipoSell.netResultAgainstAcquisitionCost),
         netResultPercent
       ),
       texts.summary.ipoSell.saleResultComparison.help(
-        euro(osakkeetCalculation.sell.soldShareOriginalCostTotal),
-        euro(osakkeetCalculation.sell.soldShareAcquisitionCostTotal),
-        euro(osakkeetCalculation.sell.netAfterTaxAndIpoCost),
-        euro(osakkeetCalculation.sell.netResultAgainstSubscriptionCost),
+        euro(osakkeetCalculation.ipoSell.soldShareOriginalCostTotal),
+        euro(osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal),
+        euro(osakkeetCalculation.ipoSell.netAfterTaxAndSellCost),
+        euro(osakkeetCalculation.ipoSell.netResultAgainstAcquisitionCost),
         netResultPercent
       )
     ),
@@ -2667,53 +2669,53 @@ function createIpoCostEffectCards(osakkeetCalculation: OsakkeetCalculation, text
   return [
     infoCard(
       texts.summary.ipoSell.explanations.deductibleIpoCosts,
-      euro(osakkeetCalculation.sell.taxSavedFromDeductibleIpoCosts),
+      euro(osakkeetCalculation.ipoSell.taxSavedFromDeductibleSellCosts),
       texts.summary.ipoSell.explanations.deductibleIpoCostsHelp(
-        euro(osakkeetCalculation.sell.ipoCostDeductedViaActual),
-        euro(osakkeetCalculation.sell.taxSavedFromDeductibleIpoCosts)
+        euro(osakkeetCalculation.ipoSell.sellCostDeductedViaActual),
+        euro(osakkeetCalculation.ipoSell.taxSavedFromDeductibleSellCosts)
       )
     ),
     infoCard(
       texts.summary.ipoSell.explanations.hmoIpoCosts,
-      euro(osakkeetCalculation.sell.ipoCostPaidWithoutActualDeduction),
+      euro(osakkeetCalculation.ipoSell.sellCostPaidWithoutActualDeduction),
       texts.summary.ipoSell.explanations.hmoIpoCostsHelp()
     ),
   ]
 }
 
 function createAnnualAdjustmentCards(osakkeetCalculation: OsakkeetCalculation, texts: OsakkeetLocalization) {
-  const zeroMoney = osakkeetCalculation.sell.grossTotal.mul(0)
-  const annualKeepAfterTaxesPercentage = osakkeetCalculation.sell.grossTotal.gt(0)
-    ? ` (${percentage(osakkeetCalculation.sell.netAfterAnnualTaxAndIpoCost.div(osakkeetCalculation.sell.grossTotal).mul(100))})`
+  const zeroMoney = osakkeetCalculation.ipoSell.grossTotal.mul(0)
+  const annualKeepAfterTaxesPercentage = osakkeetCalculation.ipoSell.grossTotal.gt(0)
+    ? ` (${percentage(osakkeetCalculation.ipoSell.netAfterAnnualTaxAndSellCost.div(osakkeetCalculation.ipoSell.grossTotal).mul(100))})`
     : ''
   return {
     taxEffect: infoCard(
       texts.summary.ipoSell.cashReserve.taxEffectFromOtherAnnualCapital,
-      osakkeetCalculation.sell.taxReductionFromOtherLosses.gt(0)
-        ? euro(osakkeetCalculation.sell.taxReductionFromOtherLosses)
-        : osakkeetCalculation.sell.annualTaxChange.gt(0)
-          ? `+${euro(osakkeetCalculation.sell.annualTaxChange)}`
+      osakkeetCalculation.ipoSell.taxReductionFromOtherLosses.gt(0)
+        ? euro(osakkeetCalculation.ipoSell.taxReductionFromOtherLosses)
+        : osakkeetCalculation.ipoSell.annualTaxChange.gt(0)
+          ? `+${euro(osakkeetCalculation.ipoSell.annualTaxChange)}`
           : euro(zeroMoney),
       texts.summary.ipoSell.cashReserve.taxEffectFromOtherAnnualCapitalHelp(
-        euro(osakkeetCalculation.sell.otherAnnualCapitalGainsOrLosses),
-        euro(osakkeetCalculation.sell.taxReductionFromOtherLosses),
-        euro(Decimal.max(osakkeetCalculation.sell.annualTaxChange, zeroMoney))
+        euro(osakkeetCalculation.ipoSell.otherAnnualCapitalGainsOrLosses),
+        euro(osakkeetCalculation.ipoSell.taxReductionFromOtherLosses),
+        euro(Decimal.max(osakkeetCalculation.ipoSell.annualTaxChange, zeroMoney))
       )
     ),
     reserve: infoCard(
       texts.summary.ipoSell.cashReserve.annualAdjustedReserveForTaxes,
-      euro(osakkeetCalculation.sell.annualEstimatedTax),
+      euro(osakkeetCalculation.ipoSell.annualEstimatedTax),
       texts.summary.ipoSell.cashReserve.annualAdjustedReserveForTaxesHelp(
-        euro(osakkeetCalculation.sell.annualEstimatedTax)
+        euro(osakkeetCalculation.ipoSell.annualEstimatedTax)
       )
     ),
     keep: infoCard(
       texts.summary.ipoSell.cashReserve.annualAdjustedKeepAfterTaxes,
-      `${euro(osakkeetCalculation.sell.netAfterAnnualTaxAndIpoCost)}${annualKeepAfterTaxesPercentage}`,
+      `${euro(osakkeetCalculation.ipoSell.netAfterAnnualTaxAndSellCost)}${annualKeepAfterTaxesPercentage}`,
       texts.summary.ipoSell.cashReserve.annualAdjustedKeepAfterTaxesHelp(
-        euro(osakkeetCalculation.sell.cashAfterIpoCosts),
-        euro(osakkeetCalculation.sell.annualEstimatedTax),
-        euro(osakkeetCalculation.sell.netAfterAnnualTaxAndIpoCost)
+        euro(osakkeetCalculation.ipoSell.cashAfterSellCosts),
+        euro(osakkeetCalculation.ipoSell.annualEstimatedTax),
+        euro(osakkeetCalculation.ipoSell.netAfterAnnualTaxAndSellCost)
       )
     ),
   }
@@ -2820,8 +2822,8 @@ function createResultsSection(
     createAnnualAdjustmentCards(osakkeetCalculation, texts)
   )
   formBinder.bindInputs([
-    { path: ['sell', 'amount'], node: sellInput },
-    { path: ['sell', 'otherAnnualCapitalGainsOrLosses'], node: otherAnnualCapitalInput },
+    { path: ['ipoSell', 'amount'], node: sellInput },
+    { path: ['ipoSell', 'otherAnnualCapitalGainsOrLosses'], node: otherAnnualCapitalInput },
   ])
   const annualAdjustmentInputCard = div(
     pageStyles.summaryItem,

@@ -51,7 +51,7 @@ function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetForm
       estimatedPreIpoValue: '1500',
       estimatedSecondaryShareSellPercentage: '20',
     },
-    sell: {
+    ipoSell: {
       amount: '0',
       otherAnnualCapitalGainsOrLosses: '',
     },
@@ -133,53 +133,54 @@ function snapshotCalculation(form: OsakkeetFormData) {
       increaseMultiplier: decimalValue(result.ipo.increaseMultiplier),
       ipoCostPerShare: decimalValue(result.ipo.ipoCostPerShare),
     },
-    sell: {
-      amount: decimalValue(result.sell.amount),
-      otherAnnualCapitalGainsOrLosses: decimalValue(result.sell.otherAnnualCapitalGainsOrLosses),
-      usedSubscriptions: result.sell.usedSubscriptions.map((subscription) => ({
-        subscriptionId: subscription.subscriptionId,
-        subscriptionDate: subscription.subscriptionDate,
-        totalSubscriptionShares: decimalValue(subscription.totalSubscriptionShares),
-        soldAmount: decimalValue(subscription.soldAmount),
-        gross: decimalValue(subscription.gross),
-        originalCostBasis: decimalValue(subscription.originalCostBasis),
-        realCostBasis: decimalValue(subscription.realCostBasis),
-        allocatedIpoCost: decimalValue(subscription.allocatedIpoCost),
-        actualDeduction: decimalValue(subscription.actualDeduction),
-        hankintamenoOlettaRate: decimalValue(subscription.hankintamenoOlettaRate),
-        hankintamenoOlettaDeduction: decimalValue(subscription.hankintamenoOlettaDeduction),
-        selectedMethod: subscription.selectedMethod,
-        selectedDeduction: decimalValue(subscription.selectedDeduction),
-        taxableGain: decimalValue(subscription.taxableGain),
-        taxFreeGainPart: decimalValue(subscription.taxFreeGainPart),
-        taxedGainPart: decimalValue(subscription.taxedGainPart),
+    ipoSell: {
+      amount: decimalValue(result.ipoSell.amount),
+      otherAnnualCapitalGainsOrLosses: decimalValue(result.ipoSell.otherAnnualCapitalGainsOrLosses),
+      usedLots: result.ipoSell.usedLots.map((lot) => ({
+        lotId: lot.lotId,
+        lotDate: lot.lotDate,
+        totalLotShares: decimalValue(lot.totalLotShares),
+        soldAmount: decimalValue(lot.soldAmount),
+        gross: decimalValue(lot.gross),
+        originalCostBasis: decimalValue(lot.originalCostBasis),
+        realCostBasis: decimalValue(lot.realCostBasis),
+        allocatedSellCost: decimalValue(lot.allocatedSellCost),
+        actualDeduction: decimalValue(lot.actualDeduction),
+        hankintamenoOlettaRate: decimalValue(lot.hankintamenoOlettaRate),
+        hankintamenoOlettaDeduction: decimalValue(lot.hankintamenoOlettaDeduction),
+        selectedMethod: lot.selectedMethod,
+        selectedDeduction: decimalValue(lot.selectedDeduction),
+        taxableGain: decimalValue(lot.taxableGain),
+        taxFreeGainPart: decimalValue(lot.taxFreeGainPart),
+        taxedGainPart: decimalValue(lot.taxedGainPart),
       })),
-      grossTotal: decimalValue(result.sell.grossTotal),
-      cashAfterIpoCosts: decimalValue(result.sell.cashAfterIpoCosts),
-      taxFreeAcquisitionRecoveryAfterIpoCosts: decimalValue(result.sell.taxFreeAcquisitionRecoveryAfterIpoCosts),
-      soldShareOriginalCostTotal: decimalValue(result.sell.soldShareOriginalCostTotal),
-      soldShareAcquisitionCostTotal: decimalValue(result.sell.soldShareAcquisitionCostTotal),
-      selectedActualDeductionTotal: decimalValue(result.sell.selectedActualDeductionTotal),
-      selectedHmo20DeductionTotal: decimalValue(result.sell.selectedHmo20DeductionTotal),
-      selectedHmo40DeductionTotal: decimalValue(result.sell.selectedHmo40DeductionTotal),
-      selectedDeductionTotal: decimalValue(result.sell.selectedDeductionTotal),
-      totalIpoCostAllocated: decimalValue(result.sell.totalIpoCostAllocated),
-      ipoCostDeductedViaActual: decimalValue(result.sell.ipoCostDeductedViaActual),
-      ipoCostPaidWithoutActualDeduction: decimalValue(result.sell.ipoCostPaidWithoutActualDeduction),
-      taxSavedFromDeductibleIpoCosts: decimalValue(result.sell.taxSavedFromDeductibleIpoCosts),
-      taxableGainTotal: decimalValue(result.sell.taxableGainTotal),
-      taxableGainAtLowRate: decimalValue(result.sell.taxableGainAtLowRate),
-      taxableGainAtHighRate: decimalValue(result.sell.taxableGainAtHighRate),
-      estimatedTax: decimalValue(result.sell.estimatedTax),
-      annualNetCapitalGain: decimalValue(result.sell.annualNetCapitalGain),
-      annualTaxableGainAtLowRate: decimalValue(result.sell.annualTaxableGainAtLowRate),
-      annualTaxableGainAtHighRate: decimalValue(result.sell.annualTaxableGainAtHighRate),
-      annualEstimatedTax: decimalValue(result.sell.annualEstimatedTax),
-      annualTaxChange: decimalValue(result.sell.annualTaxChange),
-      taxReductionFromOtherLosses: decimalValue(result.sell.taxReductionFromOtherLosses),
-      netAfterTaxAndIpoCost: decimalValue(result.sell.netAfterTaxAndIpoCost),
-      netAfterAnnualTaxAndIpoCost: decimalValue(result.sell.netAfterAnnualTaxAndIpoCost),
-      remainingUnsoldShares: decimalValue(result.sell.remainingUnsoldShares),
+      grossTotal: decimalValue(result.ipoSell.grossTotal),
+      cashAfterSellCosts: decimalValue(result.ipoSell.cashAfterSellCosts),
+      taxFreeAcquisitionRecoveryAfterSellCosts: decimalValue(result.ipoSell.taxFreeAcquisitionRecoveryAfterSellCosts),
+      soldShareOriginalCostTotal: decimalValue(result.ipoSell.soldShareOriginalCostTotal),
+      soldShareAcquisitionCostTotal: decimalValue(result.ipoSell.soldShareAcquisitionCostTotal),
+      selectedActualDeductionTotal: decimalValue(result.ipoSell.selectedActualDeductionTotal),
+      selectedHmo20DeductionTotal: decimalValue(result.ipoSell.selectedHmo20DeductionTotal),
+      selectedHmo40DeductionTotal: decimalValue(result.ipoSell.selectedHmo40DeductionTotal),
+      selectedDeductionTotal: decimalValue(result.ipoSell.selectedDeductionTotal),
+      totalAllocatedSellCost: decimalValue(result.ipoSell.totalAllocatedSellCost),
+      sellCostDeductedViaActual: decimalValue(result.ipoSell.sellCostDeductedViaActual),
+      sellCostPaidWithoutActualDeduction: decimalValue(result.ipoSell.sellCostPaidWithoutActualDeduction),
+      taxSavedFromDeductibleSellCosts: decimalValue(result.ipoSell.taxSavedFromDeductibleSellCosts),
+      taxableGainTotal: decimalValue(result.ipoSell.taxableGainTotal),
+      taxableGainAtLowRate: decimalValue(result.ipoSell.taxableGainAtLowRate),
+      taxableGainAtHighRate: decimalValue(result.ipoSell.taxableGainAtHighRate),
+      estimatedTax: decimalValue(result.ipoSell.estimatedTax),
+      annualNetCapitalGain: decimalValue(result.ipoSell.annualNetCapitalGain),
+      annualTaxableGainAtLowRate: decimalValue(result.ipoSell.annualTaxableGainAtLowRate),
+      annualTaxableGainAtHighRate: decimalValue(result.ipoSell.annualTaxableGainAtHighRate),
+      annualEstimatedTax: decimalValue(result.ipoSell.annualEstimatedTax),
+      annualTaxChange: decimalValue(result.ipoSell.annualTaxChange),
+      taxReductionFromOtherLosses: decimalValue(result.ipoSell.taxReductionFromOtherLosses),
+      netAfterTaxAndSellCost: decimalValue(result.ipoSell.netAfterTaxAndSellCost),
+      netAfterAnnualTaxAndSellCost: decimalValue(result.ipoSell.netAfterAnnualTaxAndSellCost),
+      netResultAgainstAcquisitionCost: decimalValue(result.ipoSell.netResultAgainstAcquisitionCost),
+      remainingUnsoldShares: decimalValue(result.ipoSell.remainingUnsoldShares),
     },
   }
 }
@@ -319,7 +320,7 @@ describe(calculateOsakkeet, () => {
       createBaseForm({
         sells: [{ id: 'sell1', date: '2024-01-01', shareCount: '80', sellPrice: '800', pricePerShare: '10' }],
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-06-01', amountPerShare: '1' }],
-        sell: { amount: '70', otherAnnualCapitalGainsOrLosses: '' },
+        ipoSell: { amount: '70', otherAnnualCapitalGainsOrLosses: '' },
       })
     )
 
@@ -338,12 +339,12 @@ describe(calculateOsakkeet, () => {
     expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('50.00')
     expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('20.00')
     expect(result.vesting.totalShares.toFixed(2)).toBe('70.00')
-    expect(result.sell.usedSubscriptions).toHaveLength(2)
-    expect(result.sell.usedSubscriptions[0].subscriptionId).toBe('s1')
-    expect(result.sell.usedSubscriptions[0].soldAmount.toFixed(2)).toBe('20.00')
-    expect(result.sell.usedSubscriptions[1].subscriptionId).toBe('s2')
-    expect(result.sell.usedSubscriptions[1].soldAmount.toFixed(2)).toBe('50.00')
-    expect(result.sell.remainingUnsoldShares.toFixed(2)).toBe('0.00')
+    expect(result.ipoSell.usedLots).toHaveLength(2)
+    expect(result.ipoSell.usedLots[0].lotId).toBe('s1')
+    expect(result.ipoSell.usedLots[0].soldAmount.toFixed(2)).toBe('20.00')
+    expect(result.ipoSell.usedLots[1].lotId).toBe('s2')
+    expect(result.ipoSell.usedLots[1].soldAmount.toFixed(2)).toBe('50.00')
+    expect(result.ipoSell.remainingUnsoldShares.toFixed(2)).toBe('0.00')
   })
 
   it('applies share splits to later share counts while keeping total acquisition cost unchanged', () => {
@@ -432,7 +433,7 @@ describe(calculateOsakkeet, () => {
           estimatedPreIpoValue: '1000',
           estimatedSecondaryShareSellPercentage: '20',
         },
-        sell: {
+        ipoSell: {
           amount: '150',
           otherAnnualCapitalGainsOrLosses: '',
         },
@@ -440,12 +441,12 @@ describe(calculateOsakkeet, () => {
     )
 
     expect(result.errors).toEqual([])
-    expect(result.sell.usedSubscriptions).toHaveLength(1)
-    expect(result.sell.usedSubscriptions[0].totalSubscriptionShares.toFixed(2)).toBe('200.00')
-    expect(result.sell.usedSubscriptions[0].soldAmount.toFixed(2)).toBe('150.00')
-    expect(result.sell.usedSubscriptions[0].originalCostBasis.toFixed(2)).toBe('75.00')
-    expect(result.sell.usedSubscriptions[0].realCostBasis.toFixed(2)).toBe('75.00')
-    expect(result.sell.remainingUnsoldShares.toFixed(2)).toBe('50.00')
+    expect(result.ipoSell.usedLots).toHaveLength(1)
+    expect(result.ipoSell.usedLots[0].totalLotShares.toFixed(2)).toBe('200.00')
+    expect(result.ipoSell.usedLots[0].soldAmount.toFixed(2)).toBe('150.00')
+    expect(result.ipoSell.usedLots[0].originalCostBasis.toFixed(2)).toBe('75.00')
+    expect(result.ipoSell.usedLots[0].realCostBasis.toFixed(2)).toBe('75.00')
+    expect(result.ipoSell.remainingUnsoldShares.toFixed(2)).toBe('50.00')
   })
 
   it('allocates acquisition cost to the old company after a demerger', () => {
@@ -497,7 +498,7 @@ describe(calculateOsakkeet, () => {
           estimatedPreIpoValue: '1000',
           estimatedSecondaryShareSellPercentage: '20',
         },
-        sell: {
+        ipoSell: {
           amount: '100',
           otherAnnualCapitalGainsOrLosses: '',
         },
@@ -509,8 +510,8 @@ describe(calculateOsakkeet, () => {
     expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('720.00')
     expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('80.00')
     expect(result.subscriptions[0].remainingCostTotal.toFixed(2)).toBe('0.00')
-    expect(result.sell.usedSubscriptions[0].originalCostBasis.toFixed(2)).toBe('720.00')
-    expect(result.sell.usedSubscriptions[0].realCostBasis.toFixed(2)).toBe('0.00')
+    expect(result.ipoSell.usedLots[0].originalCostBasis.toFixed(2)).toBe('720.00')
+    expect(result.ipoSell.usedLots[0].realCostBasis.toFixed(2)).toBe('0.00')
   })
 
   it('does not apply a demerger to subscriptions acquired after the demerger date', () => {
@@ -615,7 +616,7 @@ describe(calculateOsakkeet, () => {
   it('builds tax-return asset and capital-gain summaries as tables can consume them', () => {
     const result = calculate(
       createBaseForm({
-        sell: { amount: '120', otherAnnualCapitalGainsOrLosses: '' },
+        ipoSell: { amount: '120', otherAnnualCapitalGainsOrLosses: '' },
       })
     )
 
@@ -643,21 +644,21 @@ describe(calculateOsakkeet, () => {
     const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
-        sell: { amount: '120' },
+        ipoSell: { amount: '120' },
       })
     )
 
     expect(result.errors).toEqual([])
-    expect(result.sell.usedSubscriptions).toHaveLength(2)
-    expect(result.sell.usedSubscriptions[0].subscriptionId).toBe('s1')
-    expect(result.sell.usedSubscriptions[0].selectedMethod).toBe('hmo')
-    expect(result.sell.usedSubscriptions[1].subscriptionId).toBe('s2')
-    expect(result.sell.usedSubscriptions[1].selectedMethod).toBe('actual_costs')
-    expect(result.sell.grossTotal.toFixed(2)).toBe('1200.00')
-    expect(result.sell.totalIpoCostAllocated.toFixed(2)).toBe('120.00')
-    expect(result.sell.taxableGainTotal.toFixed(2)).toBe('740.00')
-    expect(result.sell.estimatedTax.toFixed(2)).toBe('222.00')
-    expect(result.sell.netAfterTaxAndIpoCost.toFixed(2)).toBe('858.00')
+    expect(result.ipoSell.usedLots).toHaveLength(2)
+    expect(result.ipoSell.usedLots[0].lotId).toBe('s1')
+    expect(result.ipoSell.usedLots[0].selectedMethod).toBe('hmo')
+    expect(result.ipoSell.usedLots[1].lotId).toBe('s2')
+    expect(result.ipoSell.usedLots[1].selectedMethod).toBe('actual_costs')
+    expect(result.ipoSell.grossTotal.toFixed(2)).toBe('1200.00')
+    expect(result.ipoSell.totalAllocatedSellCost.toFixed(2)).toBe('120.00')
+    expect(result.ipoSell.taxableGainTotal.toFixed(2)).toBe('740.00')
+    expect(result.ipoSell.estimatedTax.toFixed(2)).toBe('222.00')
+    expect(result.ipoSell.netAfterTaxAndSellCost.toFixed(2)).toBe('858.00')
   })
 
   it('includes price per share and other acquisition costs in the actual cost basis', () => {
@@ -681,14 +682,14 @@ describe(calculateOsakkeet, () => {
           estimatedPreIpoValue: '200',
           estimatedSecondaryShareSellPercentage: '100',
         },
-        sell: { amount: '100' },
+        ipoSell: { amount: '100' },
       })
     )
 
     expect(result.subscriptions[0].totalPrice.toFixed(2)).toBe('150.00')
     expect(result.subscriptions[0].totalPricePerShare.toFixed(2)).toBe('1.50')
-    expect(result.sell.usedSubscriptions[0].realCostBasis.toFixed(2)).toBe('150.00')
-    expect(result.sell.usedSubscriptions[0].selectedMethod).toBe('actual_costs')
+    expect(result.ipoSell.usedLots[0].realCostBasis.toFixed(2)).toBe('150.00')
+    expect(result.ipoSell.usedLots[0].selectedMethod).toBe('actual_costs')
   })
 
   it('excludes vesting-restricted lots from the IPO sale allocation', () => {
@@ -712,13 +713,13 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
-        sell: { amount: '60' },
+        ipoSell: { amount: '60' },
       })
     )
 
-    expect(result.sell.usedSubscriptions).toHaveLength(1)
-    expect(result.sell.usedSubscriptions[0].subscriptionId).toBe('s2')
-    expect(result.sell.usedSubscriptions[0].soldAmount.toFixed(2)).toBe('50.00')
+    expect(result.ipoSell.usedLots).toHaveLength(1)
+    expect(result.ipoSell.usedLots[0].lotId).toBe('s2')
+    expect(result.ipoSell.usedLots[0].soldAmount.toFixed(2)).toBe('50.00')
     expect(result.vesting.totalShares.toFixed(2)).toBe('150.00')
     expect(result.vesting.vestedShares.toFixed(2)).toBe('50.00')
     expect(result.vesting.unvestedShares.toFixed(2)).toBe('100.00')
@@ -756,12 +757,12 @@ describe(calculateOsakkeet, () => {
           estimatedPreIpoValue: '1500',
           estimatedSecondaryShareSellPercentage: '80',
         },
-        sell: { amount: '120' },
+        ipoSell: { amount: '120' },
       })
     )
 
-    expect(result.sell.usedSubscriptions).toHaveLength(1)
-    expect(result.sell.usedSubscriptions[0].subscriptionId).toBe('s1')
+    expect(result.ipoSell.usedLots).toHaveLength(1)
+    expect(result.ipoSell.usedLots[0].lotId).toBe('s1')
     expect(result.vesting.totalShares.toFixed(2)).toBe('100.00')
     expect(result.errors).toContain(
       'Myytävien osakkeiden määrä ylittää IPO-päivänä myytävissä olevien osakkeiden määrän (100).'
@@ -792,29 +793,29 @@ describe(calculateOsakkeet, () => {
     const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
-        sell: { amount: '120' },
+        ipoSell: { amount: '120' },
       }),
       customRules
     )
 
-    expect(result.sell.taxableGainAtLowRate.toFixed(2)).toBe('100.00')
-    expect(result.sell.taxableGainAtHighRate.toFixed(2)).toBe('640.00')
-    expect(result.sell.estimatedTax.toFixed(2)).toBe('434.00')
+    expect(result.ipoSell.taxableGainAtLowRate.toFixed(2)).toBe('100.00')
+    expect(result.ipoSell.taxableGainAtHighRate.toFixed(2)).toBe('640.00')
+    expect(result.ipoSell.estimatedTax.toFixed(2)).toBe('434.00')
   })
 
   it('reduces annual tax estimate when other annual capital losses are entered', () => {
     const result = calculate(
       createBaseForm({
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
-        sell: { amount: '120', otherAnnualCapitalGainsOrLosses: '-200' },
+        ipoSell: { amount: '120', otherAnnualCapitalGainsOrLosses: '-200' },
       })
     )
 
-    expect(result.sell.taxableGainTotal.toFixed(2)).toBe('740.00')
-    expect(result.sell.annualNetCapitalGain.toFixed(2)).toBe('540.00')
-    expect(result.sell.estimatedTax.toFixed(2)).toBe('222.00')
-    expect(result.sell.annualEstimatedTax.toFixed(2)).toBe('162.00')
-    expect(result.sell.taxReductionFromOtherLosses.toFixed(2)).toBe('60.00')
+    expect(result.ipoSell.taxableGainTotal.toFixed(2)).toBe('740.00')
+    expect(result.ipoSell.annualNetCapitalGain.toFixed(2)).toBe('540.00')
+    expect(result.ipoSell.estimatedTax.toFixed(2)).toBe('222.00')
+    expect(result.ipoSell.annualEstimatedTax.toFixed(2)).toBe('162.00')
+    expect(result.ipoSell.taxReductionFromOtherLosses.toFixed(2)).toBe('60.00')
   })
 
   it('matches snapshot for mixed reimbursements dividends vesting and fifo sale', () => {
@@ -869,7 +870,7 @@ describe(calculateOsakkeet, () => {
           estimatedPreIpoValue: '105000000',
           estimatedSecondaryShareSellPercentage: '7',
         },
-        sell: {
+        ipoSell: {
           amount: '135000',
         },
       })
@@ -922,7 +923,7 @@ describe(calculateOsakkeet, () => {
           estimatedPreIpoValue: '24000000',
           estimatedSecondaryShareSellPercentage: '38',
         },
-        sell: {
+        ipoSell: {
           amount: '175000',
         },
       })
@@ -966,7 +967,7 @@ describe(calculateOsakkeet, () => {
           estimatedPreIpoValue: '2000',
           estimatedSecondaryShareSellPercentage: '0',
         },
-        sell: {
+        ipoSell: {
           amount: '120',
         },
       })
