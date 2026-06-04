@@ -79,6 +79,8 @@ const FI = {
     title: 'Osakemerkinnät',
     help: 'Syötä kaikki merkintäerät omassa hankintajärjestyksessä. Myynnissä käytetään FIFO-periaatetta, ja IPO-päivän jälkeen päättyvä ansaintajakso estää merkintäerän myynnin.',
     fields: {
+      originalShareCount: 'Osakkeita alunperin',
+      remainingShareCountCurrentDate: (date: string) => `Osakkeita jäljellä (${date})`,
       vestingEndsOn: 'Ansaintajakso päättyy',
       vestingEndsOnHelp:
         'Tässä laskurissa ansaintajakso vaikuttaa kahteen asiaan. 1) Jos ansaintajakso päättyy vasta IPO-päivän jälkeen, merkintäerää ei lasketa myytäväksi IPO:ssa. 2) Jos työsuhde tai muu järjestelyn ehto päättyy ennen ansaintajakson loppua, yhtiöllä tai muilla osakkailla voi käytännössä olla oikeus ostaa tai lunastaa osakkeet takaisin. Oikeudellisesti ansaintajakso ei yksin aiheuta tätä: osake on lähtökohtaisesti vapaasti luovutettava, jollei yhtiöjärjestyksessä ole sallittua lunastus- tai suostumuslauseketta tai jollei takaisinostosta ole sovittu erikseen osakassopimuksessa, merkintäehdoissa tai työsuhdepohjaisessa järjestelyssä. Yhtiön omien osakkeiden hankinta tai lunastus edellyttää lisäksi osakeyhtiölain 15 luvun mukaista menettelyä ja jakokelpoisia varoja.',
@@ -688,6 +690,8 @@ const EN: typeof FI = {
     title: 'Share subscriptions',
     help: 'Enter all subscription lots in acquisition order. FIFO is used for sales, and a vesting period ending after the IPO date blocks that lot from being sold.',
     fields: {
+      originalShareCount: 'Shares originally',
+      remainingShareCountCurrentDate: (date: string) => `Shares remaining (${date})`,
       vestingEndsOn: 'Vesting ends',
       vestingEndsOnHelp:
         'In this calculator, the vesting period affects two things. 1) If vesting ends only after the IPO date, that lot is not treated as sellable in the IPO. 2) If employment or another plan condition ends before vesting is complete, the company or other shareholders may in practice have a right to buy back or redeem the shares. Legally, vesting alone does not create that result: shares are freely transferable by default unless the articles contain a permitted redemption or consent clause, or unless a separate buyback obligation has been agreed in a shareholders agreement, subscription terms, or an employment-based arrangement. In addition, a company buyback or redemption of its own shares must follow Chapter 15 of the Finnish Companies Act and requires distributable funds.',

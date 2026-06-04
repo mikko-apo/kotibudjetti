@@ -2,11 +2,7 @@ import Decimal from 'decimal.js'
 import type { OsakkeetLocalization } from './osakkeetLocalizations'
 import type { ParsedIpoInputs, ParsedIpoSellInputs, WorkingLot } from './osakkeetParsedData'
 import type { ShareCalculator } from './shareCalculator'
-import {
-  calculateSellSummary,
-  type SellSummary,
-  type SellTaxRules,
-} from './osakkeetSellCalculator'
+import { calculateSellSummary, type SellSummary, type SellTaxRules } from './osakkeetSellCalculator'
 import { sumDecimals } from './osakkeetUtils'
 
 const zero = new Decimal(0)
@@ -102,7 +98,9 @@ export function buildIpoSummaryFromInputs(
 }
 
 export function calculateVestingSummary(lots: WorkingLot[], ipoDate?: Date): VestingSummary {
-  const ipoEligibleLots = lots.filter((lot) => !lot.dateValue || !ipoDate || lot.dateValue.getTime() <= ipoDate.getTime())
+  const ipoEligibleLots = lots.filter(
+    (lot) => !lot.dateValue || !ipoDate || lot.dateValue.getTime() <= ipoDate.getTime()
+  )
   const sellableLots = ipoEligibleLots.filter(
     (lot) =>
       lot.shareCount.gt(0) &&

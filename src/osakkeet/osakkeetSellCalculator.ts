@@ -181,7 +181,10 @@ export function calculateSellSummary(params: {
   const soldSharesTotal = sumDecimals(usedLots.map((lot) => lot.soldAmount))
   const totalAllocatedSellCost = sumDecimals(usedLots.map((lot) => lot.allocatedSellCost))
   const cashAfterSellCosts = grossTotal.minus(totalAllocatedSellCost)
-  const taxFreeAcquisitionRecoveryAfterSellCosts = Decimal.max(selectedDeductionTotal.minus(totalAllocatedSellCost), zero)
+  const taxFreeAcquisitionRecoveryAfterSellCosts = Decimal.max(
+    selectedDeductionTotal.minus(totalAllocatedSellCost),
+    zero
+  )
   const soldShareOriginalCostTotal = sumDecimals(usedLots.map((lot) => lot.originalCostBasis))
   const soldShareAcquisitionCostTotal = sumDecimals(usedLots.map((lot) => lot.realCostBasis))
   const sellCostDeductedViaActual = sumDecimals(

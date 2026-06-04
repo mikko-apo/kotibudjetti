@@ -2,7 +2,6 @@ import { b, button, div, inputs, span } from '../../../ki-frame/src/domBuilder'
 import { events } from '../../../ki-frame/src/domBuilderEvents'
 import { setStyle, type StylesObject } from '../../../ki-frame/src/domBuilderStyles'
 
-
 export function numberInput(
   inputStyle: StylesObject,
   value: string,

@@ -74,15 +74,21 @@ function snapshotCalculation(form: OsakkeetFormData) {
       amount: decimalValue(subscription.shareCount),
       totalPrice: decimalValue(subscription.baseShareAcquisitionCost),
       totalPricePerShare: decimalValue(
-        subscription.shareCount.gt(0) ? subscription.baseShareAcquisitionCost.div(subscription.shareCount) : subscription.baseShareAcquisitionCost.mul(0)
+        subscription.shareCount.gt(0)
+          ? subscription.baseShareAcquisitionCost.div(subscription.shareCount)
+          : subscription.baseShareAcquisitionCost.mul(0)
       ),
       cashDistributionGrossTotal: decimalValue(subscription.cashDistributionGrossTotal),
       capitalRepaymentTotal: decimalValue(subscription.capitalRepaymentTotal),
       capitalRepaymentPerShare: decimalValue(
-        subscription.shareCount.gt(0) ? subscription.capitalRepaymentTotal.div(subscription.shareCount) : subscription.capitalRepaymentTotal.mul(0)
+        subscription.shareCount.gt(0)
+          ? subscription.capitalRepaymentTotal.div(subscription.shareCount)
+          : subscription.capitalRepaymentTotal.mul(0)
       ),
       remainingCostPerShare: decimalValue(
-        subscription.shareCount.gt(0) ? subscription.shareAcquisitionCost.div(subscription.shareCount) : subscription.shareAcquisitionCost.mul(0)
+        subscription.shareCount.gt(0)
+          ? subscription.shareAcquisitionCost.div(subscription.shareCount)
+          : subscription.shareAcquisitionCost.mul(0)
       ),
       remainingCostTotal: decimalValue(subscription.shareAcquisitionCost),
     })),
@@ -244,8 +250,12 @@ describe(calculateOsakkeet, () => {
         capitalRepaymentTotal: '100.00',
       },
     ])
-    expect(result.subscriptions[0].capitalRepaymentTotal.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('0.00')
-    expect(result.subscriptions[1].capitalRepaymentTotal.div(result.subscriptions[1].shareCount).toFixed(2)).toBe('2.00')
+    expect(result.subscriptions[0].capitalRepaymentTotal.div(result.subscriptions[0].shareCount).toFixed(2)).toBe(
+      '0.00'
+    )
+    expect(result.subscriptions[1].capitalRepaymentTotal.div(result.subscriptions[1].shareCount).toFixed(2)).toBe(
+      '2.00'
+    )
     expect(result.subscriptions[1].shareAcquisitionCost.div(result.subscriptions[1].shareCount).toFixed(2)).toBe('2.00')
     expect(
       result.subscriptions[0].capitalRepaymentHoverEntries.map((entry) => ({
@@ -304,7 +314,9 @@ describe(calculateOsakkeet, () => {
       })
     )
 
-    expect(result.subscriptions[0].capitalRepaymentTotal.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('1.00')
+    expect(result.subscriptions[0].capitalRepaymentTotal.div(result.subscriptions[0].shareCount).toFixed(2)).toBe(
+      '1.00'
+    )
     expect(result.subscriptions[0].shareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('0.00')
     expect(
       result.subscriptions[0].capitalRepaymentHoverEntries.map((entry) => ({
@@ -383,7 +395,9 @@ describe(calculateOsakkeet, () => {
     expect(result.errors).toEqual([])
     expect(result.subscriptions[0].shareCount.toFixed(2)).toBe('200.00')
     expect(result.subscriptions[0].baseShareAcquisitionCost.toFixed(2)).toBe('400.00')
-    expect(result.subscriptions[0].baseShareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('2.00')
+    expect(result.subscriptions[0].baseShareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe(
+      '2.00'
+    )
     expect(result.subscriptions[0].shareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('2.00')
     expect(result.ipo.totalSubscribedShares.toFixed(2)).toBe('200.00')
     expect(result.vesting.totalShares.toFixed(2)).toBe('200.00')
@@ -412,7 +426,9 @@ describe(calculateOsakkeet, () => {
     expect(result.cashDistributions[0].sharesHeld.toFixed(2)).toBe('200.00')
     expect(result.cashDistributions[0].grossTotal.toFixed(2)).toBe('200.00')
     expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('200.00')
-    expect(result.subscriptions[0].capitalRepaymentTotal.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('1.00')
+    expect(result.subscriptions[0].capitalRepaymentTotal.div(result.subscriptions[0].shareCount).toFixed(2)).toBe(
+      '1.00'
+    )
     expect(result.subscriptions[0].shareAcquisitionCost.toFixed(2)).toBe('200.00')
   })
 
@@ -476,7 +492,9 @@ describe(calculateOsakkeet, () => {
     expect(result.errors).toEqual([])
     expect(result.subscriptions[0].shareCount.toFixed(2)).toBe('100.00')
     expect(result.subscriptions[0].baseShareAcquisitionCost.toFixed(2)).toBe('720.00')
-    expect(result.subscriptions[0].baseShareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('7.20')
+    expect(result.subscriptions[0].baseShareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe(
+      '7.20'
+    )
     expect(result.subscriptions[0].shareAcquisitionCost.toFixed(2)).toBe('720.00')
     expect(result.subscriptions[0].shareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('7.20')
   })
@@ -549,8 +567,12 @@ describe(calculateOsakkeet, () => {
     expect(result.errors).toEqual([])
     expect(result.subscriptions[0].baseShareAcquisitionCost.toFixed(2)).toBe('720.00')
     expect(result.subscriptions[1].baseShareAcquisitionCost.toFixed(2)).toBe('400.00')
-    expect(result.subscriptions[0].baseShareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('7.20')
-    expect(result.subscriptions[1].baseShareAcquisitionCost.div(result.subscriptions[1].shareCount).toFixed(2)).toBe('8.00')
+    expect(result.subscriptions[0].baseShareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe(
+      '7.20'
+    )
+    expect(result.subscriptions[1].baseShareAcquisitionCost.div(result.subscriptions[1].shareCount).toFixed(2)).toBe(
+      '8.00'
+    )
   })
 
   it('allows share-count and acquisition-cost changes on the same day', () => {
@@ -640,7 +662,12 @@ describe(calculateOsakkeet, () => {
     expect(year2026?.ipoSale?.summary.usedLots).toHaveLength(2)
     expect(year2026?.ipoSale?.summary.usedLots[0].lotDate).toBe('01.01.2013')
     expect(year2026?.ipoSale?.sellDate).toBe('2026-06-01')
-    expect(year2026?.ipoSale?.summary.usedLots.map((entry) => entry.soldAmount).reduce((acc, value) => acc.add(value)).toFixed(2)).toBe('120.00')
+    expect(
+      year2026?.ipoSale?.summary.usedLots
+        .map((entry) => entry.soldAmount)
+        .reduce((acc, value) => acc.add(value))
+        .toFixed(2)
+    ).toBe('120.00')
     expect(year2026?.ipoSale?.summary.grossTotal.toFixed(2)).toBe('1200.00')
     expect(year2026?.ipoSale?.summary.selectedDeductionTotal.toFixed(2)).toBe('500.00')
     expect(year2026?.ipoSale?.summary.taxableGainTotal.toFixed(2)).toBe('700.00')
@@ -693,7 +720,9 @@ describe(calculateOsakkeet, () => {
     )
 
     expect(result.subscriptions[0].baseShareAcquisitionCost.toFixed(2)).toBe('150.00')
-    expect(result.subscriptions[0].baseShareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe('1.50')
+    expect(result.subscriptions[0].baseShareAcquisitionCost.div(result.subscriptions[0].shareCount).toFixed(2)).toBe(
+      '1.50'
+    )
     expect(result.ipoSell.usedLots[0].realCostBasis.toFixed(2)).toBe('150.00')
     expect(result.ipoSell.usedLots[0].selectedMethod).toBe('actual_costs')
   })

@@ -167,10 +167,16 @@ export function normalizeOsakkeetFormData(data: Partial<OsakkeetFormData>, creat
   return {
     subscriptions: sortRowsByDate(normalizeCollectionRows('subscriptions', normalized.subscriptions, createId)),
     sells: sortRowsByDate(normalizeCollectionRows('sells', normalized.sells, createId)),
-    cashDistributions: sortRowsByDate(normalizeCollectionRows('cashDistributions', normalized.cashDistributions, createId)),
+    cashDistributions: sortRowsByDate(
+      normalizeCollectionRows('cashDistributions', normalized.cashDistributions, createId)
+    ),
     shareSplits: sortRowsByDate(normalizeCollectionRows('shareSplits', normalized.shareSplits, createId)),
     demergers: sortRowsByDate(normalizeCollectionRows('demergers', normalized.demergers, createId)),
-    mathematicalShareValues: normalizeCollectionRows('mathematicalShareValues', normalized.mathematicalShareValues, createId),
+    mathematicalShareValues: normalizeCollectionRows(
+      'mathematicalShareValues',
+      normalized.mathematicalShareValues,
+      createId
+    ),
     ipo: {
       ...blank.ipo,
       ipoDate: ipo.ipoDate || '',
@@ -191,7 +197,10 @@ export function normalizeOsakkeetFormData(data: Partial<OsakkeetFormData>, creat
   }
 }
 
-export function createEmptyCollectionRow<K extends FormCollectionKey>(key: K, createId: CreateId): FormCollectionRow<K> {
+export function createEmptyCollectionRow<K extends FormCollectionKey>(
+  key: K,
+  createId: CreateId
+): FormCollectionRow<K> {
   return formCollectionSchemas[key].normalize(formCollectionSchemas[key].create(), createId)
 }
 

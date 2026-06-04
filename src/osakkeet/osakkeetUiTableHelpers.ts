@@ -153,9 +153,14 @@ export function createEditableRowManager<TRow extends { id: string; editLabel: s
   createActionButton: (labelNode: Text, variant: 'primary' | 'secondary', onClick: () => void) => HTMLButtonElement,
   onSet?: (row: TRow) => void
 ): EditableRowManager<TRow> {
-  const editController = createRowEditController(row, editingIds, (nextRow) => {
-    syncEditableCellBindings(bindings, nextRow, editController.isEditing())
-  }, createActionButton)
+  const editController = createRowEditController(
+    row,
+    editingIds,
+    (nextRow) => {
+      syncEditableCellBindings(bindings, nextRow, editController.isEditing())
+    },
+    createActionButton
+  )
   let currentRow = row
 
   return {

@@ -23,13 +23,7 @@ import { createTaxSummaryContent } from './osakkeetUiSummarySections'
 import { createMathematicalShareValuesEditor } from './osakkeetUiDataSections'
 import type { OsakkeetCalculation } from './osakkeetUiCalculator'
 import type { OsakkeetFormData } from './osakkeetTypes'
-import {
-  createActionButton,
-  infoCard,
-  setButtonAttention,
-  setButtonVariant,
-  withHoverInfo,
-} from './osakkeetUiUtils'
+import { createActionButton, infoCard, setButtonAttention, setButtonVariant, withHoverInfo } from './osakkeetUiUtils'
 import { copyTextToClipboard, downloadJsonFile } from './browserUtils'
 import { assumptionsContent } from './osakkeetUiAssumptions'
 import { pageStyles } from './osakkeetUiStyles'
@@ -277,12 +271,7 @@ export function createTopSection(
         div(
           pageStyles.stickyWarningHeader,
           h3(pageStyles.stickyWarningTitle, introTextNodes.warningsTitle),
-          div(
-            pageStyles.stickyWarningActions,
-            stickySaveFileButton,
-            stickyLoadFileButton,
-            clearExampleButton
-          )
+          div(pageStyles.stickyWarningActions, stickySaveFileButton, stickyLoadFileButton, clearExampleButton)
         ),
         stickyWarningListRoot
       )
@@ -381,7 +370,8 @@ export function createTaxSummarySection(
       createActionButton: (labelNode, variant, onClick) =>
         createActionButton(pageStyles.smallButton, labelNode, variant, onClick),
       infoCard: (title, value, help) => infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help),
-      withHoverInfo: (content, tooltip) => withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, content, tooltip),
+      withHoverInfo: (content, tooltip) =>
+        withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, content, tooltip),
     })
   )
   const root = section(
