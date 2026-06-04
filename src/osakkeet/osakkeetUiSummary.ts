@@ -1,5 +1,5 @@
 import type { OsakkeetCalculation } from './osakkeetUiCalculator'
-import { amount, euro, multiplier, percentage } from './osakkeetFormat'
+import { amount, createSharePercentFormatter, euro, formatDateLabel, multiplier } from './osakkeetFormat'
 import type { OsakkeetLocalization } from './osakkeetLocalizations'
 import type { WorkingLot } from './osakkeetParsedData'
 import type { ShareCalculatorLogEntry } from './shareCalculatorTypes'
@@ -27,12 +27,15 @@ function capitalRepaymentDividendReasonText(
   return texts.subscriptions.fields.capitalRepaymentPerShareTooltipReasonListedDividend
 }
 
-export function createSummaryById<TSummary extends { id: string }>(summaries: TSummary[]) {
-  const summariesById: Record<string, TSummary | undefined> = {}
-  summaries.forEach((summary) => {
-    summariesById[summary.id] = summary
-  })
-  return summariesById
+export function zipRowsWithSummaries<TRow extends { id: string }, TSummary extends { id: string }>(
+  rows: readonly TRow[],
+  summaries: readonly TSummary[]
+) {
+  const summariesById = new Map(summaries.map((summary) => [summary.id, summary]))
+  return rows.map((row) => ({
+    row,
+    summary: summariesById.get(row.id),
+  }))
 }
 
 export function createSubscriptionHistoryRows(
@@ -149,10 +152,6 @@ function getTotalPricePerShare(lot: WorkingLot) {
   return lot.shareCount.gt(0) ? lot.baseShareAcquisitionCost.div(lot.shareCount) : lot.baseShareAcquisitionCost.mul(0)
 }
 
-function getCapitalRepaymentPerShare(lot: WorkingLot) {
-  return lot.shareCount.gt(0) ? lot.capitalRepaymentTotal.div(lot.shareCount) : lot.capitalRepaymentTotal.mul(0)
-}
-
 function getRemainingCostPerShare(lot: WorkingLot) {
   return lot.shareCount.gt(0) ? lot.shareAcquisitionCost.div(lot.shareCount) : lot.shareAcquisitionCost.mul(0)
 }
@@ -251,20 +250,6 @@ export function createRemainingCostPerShareTooltip(
   return lines.join('\n')
 }
 
-export function createSharePercent(totalShares: FixedSummaryValue) {
-  return (value: FixedSummaryValue) =>
-    totalShares.gt(0)
-      ? `${amount(value)} (${percentage(value.div(totalShares).mul(100))})`
-      : `${amount(value)} (0.00 %)`
-}
-
-function formatDateLabel(date: Date) {
-  const day = String(date.getDate()).padStart(2, '0')
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const year = String(date.getFullYear())
-  return `${day}.${month}.${year}`
-}
-
 export function createSubscriptionsSummaryCards(
   infoCard: (title: string, value: string, help?: string) => unknown,
   totalShares: FixedSummaryValue,
@@ -273,7 +258,7 @@ export function createSubscriptionsSummaryCards(
   currentDate: Date,
   texts: OsakkeetLocalization
 ) {
-  const sharePercent = createSharePercent(totalShares)
+  const sharePercent = createSharePercentFormatter(totalShares)
   const referenceDate = formatDateLabel(currentDate)
   return [
     infoCard(texts.subscriptions.summary.totalShares, amount(totalShares)),

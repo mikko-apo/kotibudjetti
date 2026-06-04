@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js'
+import type { CashDistributionAllocation, CashDistributionSummary } from './osakkeetCashDistributionTypes'
 import { type OsakkeetLocalization } from './osakkeetLocalizations'
 import {
   buildIpoSummaryFromInputs,
@@ -17,84 +18,10 @@ import {
   type WorkingLot,
 } from './osakkeetParsedData'
 import type { SellSummary } from './osakkeetSellCalculator'
+import type { TaxReturnAssetSummary, TaxReturnIpoSaleSummary, TaxReturnSectionSummary, TaxReturnTotals, TaxReturnYearSummary } from './osakkeetTaxReturnTypes'
 import type { OsakkeetFormData } from './osakkeetTypes'
 import { createShareCalculator, type ShareCalculator, type ShareCalculatorError } from './shareCalculator'
 import { compareDateStrings, isWithinYearsInclusive, sumDecimals } from './osakkeetUtils'
-
-type CashDistributionAllocation = {
-  subscriptionId: string
-  subscriptionDate: string
-  shares: Decimal
-  gross: Decimal
-  capitalRepayment: Decimal
-  dividend: Decimal
-  remainingCostPerShareAfter: Decimal
-  eligibleCapitalRepayment: boolean
-}
-
-type CashDistributionSummary = {
-  id: string
-  date: string
-  type: 'capital_return' | 'dividend'
-  amountPerShare: Decimal
-  sharesHeld: Decimal
-  capitalRepaymentShareCount: Decimal
-  dividendShareCount: Decimal
-  mathematicalShareValuePerShare: Decimal
-  shareholderMathematicalValue: Decimal
-  eightPercentYieldLimit: Decimal
-  expectedTotal: Decimal
-  grossTotal: Decimal
-  paidInCash: Decimal
-  capitalRepaymentTotal: Decimal
-  dividendTotal: Decimal
-  withholdingToTaxOffice: Decimal
-  taxableCapitalIncome: Decimal
-  taxFreeCapitalIncomePortion: Decimal
-  taxableEarnedDividend: Decimal
-  taxFreeEarnedDividend: Decimal
-  treatedAsListedDividend: boolean
-  allocations: CashDistributionAllocation[]
-}
-
-type TaxReturnTotals = {
-  paidInCash: Decimal
-  withholdingToTaxOffice: Decimal
-  capitalRepaymentTotal: Decimal
-  dividendTotal: Decimal
-  taxableCapitalIncome: Decimal
-  taxFreeCapitalIncome: Decimal
-  taxableEarnedDividend: Decimal
-  taxFreeEarnedDividend: Decimal
-}
-
-type TaxReturnSectionSummary = {
-  mode: 'unlisted' | 'listed'
-  entries: CashDistributionSummary[]
-  totals: TaxReturnTotals
-}
-
-type TaxReturnAssetSummary = {
-  date: string
-  shareCount: Decimal
-  mathematicalShareValuePerShare: Decimal
-  shareholderMathematicalValue: Decimal
-  remainingAcquisitionCost: Decimal
-}
-
-type TaxReturnIpoSaleSummary = {
-  sellDate: string
-  summary: SellSummary
-}
-
-type TaxReturnYearSummary = {
-  year: number
-  missingMathematicalValueWarningDates: string[]
-  assets?: TaxReturnAssetSummary
-  unlisted?: TaxReturnSectionSummary
-  listed?: TaxReturnSectionSummary
-  ipoSale?: TaxReturnIpoSaleSummary
-}
 
 export type OsakkeetCalculation = {
   formData: OsakkeetFormData
@@ -107,7 +34,7 @@ export type OsakkeetCalculation = {
   ipo: IpoSummary
   ipoSell: SellSummary
   taxReturns: {
-    years: TaxReturnYearSummary[]
+    years: TaxReturnYearSummary<CashDistributionSummary>[]
   }
 }
 
@@ -717,7 +644,7 @@ function buildTaxReturnYearSummaries(
               mode: 'unlisted' as const,
               entries: unlistedEntries,
               totals: createTaxReturnTotals(unlistedEntries),
-            }
+            } satisfies TaxReturnSectionSummary<CashDistributionSummary>
           : undefined,
       listed:
         listedEntries.length > 0
@@ -725,16 +652,16 @@ function buildTaxReturnYearSummaries(
               mode: 'listed' as const,
               entries: listedEntries,
               totals: createTaxReturnTotals(listedEntries),
-            }
+            } satisfies TaxReturnSectionSummary<CashDistributionSummary>
           : undefined,
       ipoSale:
         ipoYear === year && ipoSell.grossTotal.gt(0)
           ? {
               sellDate: ipoDate!.toISOString().slice(0, 10),
               summary: ipoSell,
-            }
+            } satisfies TaxReturnIpoSaleSummary
           : undefined,
-    } satisfies TaxReturnYearSummary
+    } satisfies TaxReturnYearSummary<CashDistributionSummary>
   })
 }
 

@@ -36,6 +36,10 @@ export function compareDateStrings(a: string, b: string) {
   return a.localeCompare(b)
 }
 
+export function sortRowsByDate<TRow extends { date: string }>(rows: readonly TRow[]) {
+  return [...rows].sort((a, b) => compareDateStrings(a.date, b.date))
+}
+
 export function sumDecimals(values: Decimal[]) {
   return values.reduce((acc, value) => acc.add(value), new Decimal(0))
 }
