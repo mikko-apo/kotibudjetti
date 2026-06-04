@@ -638,14 +638,12 @@ exports[`calculateOsakkeet > matches snapshot for validation warnings and missin
     },
   ],
   "errors": [
-    "Merkintä not-a-date määrä ei voi olla negatiivinen.",
-    "Merkintä not-a-date hinta/osake ei ole kelvollinen numero.",
     "Merkintä s2 päivä ei ole kelvollinen pvm.",
+    "Merkintä not-a-date määrä ei voi olla negatiivinen.",
+    "Merkintä not-a-date määrä ei ole kelvollinen numero.",
+    "Merkintä not-a-date hinta/osake ei ole kelvollinen numero.",
     "Varojenjako d2 päivä ei ole kelvollinen pvm.",
     "Varojenjako d2 €/osake ei voi olla negatiivinen.",
-    "Subscription s2 date is not valid.",
-    "Subscription s2 amount must be greater than zero.",
-    "Cash distribution d2 date is not valid.",
     "Myytävien osakkeiden määrä ylittää IPO-päivänä myytävissä olevien osakkeiden määrän (0).",
   ],
   "ipo": {

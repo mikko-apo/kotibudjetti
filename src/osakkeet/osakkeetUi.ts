@@ -1290,7 +1290,7 @@ function createMathematicalShareValuesEditor(
       })
       const yearCell = td()
       const valuePerShareCell = td()
-      const bindings: Array<EditableCellBinding<(typeof row)>> = [
+      const bindings: Array<EditableCellBinding<typeof row>> = [
         {
           cell: yearCell,
           editNode: div(pageStyles.compactField, yearInput),
@@ -1435,10 +1435,15 @@ function createShareSplitsSection(
     },
   })
 
-  const addButton = createCollectionAppendEditButton(shareSplits, editingRowIds, shareSplitTextNodes.actions.add, () => ({
-    date: '',
-    multiplier: '',
-  }))
+  const addButton = createCollectionAppendEditButton(
+    shareSplits,
+    editingRowIds,
+    shareSplitTextNodes.actions.add,
+    () => ({
+      date: '',
+      multiplier: '',
+    })
+  )
 
   const root = section(
     { class: 'card' },
@@ -2289,7 +2294,10 @@ function createCashDistributionRowViewModel(
     dividendTotalTooltip: summary
       ? texts.cashDistributions.fields.dividendSharesHelp(amount(summary.dividendShareCount))
       : '',
-    typeLabel: cashDistribution.type === 'capital_return' ? texts.cashDistributions.types.capitalReturn : texts.cashDistributions.types.dividend,
+    typeLabel:
+      cashDistribution.type === 'capital_return'
+        ? texts.cashDistributions.types.capitalReturn
+        : texts.cashDistributions.types.dividend,
     editLabel: texts.common.edit,
     doneLabel: texts.common.done,
     removeLabel: texts.common.remove,

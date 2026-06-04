@@ -558,10 +558,7 @@ export function mapStateToDomChildren(
     row.mountedNodes = []
   }
 
-  const rowContainsNode = (
-    row: MountedMapStateToDomChildrenRow<unknown, unknown>,
-    target: Node | null
-  ) => {
+  const rowContainsNode = (row: MountedMapStateToDomChildrenRow<unknown, unknown>, target: Node | null) => {
     if (!target) return false
     return row.mountedNodes.some(
       (node) =>
@@ -593,7 +590,8 @@ export function mapStateToDomChildren(
       orderedRows.push({ key, row })
     })
 
-    const activeElement = document.activeElement instanceof Node ? document.activeElement : null
+    const activeElement =
+      typeof document !== 'undefined' && document.activeElement instanceof Node ? document.activeElement : null
     const pinnedRowIndex =
       activeElement == null ? -1 : orderedRows.findIndex(({ row }) => rowContainsNode(row, activeElement))
 
