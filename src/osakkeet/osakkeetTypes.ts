@@ -32,8 +32,9 @@ export type ShareSellInput = {
   id: string
   date: string
   shareCount: string
-  sellPrice: string
+  sellPrice?: string
   pricePerShare?: string
+  otherTotalSellCosts?: string
 }
 
 export type MathematicalShareValueInput = {
@@ -42,8 +43,12 @@ export type MathematicalShareValueInput = {
   valuePerShare: string
 }
 
+export type CompanyDetailsInput = {
+  listingStatus: 'unlisted' | 'listed'
+  becameListedDate: string
+}
+
 export type IpoDetailsInput = {
-  ipoDate: string
   totalShareCount: string
   totalIpoCost: string
   currentShareValue: string
@@ -53,10 +58,13 @@ export type IpoDetailsInput = {
 
 export type IpoSellDetailsInput = {
   amount: string
+  pricePerShare?: string
+  costPerShare?: string
   otherAnnualCapitalGainsOrLosses?: string
 }
 
 export type OsakkeetFormData = {
+  company: CompanyDetailsInput
   subscriptions: ShareSubscriptionInput[]
   sells: ShareSellInput[]
   cashDistributions: CashDistributionInput[]

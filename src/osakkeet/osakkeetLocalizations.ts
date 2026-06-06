@@ -33,6 +33,18 @@ const FI = {
     done: 'Valmis',
     remove: 'Poista',
   },
+  company: {
+    title: 'Yrityksen tiedot',
+    help: 'Valitse onko yhtiö tällä hetkellä listaamaton vai listattu. Valinnainen listautumispäivä toimii tässä laskurissa IPO-päivänä varojenjaon ja IPO-myynnin rajapäivänä.',
+    fields: {
+      listingStatus: 'Yhtiön tila',
+      becameListedDate: 'Listautumispäivä',
+    },
+    options: {
+      unlisted: 'Listaamaton',
+      listed: 'Listattu',
+    },
+  },
   assumptions: {
     title: 'Laskennan oletukset',
     items: [
@@ -58,12 +70,13 @@ const FI = {
     },
     groups: {
       subscriptionsAndSales: {
-        title: '1. Osakemerkinnät ja myynnit',
+        title: '2. Osakemerkinnät ja myynnit',
         summary: 'Sisältää: Osakemerkinnät, Osakkeiden myynnit.',
       },
       distributionsAndCorporateActions: {
-        title: '2. Varojenjako, jakautuminen ja splitit',
-        summary: 'Sisältää: Osingot ja pääomanpalautukset, Yrityksen jakautuminen hankintamenon mukaan, Osakesplitit.',
+        title: '1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit',
+        summary:
+          'Sisältää: Yrityksen tila ja listautumispäivä, Osingot ja pääomanpalautukset, Yrityksen jakautuminen hankintamenon mukaan, Osakesplitit.',
       },
       taxReturns: {
         title: '3. Veroilmoitukset',
@@ -71,7 +84,7 @@ const FI = {
       },
       ipoCalculator: {
         title: '4. IPO-laskuri',
-        summary: 'Sisältää: IPO-tiedot ja yhteenveto, IPO-myynnin tiedot.',
+        summary: 'Sisältää: IPO-tiedot ja arvionti, IPO-myynnin tiedot.',
       },
     },
   },
@@ -79,6 +92,7 @@ const FI = {
     title: 'Osakemerkinnät',
     help: 'Syötä kaikki merkintäerät omassa hankintajärjestyksessä. Myynnissä käytetään FIFO-periaatetta, ja IPO-päivän jälkeen päättyvä ansaintajakso estää merkintäerän myynnin.',
     fields: {
+      purchaseDate: 'Ostopäivä',
       originalShareCount: 'Osakkeita alunperin',
       remainingShareCountCurrentDate: (date: string) => `Osakkeita jäljellä (${date})`,
       vestingEndsOn: 'Ansaintajakso päättyy',
@@ -97,31 +111,6 @@ const FI = {
         `${date}: split ${beforeShares} osaketta x ${multiplier} = ${afterShares} osaketta`,
       totalPricePerShareTooltipResult: (total: string, shares: string, perShare: string) =>
         `Lopuksi: ${total} / ${shares} osaketta = ${perShare}`,
-      totalReimbursements: 'Pääomanpalautukset yhteensä',
-      totalReimbursementsHelp:
-        'Tässä laskurissa ennen IPO-päivää tehty SVOP-varojenjako lasketaan pääomanpalautukseksi vain siltä osin kuin se palauttaa saman osakkaan omaa enintään 10 vuotta vanhaa pääomasijoitusta. Pääomanpalautus vähentää jäljellä olevaa todellista hankintamenoa enintään siihen määrään asti. Hankintameno-olettamaa ei käytetä pääomanpalautukseen. IPO-päivänä tai sen jälkeen varojenjako käsitellään tässä laskurissa osinkona.',
-      totalReimbursementsTooltipIntro: 'Muodostuu näistä pääomanpalautuksista:',
-      totalReimbursementsTooltipLine: (date: string, amountPerShare: string, shares: string, total: string) =>
-        `${date}: ${amountPerShare} / osake x ${shares} osaketta = ${total}`,
-      capitalRepaymentPerShare: 'Pääomanpalautus / osake',
-      capitalRepaymentPerShareTooltipIntro: 'Muodostuu näistä pääomanpalautusriveistä:',
-      capitalRepaymentPerShareTooltipAppliedLine: (
-        date: string,
-        inputPerShare: string,
-        shares: string,
-        appliedPerShare: string,
-        appliedTotal: string
-      ) =>
-        `${date}: syöte ${inputPerShare} / osake x ${shares} osaketta -> käytetty pääomanpalautuksena ${appliedPerShare} / osake = ${appliedTotal}`,
-      capitalRepaymentPerShareTooltipDividendLine: (
-        date: string,
-        inputPerShare: string,
-        shares: string,
-        dividendPerShare: string,
-        dividendTotal: string,
-        reason: string
-      ) =>
-        `${date}: syöte ${inputPerShare} / osake x ${shares} osaketta -> osinkona ${dividendPerShare} / osake = ${dividendTotal} (${reason})`,
       capitalRepaymentPerShareTooltipReasonTooOld: 'merkinnästä on yli 10 vuotta',
       capitalRepaymentPerShareTooltipReasonNoRemainingCost: 'jäljellä oleva hankintameno on 0',
       capitalRepaymentPerShareTooltipReasonRemainingCostLimit:
@@ -248,8 +237,8 @@ const FI = {
     help: 'Syötä toteutuneet myynnit aikajärjestyksessä. Myynti vähentää myöhempien päivien jäljellä olevia osakkeita ja hankintamenoa FIFO-periaatteella.',
     fields: {
       shareCount: 'Myytyjä osakkeita',
-      sellPrice: 'Myyntihinta yhteensä',
       pricePerShare: 'Myyntihinta / osake',
+      otherTotalSellCosts: 'Muut kulut',
     },
     actions: {
       add: 'Lisää myynti',
@@ -260,6 +249,8 @@ const FI = {
     help: 'Syötä splitin päivä ja kerroin. Kerroin 2 tarkoittaa, että yksi vanha osake muuttuu kahdeksi. Kerroin 0,5 tarkoittaa, että kaksi vanhaa osaketta yhdistyy yhdeksi.',
     fields: {
       multiplier: 'Osakkeita / vanha osake',
+      exampleEffect: 'Esimerkki',
+      exampleEffectValue: (multiplier: string) => `100 osaketta -> ${multiplier} osaketta`,
     },
     actions: {
       add: 'Lisää split',
@@ -270,15 +261,22 @@ const FI = {
     help: 'Syötä jakautumisen päivä ja se desimaaliosuus, joka jää tämän laskurin seuraaman vanhan yhtiön hankintamenoksi. Esimerkiksi 0,72 tarkoittaa, että 72 % hankintamenosta jää vanhalle yhtiölle ja loput siirtyvät uudelle yhtiölle. Käytä yhtiön tai verotusohjeen ilmoittamaa jakosuhdetta: se perustuu yleensä nettovarallisuuksien suhteeseen, mutta jos se poikkeaa olennaisesti osakkeiden käypien arvojen suhteesta, käytetään käypien arvojen suhdetta.',
     fields: {
       oldCompanyRatio: 'Vanhan yhtiön osuus hankintamenosta',
+      exampleEffect: 'Esimerkki',
+      exampleEffectValue: (ratio: string, oldCompany: string, newCompany: string) =>
+        `10,00 € -> vanha yhtiö ${oldCompany}, uusi yhtiö ${newCompany}`,
     },
     actions: {
       add: 'Lisää jakautuminen',
     },
   },
   ipo: {
-    title: 'IPO-tiedot ja yhteenveto',
+    title: 'IPO-tiedot ja arvionti',
+    sections: {
+      currentCompany: 'Listaamattoman yrityksen nykyiset tiedot',
+      sharePriceEstimate: 'Osakkeen hinnan arviointi yrityksen hinnan perusteella',
+      ipoCostEstimate: 'Ipo-kulu per osake arviointi',
+    },
     fields: {
-      ipoDate: 'IPO-päivä',
       totalShareCount: 'Osakkeiden kokonaismäärä',
       totalIpoCost: 'IPO-kulut yhteensä',
       currentShareValue: 'Nykyinen osakkeen arvo',
@@ -291,7 +289,6 @@ const FI = {
     },
     help: {
       secondary: 'Käytetään IPO-kulun allokointiin per myyty osake.',
-      dateFormat: 'Muoto pp.kk.vvvv. Samaa päivää käytetään 10 vuoden hankintameno-olettaman tarkistukseen.',
     },
   },
   mathematicalShareValues: {
@@ -326,6 +323,9 @@ const FI = {
       title: 'IPO-myynnin tiedot',
       fields: {
         sharesToSell: 'Myytävien osakkeiden määrä',
+        sharesToSellShareOfSellable: (share: string) => `${share} myytävissä IPOssa`,
+        ipoPricePerShare: 'IPO-hinta / osake',
+        ipoCostPerShare: 'Ipo-kulu per osake',
         ipoPriceTotal: 'IPO-hinta yhteensä',
         actualCosts: 'Todelliset kulut',
         hmo: 'Hankintameno-olettama',
@@ -380,21 +380,30 @@ const FI = {
       cashReserve: {
         title: 'Tilille jäävä raha ja veroihin varattava osuus',
         otherAnnualCapitalGainsOrLosses: 'Muut luovutusvoitot tai tappiot',
-        otherAnnualCapitalGainsOrLossesHelp: 'Syötä kenttään muut mahdolliset luovutusvoitot ja tappiot',
+        otherAnnualCapitalGainsOrLossesHelp:
+          'Syötä kenttään muut mahdolliset luovutusvoitot ja tappiot ja niiden yhteisarvo',
         annualAdjustmentTitle: 'Muiden luovutusvoittojen tai -tappioiden vaikutus vuositasolla',
         annualAdjustedKeepAfterTaxes: 'Tilille voi jättää vuositasolla',
         annualAdjustedReserveForTaxes: 'Veroihin varattava vuositasolla',
         keepAfterTaxes: 'Tilille voi jättää',
+        remainingShares: 'Myymättä jäävät osakkeet',
+        remainingSharesTotalLine: (shares: string, value: string) => `Yhteensä: ${shares} osaketta, arvo ${value}`,
+        remainingSharesVestedLine: (shares: string, value: string) =>
+          `Myytävissä nyt: ${shares} osaketta, arvo ${value}`,
+        remainingSharesUnvestedLine: (shares: string, ipoValue: string, originalAcquisitionCost: string) =>
+          `Ansaintajakson piirissä: ${shares} osaketta, arvo IPO-hinnalla ${ipoValue}, alkuperäinen hankintameno ${originalAcquisitionCost}`,
         reserveForTaxes: 'Veroihin varattava',
-        taxEffectFromOtherAnnualCapital: 'Muiden luovutusvoittojen tai -tappioiden vaikutus veroon',
+        taxEffectFromOtherAnnualCapital: 'Muiden luovutusvoittojen tai -tappioiden vaikutus veron määrään',
         taxPaymentStatus: 'Peritäänkö vero automaattisesti?',
         taxPaymentManual: 'Ei yleensä automaattisesti',
         keepAfterTaxesHelp: (cash: string, tax: string, kept: string) =>
           `Tilille jäävä summa = käteen ${cash} - veroihin varattava osuus ${tax} = ${kept}.`,
+        remainingSharesHelp: (shareValue: string, totalValue: string) =>
+          `Arvo ${totalValue} on laskettu IPO-hinnalla ${shareValue} / osake.`,
         reserveForTaxesHelp: (tax: string) =>
           `Arvioitu vero ${tax} kannattaa varata erikseen, jotta vuotuinen verotus ei aiheuta yllättävää maksua.`,
         taxEffectFromOtherAnnualCapitalHelp: (other: string, reduction: string, increase: string) =>
-          `Anna tähän vuoden muiden luovutusvoittojen tai luovutustappioiden yhteisvaikutus. Syötetty muutos ${other}. Negatiivinen arvo pienentää veroarviota ${reduction}. Positiivinen arvo kasvattaa veroarviota ${increase}. Tappiolla olevien osakkeiden myynti voi pienentää veroa, mutta välitöntä takaisinostoa ei kannata tehdä pelkästään verotussyystä ilman ammattilaisen arviota.`,
+          `Syötetty muutos ${other}. Negatiivinen arvo pienentää veroarviota ${reduction}. Positiivinen arvo kasvattaa veroarviota ${increase}. Tappiolla olevien osakkeiden myynti voi pienentää veroa, mutta välitöntä takaisinostoa ei kannata tehdä pelkästään verotussyystä ilman ammattilaisen arviota.`,
         annualAdjustedKeepAfterTaxesHelp: (cash: string, tax: string, kept: string) =>
           `Vuositasolla tilille jäävä summa = käteen ${cash} - vuositasolla veroihin varattava osuus ${tax} = ${kept}.`,
         annualAdjustedReserveForTaxesHelp: (tax: string) =>
@@ -405,10 +414,10 @@ const FI = {
       saleResultComparison: {
         title: 'Merkintäkulut ja nettotulos',
         cardTitle: 'Myytyjen osakkeiden hankintameno ja nettotulos',
-        value: (before: string, after: string, gain: string, percent: string) =>
-          `Ennen pääomanpalautuksia ${before}, jälkeen pääomanpalautusten ${after}, nettotulos ${gain} (${percent}).`,
-        help: (before: string, after: string, kept: string, gain: string, percent: string) =>
-          `Myynnissä käytettyjen merkintäerien hankintameno ennen pääomanpalautuksia on ${before} ja pääomanpalautusten jälkeen ${after}. Tilille voi jättää ${kept}, joten nettotulos käytettyihin merkintäeriin nähden on ${gain} (${percent}).`,
+        value: (original: string, gain: string, percent: string) =>
+          `Alkuperäinen hankintameno ${original}, nettotulos ${gain} (${percent}).`,
+        help: (original: string, kept: string, gain: string, percent: string) =>
+          `Myynnissä käytettyjen merkintäerien alkuperäinen hankintameno on ${original}. Tilille voi jättää ${kept}, joten nettotulos käytettyihin merkintäeriin nähden on ${gain} (${percent}).`,
       },
       ipoCostEffects: {
         title: 'IPO-kulujen vaikutus',
@@ -576,13 +585,15 @@ const FI = {
       subscriptionVestingEndsOn: (id: string) => `Merkintä ${id} ansaintajakso päättyy`,
       mathematicalShareValueYear: (id: string) => `Matemaattinen arvo vuosi ${id}`,
       mathematicalShareValuePerShare: (id: string) => `Matemaattinen arvo/osake ${id}`,
-      ipoDate: 'IPO-päivä',
+      becameListedDate: 'Listautumispäivä',
       totalShareCount: 'Osakkeiden kokonaismäärä',
       totalIpoCost: 'IPO-kulut yhteensä',
       currentShareValue: 'Nykyinen osakkeen arvo',
       estimatedPreIpoValue: 'Arvioitu pre-IPO-arvo',
       estimatedSecondaryShareSellPercentage: 'Arvioitu secondary-myyntiprosentti',
       ipoSellAmount: 'Myytävien osakkeiden määrä',
+      ipoSellPricePerShare: 'IPO-myynnin hinta / osake',
+      ipoSellCostPerShare: 'IPO-myynnin kulu / osake',
       otherAnnualCapitalGainsOrLosses: 'Muut luovutusvoitot tai tappiot',
       cashDistributionDate: (id: string) => `Varojenjako ${id} päivä`,
       cashDistributionAmountPerShare: (id: string) => `Varojenjako ${id} €/osake`,
@@ -601,11 +612,12 @@ const FI = {
       ipoSellAmountExceedsEstimatedSecondary:
         'Myyntimäärä ylittää arvioidun secondary-myyntimäärän koko yhtiön tasolla.',
       vestingBlockedWithoutIpoDate:
-        'IPO-päivä puuttuu, joten ansaintajakson rajoittamia merkintäeriä ei voitu ottaa mukaan myyntiin.',
+        'Listautumispäivä puuttuu, joten ansaintajakson rajoittamia merkintäeriä ei voitu ottaa mukaan myyntiin.',
     },
     errors: {
+      ipoSellPricePerShareRequired: 'IPO-hinta / osake pitää syöttää ennen kuin IPO-myynnin arvot voidaan laskea.',
       ipoSellAmountExceedsSellable: (shares: string) =>
-        `Myytävien osakkeiden määrä ylittää IPO-päivänä myytävissä olevien osakkeiden määrän (${shares}).`,
+        `Myytävien osakkeiden määrä ylittää listautumispäivänä myytävissä olevien osakkeiden määrän (${shares}).`,
     },
   },
 }
@@ -643,6 +655,18 @@ const EN: typeof FI = {
     done: 'Done',
     remove: 'Remove',
   },
+  company: {
+    title: 'Company details',
+    help: 'Choose whether the company is currently unlisted or listed. The optional became-listed date acts as the IPO date cutoff in this calculator for distributions and the IPO sale.',
+    fields: {
+      listingStatus: 'Company status',
+      becameListedDate: 'Became listed date',
+    },
+    options: {
+      unlisted: 'Unlisted',
+      listed: 'Listed',
+    },
+  },
   assumptions: {
     title: 'Calculation assumptions',
     items: [
@@ -668,13 +692,13 @@ const EN: typeof FI = {
     },
     groups: {
       subscriptionsAndSales: {
-        title: '1. Share subscriptions and sales',
+        title: '2. Share subscriptions and sales',
         summary: 'Includes: Share subscriptions, Share sales.',
       },
       distributionsAndCorporateActions: {
-        title: '2. Distributions, demergers, and splits',
+        title: '1. Company details: distributions, demergers, and splits',
         summary:
-          'Includes: Dividends and capital repayments, Company demerger by acquisition-cost allocation, Share splits.',
+          'Includes: Company status and became-listed date, Dividends and capital repayments, Company demerger by acquisition-cost allocation, Share splits.',
       },
       taxReturns: {
         title: '3. Tax returns',
@@ -682,7 +706,7 @@ const EN: typeof FI = {
       },
       ipoCalculator: {
         title: '4. IPO calculator',
-        summary: 'Includes: IPO details and summary, IPO sell details.',
+        summary: 'Includes: IPO details and estimation, IPO sell details.',
       },
     },
   },
@@ -690,6 +714,7 @@ const EN: typeof FI = {
     title: 'Share subscriptions',
     help: 'Enter all subscription lots in acquisition order. FIFO is used for sales, and a vesting period ending after the IPO date blocks that lot from being sold.',
     fields: {
+      purchaseDate: 'Purchase date',
       originalShareCount: 'Shares originally',
       remainingShareCountCurrentDate: (date: string) => `Shares remaining (${date})`,
       vestingEndsOn: 'Vesting ends',
@@ -708,31 +733,6 @@ const EN: typeof FI = {
         `${date}: split ${beforeShares} shares x ${multiplier} = ${afterShares} shares`,
       totalPricePerShareTooltipResult: (total: string, shares: string, perShare: string) =>
         `Final: ${total} / ${shares} shares = ${perShare}`,
-      totalReimbursements: 'Capital repayments total',
-      totalReimbursementsHelp:
-        'In this calculator, a pre-IPO distribution from the invested unrestricted equity reserve is treated as capital repayment only to the extent it returns the same shareholder’s own capital investment made within the previous 10 years. The capital repayment reduces the remaining actual acquisition cost only up to that amount. The deemed acquisition cost is not used for capital repayments. On the IPO date and after it, distributions are treated as dividends in this calculator.',
-      totalReimbursementsTooltipIntro: 'Built from these applied capital repayments:',
-      totalReimbursementsTooltipLine: (date: string, amountPerShare: string, shares: string, total: string) =>
-        `${date}: ${amountPerShare} / share x ${shares} shares = ${total}`,
-      capitalRepaymentPerShare: 'Capital repayment / share',
-      capitalRepaymentPerShareTooltipIntro: 'Built from these capital-repayment rows:',
-      capitalRepaymentPerShareTooltipAppliedLine: (
-        date: string,
-        inputPerShare: string,
-        shares: string,
-        appliedPerShare: string,
-        appliedTotal: string
-      ) =>
-        `${date}: input ${inputPerShare} / share x ${shares} shares -> used as capital repayment ${appliedPerShare} / share = ${appliedTotal}`,
-      capitalRepaymentPerShareTooltipDividendLine: (
-        date: string,
-        inputPerShare: string,
-        shares: string,
-        dividendPerShare: string,
-        dividendTotal: string,
-        reason: string
-      ) =>
-        `${date}: input ${inputPerShare} / share x ${shares} shares -> treated as dividend ${dividendPerShare} / share = ${dividendTotal} (${reason})`,
       capitalRepaymentPerShareTooltipReasonTooOld: 'more than 10 years since subscription',
       capitalRepaymentPerShareTooltipReasonNoRemainingCost: 'remaining acquisition cost is 0',
       capitalRepaymentPerShareTooltipReasonRemainingCostLimit:
@@ -860,8 +860,8 @@ const EN: typeof FI = {
     help: 'Enter completed sales in chronological order. A sale reduces remaining shares and acquisition cost on later dates using FIFO.',
     fields: {
       shareCount: 'Shares sold',
-      sellPrice: 'Sale price total',
       pricePerShare: 'Sale price / share',
+      otherTotalSellCosts: 'Other costs',
     },
     actions: {
       add: 'Add sale',
@@ -872,6 +872,8 @@ const EN: typeof FI = {
     help: 'Enter the split date and multiplier. A multiplier of 2 means one old share becomes two. A multiplier of 0.5 means two old shares are combined into one.',
     fields: {
       multiplier: 'Shares / old share',
+      exampleEffect: 'Example',
+      exampleEffectValue: (multiplier: string) => `100 shares -> ${multiplier} shares`,
     },
     actions: {
       add: 'Add split',
@@ -882,15 +884,22 @@ const EN: typeof FI = {
     help: 'Enter the demerger date and the decimal portion of acquisition cost that remains with the old company tracked in this calculator. For example, 0.72 means 72% of the acquisition cost remains with the old company and the rest moves to the new company. Use the allocation ratio given by the company or tax guidance: it is usually based on the net-asset ratio, but if that differs materially from the share fair-value ratio, the fair-value ratio is used.',
     fields: {
       oldCompanyRatio: 'Old company share of acquisition cost',
+      exampleEffect: 'Example',
+      exampleEffectValue: (ratio: string, oldCompany: string, newCompany: string) =>
+        `10.00 EUR -> old company ${oldCompany}, new company ${newCompany}`,
     },
     actions: {
       add: 'Add demerger',
     },
   },
   ipo: {
-    title: 'IPO details and summary',
+    title: 'IPO details and estimation',
+    sections: {
+      currentCompany: 'Current details of the unlisted company',
+      sharePriceEstimate: 'Share price estimate based on company value',
+      ipoCostEstimate: 'IPO cost per share estimate',
+    },
     fields: {
-      ipoDate: 'IPO date',
       totalShareCount: 'Total share count',
       totalIpoCost: 'Total IPO costs',
       currentShareValue: 'Current share value',
@@ -903,8 +912,6 @@ const EN: typeof FI = {
     },
     help: {
       secondary: 'Used to allocate IPO cost per sold share.',
-      dateFormat:
-        'Format dd.mm.yyyy. The same date is used when checking eligibility for the 10-year deemed acquisition cost.',
     },
   },
   mathematicalShareValues: {
@@ -939,6 +946,9 @@ const EN: typeof FI = {
       title: 'IPO sell details',
       fields: {
         sharesToSell: 'Number of shares to sell',
+        sharesToSellShareOfSellable: (share: string) => `${share} sellable at IPO`,
+        ipoPricePerShare: 'IPO price / share',
+        ipoCostPerShare: 'IPO cost / share',
         ipoPriceTotal: 'Total IPO price',
         actualCosts: 'Actual costs',
         hmo: 'Deemed acquisition cost',
@@ -992,21 +1002,29 @@ const EN: typeof FI = {
       cashReserve: {
         title: 'Cash you can keep and amount to reserve for taxes',
         otherAnnualCapitalGainsOrLosses: 'Other capital gains or losses',
-        otherAnnualCapitalGainsOrLossesHelp: 'Enter any other possible capital gains and losses in this field',
+        otherAnnualCapitalGainsOrLossesHelp:
+          'Enter any other possible capital gains and losses and their combined amount in this field',
         annualAdjustmentTitle: 'Effect of other capital gains or losses over the tax year',
         annualAdjustedKeepAfterTaxes: 'Can stay in your account over the tax year',
         annualAdjustedReserveForTaxes: 'Reserve for taxes over the tax year',
         keepAfterTaxes: 'Can stay in your account',
+        remainingShares: 'Unsold shares',
+        remainingSharesTotalLine: (shares: string, value: string) => `Total: ${shares} shares, value ${value}`,
+        remainingSharesVestedLine: (shares: string, value: string) => `Vested now: ${shares} shares, value ${value}`,
+        remainingSharesUnvestedLine: (shares: string, ipoValue: string, originalAcquisitionCost: string) =>
+          `Unvested now: ${shares} shares, value at IPO price ${ipoValue}, original acquisition cost ${originalAcquisitionCost}`,
         reserveForTaxes: 'Reserve for taxes',
-        taxEffectFromOtherAnnualCapital: 'Effect of other annual capital gains or losses on tax',
+        taxEffectFromOtherAnnualCapital: 'Effect of other annual capital gains or losses on tax amount',
         taxPaymentStatus: 'Is tax withheld automatically?',
         taxPaymentManual: 'Usually not automatically',
         keepAfterTaxesHelp: (cash: string, tax: string, kept: string) =>
           `Amount left in your account = cash ${cash} - amount reserved for taxes ${tax} = ${kept}.`,
+        remainingSharesHelp: (shareValue: string, totalValue: string) =>
+          `Value ${totalValue} is calculated using the IPO price ${shareValue} / share.`,
         reserveForTaxesHelp: (tax: string) =>
           `It is prudent to reserve the estimated tax ${tax} separately so annual taxation does not create an unexpected payment.`,
         taxEffectFromOtherAnnualCapitalHelp: (other: string, reduction: string, increase: string) =>
-          `Enter the combined effect of your other annual capital gains or capital losses here. Entered change ${other}. A negative value reduces the tax estimate by ${reduction}. A positive value increases the tax estimate by ${increase}. Selling shares that are down can reduce tax, but an immediate buyback should not be done solely for tax reasons without professional advice.`,
+          `Entered change ${other}. A negative value reduces the tax estimate by ${reduction}. A positive value increases the tax estimate by ${increase}. Selling shares that are down can reduce tax, but an immediate buyback should not be done solely for tax reasons without professional advice.`,
         annualAdjustedKeepAfterTaxesHelp: (cash: string, tax: string, kept: string) =>
           `Over the tax year, the amount left in your account = cash ${cash} - tax amount to reserve over the tax year ${tax} = ${kept}.`,
         annualAdjustedReserveForTaxesHelp: (tax: string) =>
@@ -1017,10 +1035,10 @@ const EN: typeof FI = {
       saleResultComparison: {
         title: 'Subscription cost and net result',
         cardTitle: 'Acquisition cost of sold shares and net result',
-        value: (before: string, after: string, gain: string, percent: string) =>
-          `Before reimbursements ${before}, after reimbursements ${after}, net result ${gain} (${percent}).`,
-        help: (before: string, after: string, kept: string, gain: string, percent: string) =>
-          `The acquisition cost of the subscription lots used in the sale is ${before} before reimbursements and ${after} after reimbursements. You can keep ${kept}, so the net result against the sold subscription lots is ${gain} (${percent}).`,
+        value: (original: string, gain: string, percent: string) =>
+          `Original acquisition cost ${original}, net result ${gain} (${percent}).`,
+        help: (original: string, kept: string, gain: string, percent: string) =>
+          `The original acquisition cost of the subscription lots used in the sale is ${original}. You can keep ${kept}, so the net result against the sold subscription lots is ${gain} (${percent}).`,
       },
       ipoCostEffects: {
         title: 'Effect of IPO costs',
@@ -1189,13 +1207,15 @@ const EN: typeof FI = {
       subscriptionVestingEndsOn: (id: string) => `Subscription ${id} vesting ends`,
       mathematicalShareValueYear: (id: string) => `Mathematical value year ${id}`,
       mathematicalShareValuePerShare: (id: string) => `Mathematical value/share ${id}`,
-      ipoDate: 'IPO date',
+      becameListedDate: 'Became listed date',
       totalShareCount: 'Total share count',
       totalIpoCost: 'Total IPO costs',
       currentShareValue: 'Current share value',
       estimatedPreIpoValue: 'Estimated pre-IPO value',
       estimatedSecondaryShareSellPercentage: 'Estimated secondary sell percentage',
       ipoSellAmount: 'Number of shares to sell',
+      ipoSellPricePerShare: 'IPO sell price / share',
+      ipoSellCostPerShare: 'IPO sell cost / share',
       otherAnnualCapitalGainsOrLosses: 'Other capital gains or losses',
       cashDistributionDate: (id: string) => `Distribution ${id} date`,
       cashDistributionAmountPerShare: (id: string) => `Distribution ${id} EUR/share`,
@@ -1214,11 +1234,12 @@ const EN: typeof FI = {
       ipoSellAmountExceedsEstimatedSecondary:
         'Sell amount exceeds the estimated secondary sell amount at whole-company level.',
       vestingBlockedWithoutIpoDate:
-        'IPO date is missing, so vesting-restricted subscription lots were excluded from the sale.',
+        'The became-listed date is missing, so vesting-restricted subscription lots were excluded from the sale.',
     },
     errors: {
+      ipoSellPricePerShareRequired: 'IPO price / share must be entered before the IPO sell values can be calculated.',
       ipoSellAmountExceedsSellable: (shares: string) =>
-        `The number of shares to sell exceeds the shares sellable on the IPO date (${shares}).`,
+        `The number of shares to sell exceeds the shares sellable on the became-listed date (${shares}).`,
     },
   },
 }

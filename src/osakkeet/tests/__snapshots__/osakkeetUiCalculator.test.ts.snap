@@ -646,7 +646,8 @@ exports[`calculateOsakkeet > matches snapshot for validation warnings and missin
     "Merkintä not-a-date hinta/osake ei ole kelvollinen numero.",
     "Varojenjako d2 päivä ei ole kelvollinen pvm.",
     "Varojenjako d2 €/osake ei voi olla negatiivinen.",
-    "Myytävien osakkeiden määrä ylittää IPO-päivänä myytävissä olevien osakkeiden määrän (0).",
+    "Myytävien osakkeiden määrä ylittää listautumispäivänä myytävissä olevien osakkeiden määrän (0).",
+    "IPO-hinta / osake pitää syöttää ennen kuin IPO-myynnin arvot voidaan laskea.",
   ],
   "ipo": {
     "currentShareValue": "10.00",
@@ -731,7 +732,7 @@ exports[`calculateOsakkeet > matches snapshot for validation warnings and missin
   "warnings": [
     "Osakkeiden kokonaismäärä on pienempi kuin syötettyjen merkintöjen yhteismäärä.",
     "Secondary-myyntiprosentti on 0, joten IPO-kulu/osake on jaettu koko osakemäärälle.",
-    "IPO-päivä puuttuu, joten ansaintajakson rajoittamia merkintäeriä ei voitu ottaa mukaan myyntiin.",
+    "Listautumispäivä puuttuu, joten ansaintajakson rajoittamia merkintäeriä ei voitu ottaa mukaan myyntiin.",
   ],
 }
 `;

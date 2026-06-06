@@ -99,6 +99,7 @@ type ParsedSell = {
   shareCount: Decimal
   sellPrice: Decimal
   pricePerShare: Decimal
+  otherTotalSellCosts: Decimal
 }
 
 type ParsedShareCountChange = {
@@ -135,7 +136,6 @@ export type ParsedEvent =
   | ParsedCapitalRepaymentOrDividend
 
 export type ParsedIpoInputs = {
-  ipoDateText: string
   totalShareCountInput: Decimal
   totalIpoCost: Decimal
   currentShareValue: Decimal
@@ -143,8 +143,16 @@ export type ParsedIpoInputs = {
   estimatedSecondaryShareSellPercentage: Decimal
 }
 
+export type ParsedCompanyInputs = {
+  listingStatus: 'unlisted' | 'listed'
+  becameListedDateText: string
+  becameListedDate?: Date
+}
+
 export type ParsedIpoSellInputs = {
   amount: Decimal
+  pricePerShare: Decimal
+  costPerShare: Decimal
   otherAnnualCapitalGainsOrLosses: Decimal
 }
 
@@ -157,11 +165,11 @@ export type ParsedShareCalculatorInputs = {
 }
 
 export type ParsedOsakkeetCalculatorInputs = ParsedShareCalculatorInputs & {
+  company: ParsedCompanyInputs
   mathematicalShareValuesByYear: Map<number, Decimal>
 }
 
 export type ParsedOsakkeetIpoCalculatorInputs = {
-  ipoDate?: Date
   ipo: ParsedIpoInputs
   ipoSell: ParsedIpoSellInputs
 }
@@ -334,6 +342,13 @@ export function parseShareCalculatorInputs(
       }
       const sellPrice = hasSellPrice ? sellPriceInput : hasPricePerShare ? shareCount.mul(pricePerShareInput) : zero
       const pricePerShare = shareCount.gt(0) ? sellPrice.div(shareCount) : pricePerShareInput
+      const otherTotalSellCosts = parseDecimalInput(
+        input.otherTotalSellCosts || '',
+        `Sell ${input.id} otherTotalSellCosts`,
+        input.otherTotalSellCosts ? errors : [],
+        validation,
+        { validate: (value) => value.gte(0) }
+      )
       return {
         kind: 'sell' as const,
         id: input.id,
@@ -342,6 +357,7 @@ export function parseShareCalculatorInputs(
         shareCount,
         sellPrice,
         pricePerShare,
+        otherTotalSellCosts,
       }
     }),
     shareSplits: inputs.shareSplits.map((input) => {
@@ -405,6 +421,16 @@ export function parseOsakkeetCalculatorInputs(
   const errors: string[] = []
   const validation = localization.calculator.validation
   const sellFieldLabel = (id: string, field: string) => `Osakkeiden myynti ${id} ${field}`
+  const company = {
+    listingStatus: form.company.listingStatus === 'listed' ? 'listed' : 'unlisted',
+    becameListedDateText: form.company.becameListedDate,
+    becameListedDate: parseOptionalDateInput(
+      form.company.becameListedDate,
+      localization.calculator.fields.becameListedDate,
+      errors,
+      validation
+    ),
+  } satisfies ParsedCompanyInputs
   const subscriptions = form.subscriptions.map((input) => {
     const fieldLabel = input.date || input.id
     return {
@@ -463,6 +489,13 @@ export function parseOsakkeetCalculatorInputs(
     }
     const sellPrice = hasSellPrice ? sellPriceInput : hasPricePerShare ? shareCount.mul(pricePerShareInput) : zero
     const pricePerShare = shareCount.gt(0) ? sellPrice.div(shareCount) : pricePerShareInput
+    const otherTotalSellCosts = parseDecimalInput(
+      input.otherTotalSellCosts || '',
+      sellFieldLabel(input.id, 'muut kulut'),
+      input.otherTotalSellCosts ? errors : [],
+      validation,
+      { validate: (value) => value.gte(0) }
+    )
     return {
       kind: 'sell' as const,
       id: input.id,
@@ -471,6 +504,7 @@ export function parseOsakkeetCalculatorInputs(
       shareCount,
       sellPrice,
       pricePerShare,
+      otherTotalSellCosts,
     }
   })
 
@@ -552,6 +586,7 @@ export function parseOsakkeetCalculatorInputs(
   })
 
   const parsed = {
+    company,
     subscriptions,
     sells,
     shareSplits,
@@ -569,13 +604,10 @@ export function parseOsakkeetIpoCalculatorInputs(
 ): { parsed: ParsedOsakkeetIpoCalculatorInputs; errors: string[] } {
   const errors: string[] = []
   const validation = localization.calculator.validation
-  const ipoDate = parseOptionalDateInput(form.ipo.ipoDate, localization.calculator.fields.ipoDate, errors, validation)
 
   return {
     parsed: {
-      ipoDate,
       ipo: {
-        ipoDateText: form.ipo.ipoDate,
         totalShareCountInput: parseDecimalInput(
           form.ipo.totalShareCount,
           localization.calculator.fields.totalShareCount,
@@ -612,6 +644,18 @@ export function parseOsakkeetIpoCalculatorInputs(
           form.ipoSell.amount,
           localization.calculator.fields.ipoSellAmount,
           errors,
+          validation
+        ),
+        pricePerShare: parseDecimalInput(
+          form.ipoSell.pricePerShare || '',
+          localization.calculator.fields.ipoSellPricePerShare,
+          form.ipoSell.pricePerShare ? errors : [],
+          validation
+        ),
+        costPerShare: parseDecimalInput(
+          form.ipoSell.costPerShare || '',
+          localization.calculator.fields.ipoSellCostPerShare,
+          form.ipoSell.costPerShare ? errors : [],
           validation
         ),
         otherAnnualCapitalGainsOrLosses: parseDecimalInput(

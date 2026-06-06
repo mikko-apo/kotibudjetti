@@ -32,6 +32,7 @@ export const pageStyles = {
   mainSectionContent: styles({ display: 'flex', flexDirection: 'column', gap: '22px' }),
   field: styles({ display: 'flex', flexDirection: 'column', gap: '6px' }),
   compactField: styles({ width: '140px' }),
+  mediumCompactField: styles({ width: '220px' }),
   compactTable: styles({ width: 'auto', maxWidth: 'fit-content', tableLayout: 'auto' }),
   rowButtons: styles({ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }),
   rowActionButtons: styles({ display: 'inline-flex', gap: '8px', flexWrap: 'nowrap', alignItems: 'center' }),
@@ -182,6 +183,12 @@ export const pageStyles = {
   }),
   mismatchRow: styles({
     backgroundColor: 'rgba(254, 226, 226, 0.45)',
+  }),
+  highlightedColumn: styles({
+    backgroundColor: 'rgba(187, 247, 208, 0.45)',
+  }),
+  highlightedHeaderColumn: styles({
+    backgroundColor: 'rgba(187, 247, 208, 0.45)',
   }),
   rowErrorText: styles({
     color: 'rgb(153, 27, 27)',

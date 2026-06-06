@@ -1,8 +1,10 @@
 import { type State } from '../../../ki-frame/src'
 import {
+  b,
   div,
   h2,
   h3,
+  label,
   p,
   replaceChildren,
   section,
@@ -19,6 +21,7 @@ import { amount, euro, formatDateLabel } from './osakkeetFormat'
 import { createAppendCollectionRow } from './osakkeetFormData'
 import {
   createEditableCollectionTable,
+  createFormBinder,
   createOptionBoundSelect,
   createSectionController,
   createSectionCounter,
@@ -66,6 +69,65 @@ type OsakkeetPageReadModel = {
   osakkeetCalculation: OsakkeetCalculation
 }
 
+export function createCompanySection(
+  dataState: State<OsakkeetFormData>,
+  pageReadState: State<OsakkeetPageReadModel>,
+  localizedTextNodes: LocalizedTextNodes
+) {
+  const formBinder = createFormBinder(dataState)
+  const companyTextNodes = localizedTextNodes.company
+  const mathematicalShareValuesEditor = createMathematicalShareValuesEditor(
+    dataState,
+    pageReadState,
+    localizedTextNodes
+  )
+  const listingStatusSelect = createOptionBoundSelect<'unlisted' | 'listed'>(
+    dataState.get().company.listingStatus,
+    [],
+    (listingStatus) => {
+      dataState.set((current) => ({
+        ...current,
+        company: {
+          ...current.company,
+          listingStatus,
+        },
+      }))
+    }
+  )
+  setStyle(listingStatusSelect.node, pageStyles.input)
+  const becameListedDateInput = finnishDateInput(pageStyles.input, '')
+
+  formBinder.bindInputs([{ path: ['company', 'becameListedDate'], node: becameListedDateInput }])
+
+  const root = section(
+    { class: 'card' },
+    h2(companyTextNodes.title),
+    p({ class: 'muted' }, companyTextNodes.help),
+    div(
+      pageStyles.gridTwo,
+      div(
+        pageStyles.field,
+        label(companyTextNodes.fields.listingStatus),
+        div(pageStyles.mediumCompactField, listingStatusSelect.node)
+      ),
+      div(
+        pageStyles.field,
+        label(companyTextNodes.fields.becameListedDate),
+        div(pageStyles.mediumCompactField, becameListedDateInput)
+      )
+    ),
+    mathematicalShareValuesEditor.root
+  )
+
+  return createSectionController(root, ({ formData, texts }: OsakkeetPageReadModel) => {
+    listingStatusSelect.setOptions([
+      { value: 'unlisted', label: texts.company.options.unlisted },
+      { value: 'listed', label: texts.company.options.listed },
+    ])
+    listingStatusSelect.setValue(formData.company.listingStatus === 'listed' ? 'listed' : 'unlisted')
+  })
+}
+
 export function createSellsSection(
   dataState: State<OsakkeetFormData>,
   pageReadState: State<OsakkeetPageReadModel>,
@@ -90,16 +152,16 @@ export function createSellsSection(
       const shareCountInput = numberInput(pageStyles.input, row.shareCount, (value) => {
         sells.patch(row.id, { shareCount: value })
       })
-      const sellPriceInput = numberInput(pageStyles.input, row.sellPrice, (value) => {
-        sells.patch(row.id, { sellPrice: value })
-      })
       const pricePerShareInput = numberInput(pageStyles.input, row.pricePerShare || '', (value) => {
         sells.patch(row.id, { pricePerShare: value })
       })
+      const otherTotalSellCostsInput = numberInput(pageStyles.input, row.otherTotalSellCosts || '', (value) => {
+        sells.patch(row.id, { otherTotalSellCosts: value })
+      })
       const dateCell = td()
       const shareCountCell = td()
-      const sellPriceCell = td()
       const pricePerShareCell = td()
+      const otherTotalSellCostsCell = td()
       const bindings: Array<EditableCellBinding<typeof row>> = [
         {
           cell: dateCell,
@@ -114,16 +176,16 @@ export function createSellsSection(
           setEditValue: (nextRow) => setInputValue(shareCountInput, nextRow.shareCount),
         },
         {
-          cell: sellPriceCell,
-          editNode: div(pageStyles.compactField, sellPriceInput),
-          readValue: (nextRow) => nextRow.sellPrice,
-          setEditValue: (nextRow) => setInputValue(sellPriceInput, nextRow.sellPrice),
-        },
-        {
           cell: pricePerShareCell,
           editNode: div(pageStyles.compactField, pricePerShareInput),
           readValue: (nextRow) => nextRow.pricePerShare || '',
           setEditValue: (nextRow) => setInputValue(pricePerShareInput, nextRow.pricePerShare || ''),
+        },
+        {
+          cell: otherTotalSellCostsCell,
+          editNode: div(pageStyles.compactField, otherTotalSellCostsInput),
+          readValue: (nextRow) => nextRow.otherTotalSellCosts || '',
+          setEditValue: (nextRow) => setInputValue(otherTotalSellCostsInput, nextRow.otherTotalSellCosts || ''),
         },
       ]
       const editableRow = createEditableRowManager(row, editingRowIds, bindings, (labelNode, variant, onClick) =>
@@ -133,8 +195,8 @@ export function createSellsSection(
       const rowNode = tr(
         dateCell,
         shareCountCell,
-        sellPriceCell,
         pricePerShareCell,
+        otherTotalSellCostsCell,
         td(
           { class: 'no-print' },
           createRowActionButtons(editableRow.editButton, removeButton, pageStyles.rowActionButtons)
@@ -155,8 +217,8 @@ export function createSellsSection(
     () => ({
       date: '',
       shareCount: '',
-      sellPrice: '',
       pricePerShare: '',
+      otherTotalSellCosts: '',
     }),
     (labelNode, variant, onClick) => createActionButton(pageStyles.smallButton, labelNode, variant, onClick)
   )
@@ -171,8 +233,8 @@ export function createSellsSection(
         tr(
           th(commonTextNodes.date),
           th(sellTextNodes.fields.shareCount),
-          th(sellTextNodes.fields.sellPrice),
           th(sellTextNodes.fields.pricePerShare),
+          th(sellTextNodes.fields.otherTotalSellCosts),
           th({ class: 'no-print' }, '')
         )
       ),
@@ -189,8 +251,7 @@ export function createSellsSection(
 export function createSubscriptionsSection(
   dataState: State<OsakkeetFormData>,
   pageReadState: State<OsakkeetPageReadModel>,
-  localizedTextNodes: LocalizedTextNodes,
-  commonTextNodes: CommonLocalizedTextNodes
+  localizedTextNodes: LocalizedTextNodes
 ) {
   const openHistorySubscriptionIds = new Set<string>()
   const counter = createSectionCounter()
@@ -208,15 +269,9 @@ export function createSubscriptionsSection(
     subscriptionTextNodes.fields.otherTotalAcquisitionCosts,
     ''
   )
-  const totalReimbursementsHeaderNode = withHoverInfo(
-    pageStyles.hoverInfo,
-    pageStyles.hoverInfoIcon,
-    subscriptionTextNodes.fields.totalReimbursements,
-    ''
-  )
-  const remainingShareCountHeaderNode = th()
+  const remainingShareCountHeaderNode = th(pageStyles.highlightedHeaderColumn)
   replaceChildrenFromState(pageReadState, remainingShareCountHeaderNode, ({ texts }) => [
-    texts.subscriptions.fields.remainingShareCountCurrentDate(formatDateLabel(new Date())),
+    b(texts.subscriptions.fields.remainingShareCountCurrentDate(formatDateLabel(new Date()))),
   ])
   const rowsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
     withSummaryRows(
@@ -251,16 +306,14 @@ export function createSubscriptionsSection(
           subscriptions.patch(row.id, { otherTotalAcquisitionCosts: value })
         }
       )
-      const dateCell = td()
+      const dateCell = td(pageStyles.highlightedColumn)
       const vestingEndsOnCell = td()
       const amountCell = td()
-      const remainingShareCountCell = td()
+      const remainingShareCountCell = td(pageStyles.highlightedColumn)
       const pricePerShareCell = td()
       const otherTotalAcquisitionCostsCell = td()
       const totalPricePerShareCell = td()
-      const capitalRepaymentPerShareCell = td()
-      const remainingCostPerShareCell = td()
-      const capitalRepaymentTotalCell = td()
+      const remainingCostPerShareCell = td(pageStyles.highlightedColumn)
       const toggleHistory = (subscriptionId: string) => {
         toggleSetMembership(openHistorySubscriptionIds, subscriptionId)
       }
@@ -298,7 +351,7 @@ export function createSubscriptionsSection(
         },
       ]
       const historyContainer = div()
-      const detailRow = tr(td({ colSpan: 12 }, pageStyles.historyCell, historyContainer))
+      const detailRow = tr(td({ colSpan: 10 }, pageStyles.historyCell, historyContainer))
       const syncSummaryCells = (nextRow: typeof row) => {
         replaceChildren(remainingShareCountCell, nextRow.summary ? amount(nextRow.summary.shareCount) : '-')
         replaceChildren(
@@ -308,17 +361,6 @@ export function createSubscriptionsSection(
                 nextRow.summary.shareCount.gt(0)
                   ? nextRow.summary.baseShareAcquisitionCost.div(nextRow.summary.shareCount)
                   : nextRow.summary.baseShareAcquisitionCost.mul(0)
-              )
-            : '-'
-        )
-        replaceChildren(capitalRepaymentTotalCell, nextRow.summary ? euro(nextRow.summary.capitalRepaymentTotal) : '-')
-        replaceChildren(
-          capitalRepaymentPerShareCell,
-          nextRow.summary
-            ? euro(
-                nextRow.summary.shareCount.gt(0)
-                  ? nextRow.summary.capitalRepaymentTotal.div(nextRow.summary.shareCount)
-                  : nextRow.summary.capitalRepaymentTotal.mul(0)
               )
             : '-'
         )
@@ -352,6 +394,7 @@ export function createSubscriptionsSection(
         }
       )
       const rowNode = tr(
+        td({ class: 'no-print' }, historyButton),
         dateCell,
         vestingEndsOnCell,
         amountCell,
@@ -359,10 +402,7 @@ export function createSubscriptionsSection(
         pricePerShareCell,
         otherTotalAcquisitionCostsCell,
         totalPricePerShareCell,
-        capitalRepaymentPerShareCell,
         remainingCostPerShareCell,
-        capitalRepaymentTotalCell,
-        td({ class: 'no-print' }, historyButton),
         td(
           { class: 'no-print' },
           createRowActionButtons(editableRow.editButton, removeButton, pageStyles.rowActionButtons)
@@ -448,17 +488,15 @@ export function createSubscriptionsSection(
     table(
       thead(
         tr(
-          th(commonTextNodes.date),
+          th({ class: 'no-print' }, ''),
+          th(pageStyles.highlightedHeaderColumn, b(subscriptionTextNodes.fields.purchaseDate)),
           th(vestingEndsOnHeaderNode),
           th(subscriptionTextNodes.fields.originalShareCount),
           remainingShareCountHeaderNode,
           th(subscriptionTextNodes.fields.pricePerShare),
           th(otherTotalAcquisitionCostsHeaderNode),
           th(subscriptionTextNodes.fields.totalPricePerShare),
-          th(subscriptionTextNodes.fields.capitalRepaymentPerShare),
-          th(subscriptionTextNodes.fields.remainingCostPerShare),
-          th(totalReimbursementsHeaderNode),
-          th({ class: 'no-print' }, subscriptionTextNodes.history.show),
+          th(pageStyles.highlightedHeaderColumn, b(subscriptionTextNodes.fields.remainingCostPerShare)),
           th({ class: 'no-print' }, '')
         )
       ),
@@ -484,7 +522,6 @@ export function createSubscriptionsSection(
     ;(vestingEndsOnHeaderNode as HTMLElement).title = texts.subscriptions.fields.vestingEndsOnHelp
     ;(otherTotalAcquisitionCostsHeaderNode as HTMLElement).title =
       texts.subscriptions.fields.otherTotalAcquisitionCostsHelp
-    ;(totalReimbursementsHeaderNode as HTMLElement).title = texts.subscriptions.fields.totalReimbursementsHelp
   })
 }
 
@@ -801,7 +838,12 @@ export function createShareSplitsSection(
   const counter = createSectionCounter()
   const shareSplitTextNodes = localizedTextNodes.shareSplits
   const rowsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
-    withRowActionLabels(sortRowsByDate(osakkeetCalculation.formData.shareSplits), texts)
+    withRowActionLabels(sortRowsByDate(osakkeetCalculation.formData.shareSplits), texts).map((row) => ({
+      ...row,
+      exampleEffectText: Number.isFinite(Number(row.multiplier.trim()))
+        ? texts.shareSplits.fields.exampleEffectValue((100 * Number(row.multiplier.trim())).toFixed(2))
+        : '-',
+    }))
   )
   const shareSplits = createStateCollectionEditor(dataState, ['shareSplits'])
   const editingRowIds = new Set<string>()
@@ -818,6 +860,7 @@ export function createShareSplitsSection(
       })
       const dateCell = td()
       const multiplierCell = td()
+      const explanationCell = td()
       const bindings: Array<EditableCellBinding<typeof row>> = [
         {
           cell: dateCell,
@@ -835,10 +878,15 @@ export function createShareSplitsSection(
       const editableRow = createEditableRowManager(row, editingRowIds, bindings, (labelNode, variant, onClick) =>
         createActionButton(pageStyles.smallButton, labelNode, variant, onClick)
       )
+      const syncExplanation = (nextRow: typeof row) => {
+        replaceChildren(explanationCell, nextRow.exampleEffectText)
+      }
+      syncExplanation(row)
       editableRow.sync(row)
       const rowNode = tr(
         dateCell,
         multiplierCell,
+        explanationCell,
         td(
           { class: 'no-print' },
           createRowActionButtons(editableRow.editButton, removeButton, pageStyles.rowActionButtons)
@@ -847,7 +895,10 @@ export function createShareSplitsSection(
       editableRow.attachDoubleClickEdit(rowNode)
       return {
         node: rowNode,
-        set: editableRow.set,
+        set(nextRow) {
+          editableRow.set(nextRow)
+          syncExplanation(nextRow)
+        },
       }
     },
   })
@@ -866,7 +917,14 @@ export function createShareSplitsSection(
     p({ class: 'muted' }, shareSplitTextNodes.help),
     table(
       pageStyles.compactTable,
-      thead(tr(th(commonTextNodes.date), th(shareSplitTextNodes.fields.multiplier), th({ class: 'no-print' }, ''))),
+      thead(
+        tr(
+          th(commonTextNodes.date),
+          th(shareSplitTextNodes.fields.multiplier),
+          th(shareSplitTextNodes.fields.exampleEffect),
+          th({ class: 'no-print' }, '')
+        )
+      ),
       tbodyNode
     ),
     div({ class: 'no-print' }, pageStyles.rowButtons, addButton)
@@ -886,7 +944,19 @@ export function createDemergersSection(
   const counter = createSectionCounter()
   const demergerTextNodes = localizedTextNodes.demergers
   const rowsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
-    withRowActionLabels(sortRowsByDate(osakkeetCalculation.formData.demergers), texts)
+    withRowActionLabels(sortRowsByDate(osakkeetCalculation.formData.demergers), texts).map((row) => {
+      const ratioValue = Number(row.oldCompanyRatio.trim())
+      return {
+        ...row,
+        exampleEffectText: Number.isFinite(ratioValue)
+          ? texts.demergers.fields.exampleEffectValue(
+              row.oldCompanyRatio.trim(),
+              euro(10 * ratioValue),
+              euro(10 * (1 - ratioValue))
+            )
+          : '-',
+      }
+    })
   )
   const demergers = createStateCollectionEditor(dataState, ['demergers'])
   const editingRowIds = new Set<string>()
@@ -903,6 +973,7 @@ export function createDemergersSection(
       })
       const dateCell = td()
       const oldCompanyRatioCell = td()
+      const explanationCell = td()
       const bindings: Array<EditableCellBinding<typeof row>> = [
         {
           cell: dateCell,
@@ -920,10 +991,15 @@ export function createDemergersSection(
       const editableRow = createEditableRowManager(row, editingRowIds, bindings, (labelNode, variant, onClick) =>
         createActionButton(pageStyles.smallButton, labelNode, variant, onClick)
       )
+      const syncExplanation = (nextRow: typeof row) => {
+        replaceChildren(explanationCell, nextRow.exampleEffectText)
+      }
+      syncExplanation(row)
       editableRow.sync(row)
       const rowNode = tr(
         dateCell,
         oldCompanyRatioCell,
+        explanationCell,
         td(
           { class: 'no-print' },
           createRowActionButtons(editableRow.editButton, removeButton, pageStyles.rowActionButtons)
@@ -932,7 +1008,10 @@ export function createDemergersSection(
       editableRow.attachDoubleClickEdit(rowNode)
       return {
         node: rowNode,
-        set: editableRow.set,
+        set(nextRow) {
+          editableRow.set(nextRow)
+          syncExplanation(nextRow)
+        },
       }
     },
   })
@@ -951,7 +1030,14 @@ export function createDemergersSection(
     p({ class: 'muted' }, demergerTextNodes.help),
     table(
       pageStyles.compactTable,
-      thead(tr(th(commonTextNodes.date), th(demergerTextNodes.fields.oldCompanyRatio), th({ class: 'no-print' }, ''))),
+      thead(
+        tr(
+          th(commonTextNodes.date),
+          th(demergerTextNodes.fields.oldCompanyRatio),
+          th(demergerTextNodes.fields.exampleEffect),
+          th({ class: 'no-print' }, '')
+        )
+      ),
       tbodyNode
     ),
     div({ class: 'no-print' }, pageStyles.rowButtons, addButton)

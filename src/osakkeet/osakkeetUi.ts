@@ -23,8 +23,9 @@ import {
   shareUrlQueryKey,
   storageKeys,
 } from './osakkeetPersistence'
-import { sumDecimals } from './osakkeetUtils'
+import { parseSupportedDate, sumDecimals } from './osakkeetUtils'
 import {
+  createCompanySection,
   createDemergersSection,
   createCashDistributionsSection,
   createSellsSection,
@@ -39,6 +40,15 @@ import { createId, createOsakkeetFormData, tryLoadLanguage } from './osakkeetUiB
 
 function currentModificationTimestamp() {
   return new Date().toISOString()
+}
+
+function isIpoCalculatorVisible(formData: OsakkeetFormData) {
+  if (formData.company.listingStatus !== 'unlisted') return false
+  const becameListedDate = parseSupportedDate(formData.company.becameListedDate.trim())
+  if (!becameListedDate || Number.isNaN(becameListedDate.getTime())) return true
+  const now = new Date()
+  const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  return becameListedDate.getTime() >= todayUtc.getTime()
 }
 
 function createCompanyDataSignature(data: OsakkeetFormData) {
@@ -322,7 +332,8 @@ function renderOsakkeetIpoCalculatorPage(
     localizedTextNodes,
     initialStatus
   )
-  const subscriptionsSection = createSubscriptionsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes)
+  const companySection = createCompanySection(dataState, pageReadState, localizedTextNodes)
+  const subscriptionsSection = createSubscriptionsSection(dataState, pageReadState, localizedTextNodes)
   const sellsSection = createSellsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes)
   const cashDistributionsSection = createCashDistributionsSection(
     dataState,
@@ -332,20 +343,20 @@ function renderOsakkeetIpoCalculatorPage(
   )
   const demergersSection = createDemergersSection(dataState, pageReadState, localizedTextNodes, commonTextNodes)
   const shareSplitsSection = createShareSplitsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes)
-  const taxSummarySectionController = createTaxSummarySection(dataState, pageReadState, localizedTextNodes)
+  const taxSummarySectionController = createTaxSummarySection(pageReadState, localizedTextNodes)
   const ipoSection = createIpoSection(dataState, pageReadState, localizedTextNodes)
   const resultsSection = createResultsSection(dataState, pageReadState, localizedTextNodes)
+  const distributionsAndCorporateActionsSection = createMainSectionGroup(
+    'distributionsAndCorporateActions',
+    pageReadState,
+    localizedTextNodes,
+    [companySection, cashDistributionsSection, demergersSection, shareSplitsSection]
+  )
   const subscriptionsAndSalesSection = createMainSectionGroup(
     'subscriptionsAndSales',
     pageReadState,
     localizedTextNodes,
     [subscriptionsSection, sellsSection]
-  )
-  const distributionsAndCorporateActionsSection = createMainSectionGroup(
-    'distributionsAndCorporateActions',
-    pageReadState,
-    localizedTextNodes,
-    [cashDistributionsSection, demergersSection, shareSplitsSection]
   )
   const taxReturnsSection = createMainSectionGroup('taxReturns', pageReadState, localizedTextNodes, [
     taxSummarySectionController,
@@ -357,6 +368,7 @@ function renderOsakkeetIpoCalculatorPage(
   const root = div(pageStyles.stack)
   const applyPageReadModel = (pageReadModel: OsakkeetPageReadModel) => {
     topSection.set(pageReadModel)
+    companySection.set(pageReadModel)
     subscriptionsSection.set(pageReadModel)
     sellsSection.set(pageReadModel)
     cashDistributionsSection.set(pageReadModel)
@@ -365,10 +377,13 @@ function renderOsakkeetIpoCalculatorPage(
     taxSummarySectionController.set(pageReadModel)
     ipoSection.set(pageReadModel)
     resultsSection.set(pageReadModel)
-    subscriptionsAndSalesSection.set(pageReadModel)
     distributionsAndCorporateActionsSection.set(pageReadModel)
+    subscriptionsAndSalesSection.set(pageReadModel)
     taxReturnsSection.set(pageReadModel)
     ipoCalculatorSection.set(pageReadModel)
+    ;(ipoCalculatorSection.root as HTMLElement).style.display = isIpoCalculatorVisible(pageReadModel.formData)
+      ? ''
+      : 'none'
   }
 
   pageReadState.onValueChange(applyPageReadModel)
@@ -378,8 +393,8 @@ function renderOsakkeetIpoCalculatorPage(
   replaceChildren(
     root,
     topSection.root,
-    subscriptionsAndSalesSection.root,
     distributionsAndCorporateActionsSection.root,
+    subscriptionsAndSalesSection.root,
     taxReturnsSection.root,
     ipoCalculatorSection.root
   )

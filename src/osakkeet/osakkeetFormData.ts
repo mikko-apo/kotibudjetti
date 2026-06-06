@@ -64,6 +64,7 @@ const formCollectionSchemas = {
         shareCount: '',
         sellPrice: '',
         pricePerShare: '',
+        otherTotalSellCosts: '',
       }) satisfies Omit<OsakkeetFormData['sells'][number], 'id'>,
     normalize: (row, createId) =>
       ({
@@ -72,6 +73,7 @@ const formCollectionSchemas = {
         shareCount: row.shareCount || '',
         sellPrice: row.sellPrice || '',
         pricePerShare: row.pricePerShare || '',
+        otherTotalSellCosts: row.otherTotalSellCosts || '',
       }) satisfies OsakkeetFormData['sells'][number],
   },
   shareSplits: {
@@ -128,14 +130,23 @@ function normalizeCollectionRows<K extends FormCollectionKey>(
 
 export function normalizeLegacyIpoSell(data: Partial<OsakkeetFormData>) {
   const legacyIpoSell = (data as Partial<OsakkeetFormData> & { sell?: OsakkeetFormData['ipoSell'] }).sell
+  const legacyIpoDate = (data.ipo as Partial<{ ipoDate: string }> | undefined)?.ipoDate
   return {
     ...data,
+    company: {
+      listingStatus: data.company?.listingStatus || 'unlisted',
+      becameListedDate: data.company?.becameListedDate || legacyIpoDate || '',
+    },
     ipoSell: data.ipoSell ?? legacyIpoSell,
   } satisfies Partial<OsakkeetFormData>
 }
 
 export function createBlankOsakkeetFormData(): OsakkeetFormData {
   return {
+    company: {
+      listingStatus: 'unlisted',
+      becameListedDate: '',
+    },
     subscriptions: [],
     sells: [],
     cashDistributions: [],
@@ -143,7 +154,6 @@ export function createBlankOsakkeetFormData(): OsakkeetFormData {
     demergers: [],
     mathematicalShareValues: [],
     ipo: {
-      ipoDate: '',
       totalShareCount: '',
       totalIpoCost: '',
       currentShareValue: '',
@@ -152,6 +162,8 @@ export function createBlankOsakkeetFormData(): OsakkeetFormData {
     },
     ipoSell: {
       amount: '',
+      pricePerShare: '',
+      costPerShare: '',
       otherAnnualCapitalGainsOrLosses: '',
     },
     lastModifiedCompanyData: '',
@@ -162,9 +174,14 @@ export function createBlankOsakkeetFormData(): OsakkeetFormData {
 export function normalizeOsakkeetFormData(data: Partial<OsakkeetFormData>, createId: CreateId): OsakkeetFormData {
   const normalized = normalizeLegacyIpoSell(data)
   const blank = createBlankOsakkeetFormData()
+  const company = normalized.company ?? blank.company
   const ipo = normalized.ipo ?? blank.ipo
   const ipoSell = normalized.ipoSell ?? blank.ipoSell
   return {
+    company: {
+      listingStatus: company.listingStatus === 'listed' ? 'listed' : 'unlisted',
+      becameListedDate: company.becameListedDate || '',
+    },
     subscriptions: sortRowsByDate(normalizeCollectionRows('subscriptions', normalized.subscriptions, createId)),
     sells: sortRowsByDate(normalizeCollectionRows('sells', normalized.sells, createId)),
     cashDistributions: sortRowsByDate(
@@ -179,7 +196,6 @@ export function normalizeOsakkeetFormData(data: Partial<OsakkeetFormData>, creat
     ),
     ipo: {
       ...blank.ipo,
-      ipoDate: ipo.ipoDate || '',
       totalShareCount: ipo.totalShareCount || '',
       totalIpoCost: ipo.totalIpoCost || '',
       currentShareValue: ipo.currentShareValue || '',
@@ -190,6 +206,8 @@ export function normalizeOsakkeetFormData(data: Partial<OsakkeetFormData>, creat
       ...blank.ipoSell,
       ...ipoSell,
       amount: ipoSell.amount || '',
+      pricePerShare: ipoSell.pricePerShare || '',
+      costPerShare: ipoSell.costPerShare || '',
       otherAnnualCapitalGainsOrLosses: ipoSell.otherAnnualCapitalGainsOrLosses || '',
     },
     lastModifiedCompanyData: normalized.lastModifiedCompanyData || '',

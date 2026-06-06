@@ -26,7 +26,8 @@ export type TaxReturnAssetSummary = {
   remainingAcquisitionCost: Decimal
 }
 
-export type TaxReturnIpoSaleSummary = {
+export type TaxReturnSaleSummary = {
+  year: number
   sellDate: string
   summary: SellSummary
 }
@@ -37,5 +38,5 @@ export type TaxReturnYearSummary<TDistributionEntry> = {
   assets?: TaxReturnAssetSummary
   unlisted?: TaxReturnSectionSummary<TDistributionEntry>
   listed?: TaxReturnSectionSummary<TDistributionEntry>
-  ipoSale?: TaxReturnIpoSaleSummary
+  sales?: TaxReturnSaleSummary[]
 }
