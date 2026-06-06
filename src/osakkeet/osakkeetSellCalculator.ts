@@ -71,6 +71,47 @@ export type SellSummary = {
   remainingUnsoldShares: Decimal
 }
 
+export function createEmptySellSummary(params: {
+  amount: Decimal
+  otherAnnualCapitalGainsOrLosses: Decimal
+  remainingUnsoldShares: Decimal
+}): SellSummary {
+  const { amount, otherAnnualCapitalGainsOrLosses, remainingUnsoldShares } = params
+  return {
+    amount,
+    otherAnnualCapitalGainsOrLosses,
+    usedLots: [],
+    grossTotal: zero,
+    cashAfterSellCosts: zero,
+    taxFreeAcquisitionRecoveryAfterSellCosts: zero,
+    soldShareOriginalCostTotal: zero,
+    soldShareAcquisitionCostTotal: zero,
+    selectedActualDeductionTotal: zero,
+    selectedHmo20DeductionTotal: zero,
+    selectedHmo40DeductionTotal: zero,
+    selectedHmoDeductionTotal: zero,
+    selectedDeductionTotal: zero,
+    totalAllocatedSellCost: zero,
+    sellCostDeductedViaActual: zero,
+    sellCostPaidWithoutActualDeduction: zero,
+    taxSavedFromDeductibleSellCosts: zero,
+    taxableGainTotal: zero,
+    taxableGainAtLowRate: zero,
+    taxableGainAtHighRate: zero,
+    estimatedTax: zero,
+    annualNetCapitalGain: zero,
+    annualTaxableGainAtLowRate: zero,
+    annualTaxableGainAtHighRate: zero,
+    annualEstimatedTax: zero,
+    annualTaxChange: zero,
+    taxReductionFromOtherLosses: zero,
+    netAfterTaxAndSellCost: zero,
+    netAfterAnnualTaxAndSellCost: zero,
+    netResultAgainstAcquisitionCost: zero,
+    remainingUnsoldShares,
+  }
+}
+
 function estimateCapitalTax(taxableGain: Decimal, rules: SellTaxRules) {
   if (taxableGain.lte(0)) return zero
   const threshold = new Decimal(rules.capitalIncomeTax.threshold)

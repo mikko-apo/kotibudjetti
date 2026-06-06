@@ -22,7 +22,7 @@ import {
   createSellOverviewCards,
 } from './osakkeetUiSummarySections'
 import { pageStyles } from './osakkeetUiStyles'
-import { finnishDateInput, infoCard, numberInput, withHoverInfo } from './osakkeetUiUtils'
+import { infoCard, numberInput, withHoverInfo } from './osakkeetUiUtils'
 
 type LocalizedTextNodes = TextNodesFromValue<OsakkeetLocalization>
 type OsakkeetPageReadModel = {
@@ -55,20 +55,18 @@ export function createIpoSection(
   const estimatedPreIpoValueInput = numberInput(pageStyles.input, '')
   const totalIpoCostInput = numberInput(pageStyles.input, '')
   const secondarySellPercentInput = numberInput(pageStyles.input, '')
-  const ipoDateInput = finnishDateInput(pageStyles.input, '')
-
   formBinder.bindInputs([
     { path: ['ipo', 'currentShareValue'], node: currentShareValueInput },
     { path: ['ipo', 'totalShareCount'], node: totalShareCountInput },
     { path: ['ipo', 'estimatedPreIpoValue'], node: estimatedPreIpoValueInput },
     { path: ['ipo', 'totalIpoCost'], node: totalIpoCostInput },
     { path: ['ipo', 'estimatedSecondaryShareSellPercentage'], node: secondarySellPercentInput },
-    { path: ['ipo', 'ipoDate'], node: ipoDateInput },
   ])
 
   const root = section(
     { class: 'card' },
     h2(ipoTextNodes.title),
+    h3(ipoTextNodes.sections.currentCompany),
     div(
       pageStyles.gridTwo,
       div(pageStyles.field, label(ipoTextNodes.fields.currentShareValue), currentShareValueInput),
@@ -76,6 +74,7 @@ export function createIpoSection(
       div(pageStyles.field, label(ipoTextNodes.fields.currentTotalValue), b(valueNodes.currentTotalValue)),
       div(pageStyles.field, label(summaryCardTextNodes.subscribedShares), b(valueNodes.subscribedShares))
     ),
+    h3(ipoTextNodes.sections.sharePriceEstimate),
     div(
       pageStyles.gridTwo,
       div(pageStyles.field, label(ipoTextNodes.fields.estimatedPreIpoValue), estimatedPreIpoValueInput),
@@ -83,6 +82,7 @@ export function createIpoSection(
       div(pageStyles.field, label(ipoTextNodes.fields.increasePercent), b(valueNodes.increasePercent)),
       div(pageStyles.field, label(ipoTextNodes.fields.increaseMultiplier), b(valueNodes.increaseMultiplier))
     ),
+    h3(ipoTextNodes.sections.ipoCostEstimate),
     div(
       pageStyles.gridTwo,
       div(pageStyles.field, label(ipoTextNodes.fields.totalIpoCost), totalIpoCostInput),
@@ -98,17 +98,6 @@ export function createIpoSection(
         b(valueNodes.ipoCostPerSecondaryShare)
       ),
       div(pageStyles.field, label(summaryCardTextNodes.secondarySharesTotal), b(valueNodes.secondarySharesTotal))
-    ),
-    div(
-      pageStyles.gridTwo,
-      div(
-        pageStyles.field,
-        label(ipoTextNodes.fields.ipoDate),
-        ipoDateInput,
-        span({ class: 'muted' }, ipoTextNodes.help.dateFormat)
-      ),
-      div(),
-      div()
     )
   )
 
@@ -122,13 +111,24 @@ export function createResultsSection(
 ) {
   const formBinder = createFormBinder(dataState)
   const warningRoot = div()
-  const ipoSellContentRoot = div(pageStyles.denseStack)
   const summaryTextNodes = localizedTextNodes.summary
   const annualAdjustmentTaxEffectRoot = div()
   const annualAdjustmentReserveRoot = div()
   const annualAdjustmentKeepRoot = div()
   const sellInput = numberInput(pageStyles.input, '')
+  const sellPricePerShareInput = numberInput(pageStyles.input, '')
+  const sellCostPerShareInput = numberInput(pageStyles.input, '')
   const otherAnnualCapitalInput = numberInput(pageStyles.input, '')
+  const ipoSellInputHelpNodes = createComputedTextState(pageReadState, ({ osakkeetCalculation, texts }) => ({
+    sharesToSellShareOfSellable: texts.summary.ipoSell.fields.sharesToSellShareOfSellable(
+      osakkeetCalculation.vesting.vestedShares.gt(0)
+        ? percentage(osakkeetCalculation.ipoSell.amount.div(osakkeetCalculation.vesting.vestedShares).mul(100))
+        : '0.00 %'
+    ),
+  })).textNodes
+  const ipoSellOverviewRoot = div()
+  const ipoSellDetailsRoot = div(pageStyles.denseStack)
+  const annualAdjustmentSectionRoot = div()
   const annualAdjustmentCardsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
     createAnnualAdjustmentCards(osakkeetCalculation, texts, (title, value, help) =>
       infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
@@ -136,6 +136,8 @@ export function createResultsSection(
   )
   formBinder.bindInputs([
     { path: ['ipoSell', 'amount'], node: sellInput },
+    { path: ['ipoSell', 'pricePerShare'], node: sellPricePerShareInput },
+    { path: ['ipoSell', 'costPerShare'], node: sellCostPerShareInput },
     { path: ['ipoSell', 'otherAnnualCapitalGainsOrLosses'], node: otherAnnualCapitalInput },
   ])
   const annualAdjustmentInputCard = div(
@@ -158,6 +160,7 @@ export function createResultsSection(
       annualAdjustmentKeepRoot
     )
   )
+  annualAdjustmentSectionRoot.append(annualAdjustmentRoot)
   replaceChildrenFromState(pageReadState, warningRoot, ({ osakkeetCalculation, texts }) => [
     osakkeetCalculation.errors.length > 0 &&
       div(
@@ -172,53 +175,62 @@ export function createResultsSection(
         ul(osakkeetCalculation.warnings.map((warning) => li(warning)))
       ),
   ])
-  replaceChildrenFromState(pageReadState, ipoSellContentRoot, ({ osakkeetCalculation, texts }) => {
+  replaceChildrenFromState(pageReadState, ipoSellOverviewRoot, ({ osakkeetCalculation, texts }) => [
+    div(
+      pageStyles.summaryGrid,
+      createSellOverviewCards(osakkeetCalculation, texts, (title, value, help) =>
+        infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
+      )
+    ),
+  ])
+  replaceChildrenFromState(pageReadState, ipoSellDetailsRoot, ({ osakkeetCalculation, texts }) => {
+    const hasUsableIpoSellCalculation = osakkeetCalculation.ipoSell.usedLots.length > 0
     return [
-      div(
-        pageStyles.summaryGrid,
-        createSellOverviewCards(osakkeetCalculation, texts, (title, value, help) =>
-          infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
-        )
-      ),
-      h3(texts.summary.allocationByLot.title),
-      createSellAllocationTable(osakkeetCalculation, texts, (content, tooltip) =>
-        withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, content, tooltip)
-      ),
-      h3(texts.summary.ipoSell.explanations.title),
-      div(
-        pageStyles.summaryGrid,
-        createSellExplanationCards(osakkeetCalculation, texts, (title, value, help) =>
-          infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
-        )
-      ),
-      h3(texts.summary.ipoSell.capitalGainAnnualTax.title),
-      div(
-        pageStyles.summaryGrid,
-        createCapitalGainCards(osakkeetCalculation, texts, (title, value, help) =>
-          infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
-        )
-      ),
-      h3(texts.summary.ipoSell.cashReserve.title),
-      div(
-        pageStyles.summaryGrid,
-        createCashReserveCards(osakkeetCalculation, texts, (title, value, help) =>
-          infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
-        )
-      ),
-      h3(texts.summary.ipoSell.saleResultComparison.title),
-      div(
-        pageStyles.summaryGrid,
-        createSaleResultComparisonCards(osakkeetCalculation, texts, (title, value, help) =>
-          infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
-        )
-      ),
-      h3(texts.summary.ipoSell.ipoCostEffects.title),
-      div(
-        pageStyles.summaryGrid,
-        createIpoCostEffectCards(osakkeetCalculation, texts, (title, value, help) =>
-          infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
-        )
-      ),
+      hasUsableIpoSellCalculation && h3(texts.summary.allocationByLot.title),
+      hasUsableIpoSellCalculation &&
+        createSellAllocationTable(osakkeetCalculation, texts, (content, tooltip) =>
+          withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, content, tooltip)
+        ),
+      hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.explanations.title),
+      hasUsableIpoSellCalculation &&
+        div(
+          pageStyles.summaryGrid,
+          createSellExplanationCards(osakkeetCalculation, texts, (title, value, help) =>
+            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
+          )
+        ),
+      hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.capitalGainAnnualTax.title),
+      hasUsableIpoSellCalculation &&
+        div(
+          pageStyles.summaryGrid,
+          createCapitalGainCards(osakkeetCalculation, texts, (title, value, help) =>
+            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
+          )
+        ),
+      hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.cashReserve.title),
+      hasUsableIpoSellCalculation &&
+        div(
+          pageStyles.summaryGrid,
+          createCashReserveCards(osakkeetCalculation, texts, (title, value, help) =>
+            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
+          )
+        ),
+      hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.saleResultComparison.title),
+      hasUsableIpoSellCalculation &&
+        div(
+          pageStyles.summaryGrid,
+          createSaleResultComparisonCards(osakkeetCalculation, texts, (title, value, help) =>
+            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
+          )
+        ),
+      hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.ipoCostEffects.title),
+      hasUsableIpoSellCalculation &&
+        div(
+          pageStyles.summaryGrid,
+          createIpoCostEffectCards(osakkeetCalculation, texts, (title, value, help) =>
+            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title, value, help)
+          )
+        ),
     ]
   })
   replaceChildrenFromState(annualAdjustmentCardsState, annualAdjustmentTaxEffectRoot, (cards) => cards.taxEffect)
@@ -230,18 +242,34 @@ export function createResultsSection(
     section(
       { class: 'card' },
       h2(summaryTextNodes.ipoSell.title),
+      ipoSellOverviewRoot,
       div(
         pageStyles.gridTwo,
         div(
           pageStyles.compactField,
-          div(pageStyles.field, label(summaryTextNodes.ipoSell.fields.sharesToSell), sellInput)
+          div(
+            pageStyles.field,
+            label(summaryTextNodes.ipoSell.fields.sharesToSell),
+            sellInput,
+            span({ class: 'muted' }, ipoSellInputHelpNodes.sharesToSellShareOfSellable)
+          )
+        ),
+        div(
+          pageStyles.compactField,
+          div(pageStyles.field, label(summaryTextNodes.ipoSell.fields.ipoPricePerShare), sellPricePerShareInput)
+        ),
+        div(
+          pageStyles.compactField,
+          div(pageStyles.field, label(summaryTextNodes.ipoSell.fields.ipoCostPerShare), sellCostPerShareInput)
         )
       ),
       warningRoot,
-      ipoSellContentRoot,
-      annualAdjustmentRoot
+      ipoSellDetailsRoot,
+      annualAdjustmentSectionRoot
     )
   )
 
-  return createSectionController(root, () => {})
+  return createSectionController(root, ({ osakkeetCalculation }: OsakkeetPageReadModel) => {
+    annualAdjustmentRoot.style.display = osakkeetCalculation.ipoSell.usedLots.length > 0 ? '' : 'none'
+  })
 }

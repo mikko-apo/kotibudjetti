@@ -4761,6 +4761,42 @@
 
   // src/osakkeet/osakkeetSellCalculator.ts
   var zero = new decimal_default(0)
+  function createEmptySellSummary(params) {
+    const { amount: amount2, otherAnnualCapitalGainsOrLosses, remainingUnsoldShares } = params
+    return {
+      amount: amount2,
+      otherAnnualCapitalGainsOrLosses,
+      usedLots: [],
+      grossTotal: zero,
+      cashAfterSellCosts: zero,
+      taxFreeAcquisitionRecoveryAfterSellCosts: zero,
+      soldShareOriginalCostTotal: zero,
+      soldShareAcquisitionCostTotal: zero,
+      selectedActualDeductionTotal: zero,
+      selectedHmo20DeductionTotal: zero,
+      selectedHmo40DeductionTotal: zero,
+      selectedHmoDeductionTotal: zero,
+      selectedDeductionTotal: zero,
+      totalAllocatedSellCost: zero,
+      sellCostDeductedViaActual: zero,
+      sellCostPaidWithoutActualDeduction: zero,
+      taxSavedFromDeductibleSellCosts: zero,
+      taxableGainTotal: zero,
+      taxableGainAtLowRate: zero,
+      taxableGainAtHighRate: zero,
+      estimatedTax: zero,
+      annualNetCapitalGain: zero,
+      annualTaxableGainAtLowRate: zero,
+      annualTaxableGainAtHighRate: zero,
+      annualEstimatedTax: zero,
+      annualTaxChange: zero,
+      taxReductionFromOtherLosses: zero,
+      netAfterTaxAndSellCost: zero,
+      netAfterAnnualTaxAndSellCost: zero,
+      netResultAgainstAcquisitionCost: zero,
+      remainingUnsoldShares,
+    }
+  }
   function estimateCapitalTax(taxableGain, rules) {
     if (taxableGain.lte(0)) return zero
     const threshold = new decimal_default(rules.capitalIncomeTax.threshold)
@@ -5003,6 +5039,8 @@
     sellableLots,
     sellShareCalculator,
     ipoSellAmount,
+    ipoSellPricePerShare,
+    ipoSellCostPerShare,
     otherAnnualCapitalGainsOrLosses,
     vestingSummary,
     ipoSummary,
@@ -5020,6 +5058,14 @@
     if (ipoSummary.estimatedSecondaryShareCount.gt(0) && ipoSellAmount.gt(ipoSummary.estimatedSecondaryShareCount)) {
       warnings.push(localization.calculator.warnings.ipoSellAmountExceedsEstimatedSecondary)
     }
+    if (ipoSellAmount.gt(0) && ipoSellPricePerShare.lte(0)) {
+      errors.push(localization.calculator.errors.ipoSellPricePerShareRequired)
+      return createEmptySellSummary({
+        amount: ipoSellAmount,
+        otherAnnualCapitalGainsOrLosses,
+        remainingUnsoldShares: ipoSummary.totalSubscribedShares,
+      })
+    }
     return calculateSellSummary({
       sellableLots,
       totalTrackedShares: ipoSummary.totalSubscribedShares,
@@ -5028,8 +5074,8 @@
       sellAmount: ipoSellAmount,
       otherAnnualCapitalGainsOrLosses,
       sellDate: ipoSummary.ipoDate,
-      sellPricePerShare: ipoSummary.ipoPricePerShare,
-      sellCostPerShare: ipoSummary.ipoCostPerShare,
+      sellPricePerShare: ipoSellPricePerShare,
+      sellCostPerShare: ipoSellCostPerShare,
       sellRules,
     })
   }
@@ -5112,6 +5158,16 @@
     const errors = []
     const validation = localization.calculator.validation
     const sellFieldLabel = (id, field) => `Osakkeiden myynti ${id} ${field}`
+    const company = {
+      listingStatus: form2.company.listingStatus === 'listed' ? 'listed' : 'unlisted',
+      becameListedDateText: form2.company.becameListedDate,
+      becameListedDate: parseOptionalDateInput(
+        form2.company.becameListedDate,
+        localization.calculator.fields.becameListedDate,
+        errors,
+        validation
+      ),
+    }
     const subscriptions = form2.subscriptions.map((input2) => {
       const fieldLabel = input2.date || input2.id
       return {
@@ -5175,6 +5231,13 @@
       }
       const sellPrice = hasSellPrice ? sellPriceInput : hasPricePerShare ? shareCount.mul(pricePerShareInput) : zero3
       const pricePerShare = shareCount.gt(0) ? sellPrice.div(shareCount) : pricePerShareInput
+      const otherTotalSellCosts = parseDecimalInput(
+        input2.otherTotalSellCosts || '',
+        sellFieldLabel(input2.id, 'muut kulut'),
+        input2.otherTotalSellCosts ? errors : [],
+        validation,
+        { validate: (value) => value.gte(0) }
+      )
       return {
         kind: 'sell',
         id: input2.id,
@@ -5183,6 +5246,7 @@
         shareCount,
         sellPrice,
         pricePerShare,
+        otherTotalSellCosts,
       }
     })
     const shareSplits = form2.shareSplits.map((input2) => {
@@ -5259,6 +5323,7 @@
       if (year.gt(0)) mathematicalShareValuesByYear.set(year.toNumber(), valuePerShare)
     })
     const parsed = {
+      company,
       subscriptions,
       sells,
       shareSplits,
@@ -5271,17 +5336,9 @@
   function parseOsakkeetIpoCalculatorInputs(form2, localization) {
     const errors = []
     const validation = localization.calculator.validation
-    const ipoDate = parseOptionalDateInput(
-      form2.ipo.ipoDate,
-      localization.calculator.fields.ipoDate,
-      errors,
-      validation
-    )
     return {
       parsed: {
-        ipoDate,
         ipo: {
-          ipoDateText: form2.ipo.ipoDate,
           totalShareCountInput: parseDecimalInput(
             form2.ipo.totalShareCount,
             localization.calculator.fields.totalShareCount,
@@ -5318,6 +5375,18 @@
             form2.ipoSell.amount,
             localization.calculator.fields.ipoSellAmount,
             errors,
+            validation
+          ),
+          pricePerShare: parseDecimalInput(
+            form2.ipoSell.pricePerShare || '',
+            localization.calculator.fields.ipoSellPricePerShare,
+            form2.ipoSell.pricePerShare ? errors : [],
+            validation
+          ),
+          costPerShare: parseDecimalInput(
+            form2.ipoSell.costPerShare || '',
+            localization.calculator.fields.ipoSellCostPerShare,
+            form2.ipoSell.costPerShare ? errors : [],
             validation
           ),
           otherAnnualCapitalGainsOrLosses: parseDecimalInput(
@@ -6214,8 +6283,8 @@
   }
   function buildTaxReturnYearSummaries(
     cashDistributions,
+    sales,
     ipoDate,
-    ipoSell,
     mathematicalShareValuesByYear,
     shareCalculator
   ) {
@@ -6230,9 +6299,7 @@
       if (ipoYear != null && year >= ipoYear) continue
       yearSet.add(year)
     }
-    if (ipoYear && ipoSell.grossTotal.gt(0)) {
-      yearSet.add(ipoYear)
-    }
+    sales.forEach((sale) => yearSet.add(sale.year))
     const years = [...yearSet].sort((a2, b2) => a2 - b2)
     return years.map((year) => {
       const yearEntries = cashDistributions.filter((cashDistribution) => cashDistribution.date.endsWith(String(year)))
@@ -6270,15 +6337,60 @@
                 totals: createTaxReturnTotals(listedEntries),
               }
             : void 0,
-        ipoSale:
-          ipoYear === year && ipoSell.grossTotal.gt(0)
-            ? {
-                sellDate: ipoDate.toISOString().slice(0, 10),
-                summary: ipoSell,
-              }
-            : void 0,
+        sales: sales.filter((sale) => sale.year === year),
       }
     })
+  }
+  function buildTaxReturnSaleSummaries(
+    sells,
+    baseLots,
+    shareCalculator,
+    ipoDate,
+    ipoSell,
+    effectiveRules,
+    useYearlyRules
+  ) {
+    const historicalSales = sells.flatMap((sell) => {
+      if (!sell.parsedTimestamp) return []
+      const sellDate = new Date(sell.parsedTimestamp.timestampMs)
+      const sellableLots = baseLots
+        .map((lot) => deriveWorkingLot(lot, shareCalculator, { atDate: sellDate, inclusive: false }))
+        .filter((lot) => lot.shareCount.gt(0))
+      const totalTrackedShares = sumDecimals(sellableLots.map((lot) => lot.shareCount))
+      const sellRules = resolveYearlyTaxRules(sellDate.getUTCFullYear(), effectiveRules, useYearlyRules)
+      const summary2 = calculateSellSummary({
+        sellableLots,
+        totalTrackedShares,
+        sellShareCalculator: shareCalculator,
+        sellId: sell.id,
+        sellAmount: sell.shareCount,
+        otherAnnualCapitalGainsOrLosses: zero5,
+        sellDate,
+        sellPricePerShare: sell.pricePerShare,
+        sellCostPerShare: sell.shareCount.gt(0) ? sell.otherTotalSellCosts.div(sell.shareCount) : zero5,
+        sellRules,
+      })
+      return summary2.grossTotal.gt(0)
+        ? [
+            {
+              year: sellDate.getUTCFullYear(),
+              sellDate: sell.date,
+              summary: summary2,
+            },
+          ]
+        : []
+    })
+    if (!ipoDate || !ipoSell.grossTotal.gt(0)) {
+      return historicalSales
+    }
+    return [
+      ...historicalSales,
+      {
+        year: ipoDate.getUTCFullYear(),
+        sellDate: ipoDate.toISOString().slice(0, 10),
+        summary: ipoSell,
+      },
+    ]
   }
   function calculateOsakkeet(form2, localization, rules) {
     var _a2
@@ -6293,7 +6405,7 @@
     const baseLots = sortedSubscriptions.map((subscription) => createLot(subscription))
     const totalSubscribedCost = sumDecimals(baseLots.map((lot) => lot.baseShareAcquisitionCost))
     const { mathematicalShareValuesByYear } = parsed
-    const { ipoDate } = parsedIpo
+    const ipoDate = parsed.company.becameListedDate
     const { shareCalculator: baseShareCalculator, errors: baseShareCalculatorErrors } = createShareCalculator(
       {
         subscriptions: sortedSubscriptions,
@@ -6342,7 +6454,7 @@
     )
     const sellableLotIds = new Set(vesting.sellableLots.map((lot) => lot.id))
     const ipoRelevantSells = ipoDate
-      ? sortedSells.filter((sell) => compareDateStrings(sell.date, parsedIpo.ipo.ipoDateText) <= 0)
+      ? sortedSells.filter((sell) => compareDateStrings(sell.date, parsed.company.becameListedDateText) <= 0)
       : sortedSells
     const { shareCalculator: sellShareCalculator, errors: sellShareCalculatorErrors } = createShareCalculator(
       {
@@ -6354,11 +6466,12 @@
                 {
                   kind: 'sell',
                   id: 'ipo-sell',
-                  date: parsedIpo.ipo.ipoDateText,
-                  parsedTimestamp: parseEventTimestamp(parsedIpo.ipo.ipoDateText),
+                  date: parsed.company.becameListedDateText,
+                  parsedTimestamp: parseEventTimestamp(parsed.company.becameListedDateText),
                   shareCount: ipoSellAmount,
                   sellPrice: ipoSellAmount.mul(ipo.ipoPricePerShare),
                   pricePerShare: ipo.ipoPricePerShare,
+                  otherTotalSellCosts: zero5,
                 },
               ]
             : ipoRelevantSells,
@@ -6378,6 +6491,8 @@
       vesting.sellableLots,
       sellShareCalculator,
       ipoSellAmount,
+      parsedIpo.ipoSell.pricePerShare,
+      parsedIpo.ipoSell.costPerShare,
       otherAnnualCapitalGainsOrLosses,
       vesting,
       ipo,
@@ -6385,6 +6500,15 @@
       errors,
       warnings,
       localization
+    )
+    const taxReturnSales = buildTaxReturnSaleSummaries(
+      sortedSells,
+      baseLots,
+      baseShareCalculator,
+      ipoDate,
+      ipoSell,
+      effectiveRules,
+      useYearlyRules
     )
     return {
       formData: form2,
@@ -6399,8 +6523,8 @@
       taxReturns: {
         years: buildTaxReturnYearSummaries(
           cashDistributions,
+          taxReturnSales,
           ipoDate,
-          ipoSell,
           mathematicalShareValuesByYear,
           baseShareCalculator
         ),
@@ -7110,6 +7234,7 @@
         shareCount: '',
         sellPrice: '',
         pricePerShare: '',
+        otherTotalSellCosts: '',
       }),
       normalize: (row, createId3) => ({
         id: row.id || createId3('sell'),
@@ -7117,6 +7242,7 @@
         shareCount: row.shareCount || '',
         sellPrice: row.sellPrice || '',
         pricePerShare: row.pricePerShare || '',
+        otherTotalSellCosts: row.otherTotalSellCosts || '',
       }),
     },
     shareSplits: {
@@ -7160,15 +7286,24 @@
     return (rows || []).map((row) => formCollectionSchemas[key].normalize(row, createId3))
   }
   function normalizeLegacyIpoSell(data2) {
-    var _a2
+    var _a2, _b, _c, _d
     const legacyIpoSell = data2.sell
+    const legacyIpoDate = (_a2 = data2.ipo) == null ? void 0 : _a2.ipoDate
     return {
       ...data2,
-      ipoSell: (_a2 = data2.ipoSell) != null ? _a2 : legacyIpoSell,
+      company: {
+        listingStatus: ((_b = data2.company) == null ? void 0 : _b.listingStatus) || 'unlisted',
+        becameListedDate: ((_c = data2.company) == null ? void 0 : _c.becameListedDate) || legacyIpoDate || '',
+      },
+      ipoSell: (_d = data2.ipoSell) != null ? _d : legacyIpoSell,
     }
   }
   function createBlankOsakkeetFormData() {
     return {
+      company: {
+        listingStatus: 'unlisted',
+        becameListedDate: '',
+      },
       subscriptions: [],
       sells: [],
       cashDistributions: [],
@@ -7176,7 +7311,6 @@
       demergers: [],
       mathematicalShareValues: [],
       ipo: {
-        ipoDate: '',
         totalShareCount: '',
         totalIpoCost: '',
         currentShareValue: '',
@@ -7185,6 +7319,8 @@
       },
       ipoSell: {
         amount: '',
+        pricePerShare: '',
+        costPerShare: '',
         otherAnnualCapitalGainsOrLosses: '',
       },
       lastModifiedCompanyData: '',
@@ -7192,12 +7328,17 @@
     }
   }
   function normalizeOsakkeetFormData(data2, createId3) {
-    var _a2, _b
+    var _a2, _b, _c
     const normalized = normalizeLegacyIpoSell(data2)
     const blank = createBlankOsakkeetFormData()
-    const ipo = (_a2 = normalized.ipo) != null ? _a2 : blank.ipo
-    const ipoSell = (_b = normalized.ipoSell) != null ? _b : blank.ipoSell
+    const company = (_a2 = normalized.company) != null ? _a2 : blank.company
+    const ipo = (_b = normalized.ipo) != null ? _b : blank.ipo
+    const ipoSell = (_c = normalized.ipoSell) != null ? _c : blank.ipoSell
     return {
+      company: {
+        listingStatus: company.listingStatus === 'listed' ? 'listed' : 'unlisted',
+        becameListedDate: company.becameListedDate || '',
+      },
       subscriptions: sortRowsByDate(normalizeCollectionRows('subscriptions', normalized.subscriptions, createId3)),
       sells: sortRowsByDate(normalizeCollectionRows('sells', normalized.sells, createId3)),
       cashDistributions: sortRowsByDate(
@@ -7212,7 +7353,6 @@
       ),
       ipo: {
         ...blank.ipo,
-        ipoDate: ipo.ipoDate || '',
         totalShareCount: ipo.totalShareCount || '',
         totalIpoCost: ipo.totalIpoCost || '',
         currentShareValue: ipo.currentShareValue || '',
@@ -7223,6 +7363,8 @@
         ...blank.ipoSell,
         ...ipoSell,
         amount: ipoSell.amount || '',
+        pricePerShare: ipoSell.pricePerShare || '',
+        costPerShare: ipoSell.costPerShare || '',
         otherAnnualCapitalGainsOrLosses: ipoSell.otherAnnualCapitalGainsOrLosses || '',
       },
       lastModifiedCompanyData: normalized.lastModifiedCompanyData || '',
@@ -7271,6 +7413,18 @@
       done: 'Valmis',
       remove: 'Poista',
     },
+    company: {
+      title: 'Yrityksen tiedot',
+      help: 'Valitse onko yhti\xF6 t\xE4ll\xE4 hetkell\xE4 listaamaton vai listattu. Valinnainen listautumisp\xE4iv\xE4 toimii t\xE4ss\xE4 laskurissa IPO-p\xE4iv\xE4n\xE4 varojenjaon ja IPO-myynnin rajap\xE4iv\xE4n\xE4.',
+      fields: {
+        listingStatus: 'Yhti\xF6n tila',
+        becameListedDate: 'Listautumisp\xE4iv\xE4',
+      },
+      options: {
+        unlisted: 'Listaamaton',
+        listed: 'Listattu',
+      },
+    },
     assumptions: {
       title: 'Laskennan oletukset',
       items: [
@@ -7296,13 +7450,13 @@
       },
       groups: {
         subscriptionsAndSales: {
-          title: '1. Osakemerkinn\xE4t ja myynnit',
+          title: '2. Osakemerkinn\xE4t ja myynnit',
           summary: 'Sis\xE4lt\xE4\xE4: Osakemerkinn\xE4t, Osakkeiden myynnit.',
         },
         distributionsAndCorporateActions: {
-          title: '2. Varojenjako, jakautuminen ja splitit',
+          title: '1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit',
           summary:
-            'Sis\xE4lt\xE4\xE4: Osingot ja p\xE4\xE4omanpalautukset, Yrityksen jakautuminen hankintamenon mukaan, Osakesplitit.',
+            'Sis\xE4lt\xE4\xE4: Yrityksen tila ja listautumisp\xE4iv\xE4, Osingot ja p\xE4\xE4omanpalautukset, Yrityksen jakautuminen hankintamenon mukaan, Osakesplitit.',
         },
         taxReturns: {
           title: '3. Veroilmoitukset',
@@ -7310,7 +7464,7 @@
         },
         ipoCalculator: {
           title: '4. IPO-laskuri',
-          summary: 'Sis\xE4lt\xE4\xE4: IPO-tiedot ja yhteenveto, IPO-myynnin tiedot.',
+          summary: 'Sis\xE4lt\xE4\xE4: IPO-tiedot ja arvionti, IPO-myynnin tiedot.',
         },
       },
     },
@@ -7318,6 +7472,7 @@
       title: 'Osakemerkinn\xE4t',
       help: 'Sy\xF6t\xE4 kaikki merkint\xE4er\xE4t omassa hankintaj\xE4rjestyksess\xE4. Myynniss\xE4 k\xE4ytet\xE4\xE4n FIFO-periaatetta, ja IPO-p\xE4iv\xE4n j\xE4lkeen p\xE4\xE4ttyv\xE4 ansaintajakso est\xE4\xE4 merkint\xE4er\xE4n myynnin.',
       fields: {
+        purchaseDate: 'Ostop\xE4iv\xE4',
         originalShareCount: 'Osakkeita alunperin',
         remainingShareCountCurrentDate: (date) => `Osakkeita j\xE4ljell\xE4 (${date})`,
         vestingEndsOn: 'Ansaintajakso p\xE4\xE4ttyy',
@@ -7336,25 +7491,6 @@
           `${date}: split ${beforeShares} osaketta x ${multiplier2} = ${afterShares} osaketta`,
         totalPricePerShareTooltipResult: (total, shares, perShare) =>
           `Lopuksi: ${total} / ${shares} osaketta = ${perShare}`,
-        totalReimbursements: 'P\xE4\xE4omanpalautukset yhteens\xE4',
-        totalReimbursementsHelp:
-          'T\xE4ss\xE4 laskurissa ennen IPO-p\xE4iv\xE4\xE4 tehty SVOP-varojenjako lasketaan p\xE4\xE4omanpalautukseksi vain silt\xE4 osin kuin se palauttaa saman osakkaan omaa enint\xE4\xE4n 10 vuotta vanhaa p\xE4\xE4omasijoitusta. P\xE4\xE4omanpalautus v\xE4hent\xE4\xE4 j\xE4ljell\xE4 olevaa todellista hankintamenoa enint\xE4\xE4n siihen m\xE4\xE4r\xE4\xE4n asti. Hankintameno-olettamaa ei k\xE4ytet\xE4 p\xE4\xE4omanpalautukseen. IPO-p\xE4iv\xE4n\xE4 tai sen j\xE4lkeen varojenjako k\xE4sitell\xE4\xE4n t\xE4ss\xE4 laskurissa osinkona.',
-        totalReimbursementsTooltipIntro: 'Muodostuu n\xE4ist\xE4 p\xE4\xE4omanpalautuksista:',
-        totalReimbursementsTooltipLine: (date, amountPerShare, shares, total) =>
-          `${date}: ${amountPerShare} / osake x ${shares} osaketta = ${total}`,
-        capitalRepaymentPerShare: 'P\xE4\xE4omanpalautus / osake',
-        capitalRepaymentPerShareTooltipIntro: 'Muodostuu n\xE4ist\xE4 p\xE4\xE4omanpalautusriveist\xE4:',
-        capitalRepaymentPerShareTooltipAppliedLine: (date, inputPerShare, shares, appliedPerShare, appliedTotal) =>
-          `${date}: sy\xF6te ${inputPerShare} / osake x ${shares} osaketta -> k\xE4ytetty p\xE4\xE4omanpalautuksena ${appliedPerShare} / osake = ${appliedTotal}`,
-        capitalRepaymentPerShareTooltipDividendLine: (
-          date,
-          inputPerShare,
-          shares,
-          dividendPerShare,
-          dividendTotal,
-          reason
-        ) =>
-          `${date}: sy\xF6te ${inputPerShare} / osake x ${shares} osaketta -> osinkona ${dividendPerShare} / osake = ${dividendTotal} (${reason})`,
         capitalRepaymentPerShareTooltipReasonTooOld: 'merkinn\xE4st\xE4 on yli 10 vuotta',
         capitalRepaymentPerShareTooltipReasonNoRemainingCost: 'j\xE4ljell\xE4 oleva hankintameno on 0',
         capitalRepaymentPerShareTooltipReasonRemainingCostLimit:
@@ -7461,8 +7597,8 @@
       help: 'Sy\xF6t\xE4 toteutuneet myynnit aikaj\xE4rjestyksess\xE4. Myynti v\xE4hent\xE4\xE4 my\xF6hempien p\xE4ivien j\xE4ljell\xE4 olevia osakkeita ja hankintamenoa FIFO-periaatteella.',
       fields: {
         shareCount: 'Myytyj\xE4 osakkeita',
-        sellPrice: 'Myyntihinta yhteens\xE4',
         pricePerShare: 'Myyntihinta / osake',
+        otherTotalSellCosts: 'Muut kulut',
       },
       actions: {
         add: 'Lis\xE4\xE4 myynti',
@@ -7473,6 +7609,8 @@
       help: 'Sy\xF6t\xE4 splitin p\xE4iv\xE4 ja kerroin. Kerroin 2 tarkoittaa, ett\xE4 yksi vanha osake muuttuu kahdeksi. Kerroin 0,5 tarkoittaa, ett\xE4 kaksi vanhaa osaketta yhdistyy yhdeksi.',
       fields: {
         multiplier: 'Osakkeita / vanha osake',
+        exampleEffect: 'Esimerkki',
+        exampleEffectValue: (multiplier2) => `100 osaketta -> ${multiplier2} osaketta`,
       },
       actions: {
         add: 'Lis\xE4\xE4 split',
@@ -7483,15 +7621,22 @@
       help: 'Sy\xF6t\xE4 jakautumisen p\xE4iv\xE4 ja se desimaaliosuus, joka j\xE4\xE4 t\xE4m\xE4n laskurin seuraaman vanhan yhti\xF6n hankintamenoksi. Esimerkiksi 0,72 tarkoittaa, ett\xE4 72 % hankintamenosta j\xE4\xE4 vanhalle yhti\xF6lle ja loput siirtyv\xE4t uudelle yhti\xF6lle. K\xE4yt\xE4 yhti\xF6n tai verotusohjeen ilmoittamaa jakosuhdetta: se perustuu yleens\xE4 nettovarallisuuksien suhteeseen, mutta jos se poikkeaa olennaisesti osakkeiden k\xE4ypien arvojen suhteesta, k\xE4ytet\xE4\xE4n k\xE4ypien arvojen suhdetta.',
       fields: {
         oldCompanyRatio: 'Vanhan yhti\xF6n osuus hankintamenosta',
+        exampleEffect: 'Esimerkki',
+        exampleEffectValue: (ratio, oldCompany, newCompany) =>
+          `10,00 \u20AC -> vanha yhti\xF6 ${oldCompany}, uusi yhti\xF6 ${newCompany}`,
       },
       actions: {
         add: 'Lis\xE4\xE4 jakautuminen',
       },
     },
     ipo: {
-      title: 'IPO-tiedot ja yhteenveto',
+      title: 'IPO-tiedot ja arvionti',
+      sections: {
+        currentCompany: 'Listaamattoman yrityksen nykyiset tiedot',
+        sharePriceEstimate: 'Osakkeen hinnan arviointi yrityksen hinnan perusteella',
+        ipoCostEstimate: 'Ipo-kulu per osake arviointi',
+      },
       fields: {
-        ipoDate: 'IPO-p\xE4iv\xE4',
         totalShareCount: 'Osakkeiden kokonaism\xE4\xE4r\xE4',
         totalIpoCost: 'IPO-kulut yhteens\xE4',
         currentShareValue: 'Nykyinen osakkeen arvo',
@@ -7504,8 +7649,6 @@
       },
       help: {
         secondary: 'K\xE4ytet\xE4\xE4n IPO-kulun allokointiin per myyty osake.',
-        dateFormat:
-          'Muoto pp.kk.vvvv. Samaa p\xE4iv\xE4\xE4 k\xE4ytet\xE4\xE4n 10 vuoden hankintameno-olettaman tarkistukseen.',
       },
     },
     mathematicalShareValues: {
@@ -7540,6 +7683,9 @@
         title: 'IPO-myynnin tiedot',
         fields: {
           sharesToSell: 'Myyt\xE4vien osakkeiden m\xE4\xE4r\xE4',
+          sharesToSellShareOfSellable: (share) => `${share} myyt\xE4viss\xE4 IPOssa`,
+          ipoPricePerShare: 'IPO-hinta / osake',
+          ipoCostPerShare: 'Ipo-kulu per osake',
           ipoPriceTotal: 'IPO-hinta yhteens\xE4',
           actualCosts: 'Todelliset kulut',
           hmo: 'Hankintameno-olettama',
@@ -7592,21 +7738,30 @@
         cashReserve: {
           title: 'Tilille j\xE4\xE4v\xE4 raha ja veroihin varattava osuus',
           otherAnnualCapitalGainsOrLosses: 'Muut luovutusvoitot tai tappiot',
-          otherAnnualCapitalGainsOrLossesHelp: 'Sy\xF6t\xE4 kentt\xE4\xE4n muut mahdolliset luovutusvoitot ja tappiot',
+          otherAnnualCapitalGainsOrLossesHelp:
+            'Sy\xF6t\xE4 kentt\xE4\xE4n muut mahdolliset luovutusvoitot ja tappiot ja niiden yhteisarvo',
           annualAdjustmentTitle: 'Muiden luovutusvoittojen tai -tappioiden vaikutus vuositasolla',
           annualAdjustedKeepAfterTaxes: 'Tilille voi j\xE4tt\xE4\xE4 vuositasolla',
           annualAdjustedReserveForTaxes: 'Veroihin varattava vuositasolla',
           keepAfterTaxes: 'Tilille voi j\xE4tt\xE4\xE4',
+          remainingShares: 'Myym\xE4tt\xE4 j\xE4\xE4v\xE4t osakkeet',
+          remainingSharesTotalLine: (shares, value) => `Yhteens\xE4: ${shares} osaketta, arvo ${value}`,
+          remainingSharesVestedLine: (shares, value) => `Myyt\xE4viss\xE4 nyt: ${shares} osaketta, arvo ${value}`,
+          remainingSharesUnvestedLine: (shares, ipoValue, originalAcquisitionCost) =>
+            `Ansaintajakson piiriss\xE4: ${shares} osaketta, arvo IPO-hinnalla ${ipoValue}, alkuper\xE4inen hankintameno ${originalAcquisitionCost}`,
           reserveForTaxes: 'Veroihin varattava',
-          taxEffectFromOtherAnnualCapital: 'Muiden luovutusvoittojen tai -tappioiden vaikutus veroon',
+          taxEffectFromOtherAnnualCapital:
+            'Muiden luovutusvoittojen tai -tappioiden vaikutus veron m\xE4\xE4r\xE4\xE4n',
           taxPaymentStatus: 'Perit\xE4\xE4nk\xF6 vero automaattisesti?',
           taxPaymentManual: 'Ei yleens\xE4 automaattisesti',
           keepAfterTaxesHelp: (cash, tax, kept) =>
             `Tilille j\xE4\xE4v\xE4 summa = k\xE4teen ${cash} - veroihin varattava osuus ${tax} = ${kept}.`,
+          remainingSharesHelp: (shareValue, totalValue) =>
+            `Arvo ${totalValue} on laskettu IPO-hinnalla ${shareValue} / osake.`,
           reserveForTaxesHelp: (tax) =>
             `Arvioitu vero ${tax} kannattaa varata erikseen, jotta vuotuinen verotus ei aiheuta yll\xE4tt\xE4v\xE4\xE4 maksua.`,
           taxEffectFromOtherAnnualCapitalHelp: (other, reduction, increase) =>
-            `Anna t\xE4h\xE4n vuoden muiden luovutusvoittojen tai luovutustappioiden yhteisvaikutus. Sy\xF6tetty muutos ${other}. Negatiivinen arvo pienent\xE4\xE4 veroarviota ${reduction}. Positiivinen arvo kasvattaa veroarviota ${increase}. Tappiolla olevien osakkeiden myynti voi pienent\xE4\xE4 veroa, mutta v\xE4lit\xF6nt\xE4 takaisinostoa ei kannata tehd\xE4 pelk\xE4st\xE4\xE4n verotussyyst\xE4 ilman ammattilaisen arviota.`,
+            `Sy\xF6tetty muutos ${other}. Negatiivinen arvo pienent\xE4\xE4 veroarviota ${reduction}. Positiivinen arvo kasvattaa veroarviota ${increase}. Tappiolla olevien osakkeiden myynti voi pienent\xE4\xE4 veroa, mutta v\xE4lit\xF6nt\xE4 takaisinostoa ei kannata tehd\xE4 pelk\xE4st\xE4\xE4n verotussyyst\xE4 ilman ammattilaisen arviota.`,
           annualAdjustedKeepAfterTaxesHelp: (cash, tax, kept) =>
             `Vuositasolla tilille j\xE4\xE4v\xE4 summa = k\xE4teen ${cash} - vuositasolla veroihin varattava osuus ${tax} = ${kept}.`,
           annualAdjustedReserveForTaxesHelp: (tax) =>
@@ -7617,10 +7772,10 @@
         saleResultComparison: {
           title: 'Merkint\xE4kulut ja nettotulos',
           cardTitle: 'Myytyjen osakkeiden hankintameno ja nettotulos',
-          value: (before, after, gain, percent) =>
-            `Ennen p\xE4\xE4omanpalautuksia ${before}, j\xE4lkeen p\xE4\xE4omanpalautusten ${after}, nettotulos ${gain} (${percent}).`,
-          help: (before, after, kept, gain, percent) =>
-            `Myynniss\xE4 k\xE4ytettyjen merkint\xE4erien hankintameno ennen p\xE4\xE4omanpalautuksia on ${before} ja p\xE4\xE4omanpalautusten j\xE4lkeen ${after}. Tilille voi j\xE4tt\xE4\xE4 ${kept}, joten nettotulos k\xE4ytettyihin merkint\xE4eriin n\xE4hden on ${gain} (${percent}).`,
+          value: (original, gain, percent) =>
+            `Alkuper\xE4inen hankintameno ${original}, nettotulos ${gain} (${percent}).`,
+          help: (original, kept, gain, percent) =>
+            `Myynniss\xE4 k\xE4ytettyjen merkint\xE4erien alkuper\xE4inen hankintameno on ${original}. Tilille voi j\xE4tt\xE4\xE4 ${kept}, joten nettotulos k\xE4ytettyihin merkint\xE4eriin n\xE4hden on ${gain} (${percent}).`,
         },
         ipoCostEffects: {
           title: 'IPO-kulujen vaikutus',
@@ -7789,13 +7944,15 @@
         subscriptionVestingEndsOn: (id) => `Merkint\xE4 ${id} ansaintajakso p\xE4\xE4ttyy`,
         mathematicalShareValueYear: (id) => `Matemaattinen arvo vuosi ${id}`,
         mathematicalShareValuePerShare: (id) => `Matemaattinen arvo/osake ${id}`,
-        ipoDate: 'IPO-p\xE4iv\xE4',
+        becameListedDate: 'Listautumisp\xE4iv\xE4',
         totalShareCount: 'Osakkeiden kokonaism\xE4\xE4r\xE4',
         totalIpoCost: 'IPO-kulut yhteens\xE4',
         currentShareValue: 'Nykyinen osakkeen arvo',
         estimatedPreIpoValue: 'Arvioitu pre-IPO-arvo',
         estimatedSecondaryShareSellPercentage: 'Arvioitu secondary-myyntiprosentti',
         ipoSellAmount: 'Myyt\xE4vien osakkeiden m\xE4\xE4r\xE4',
+        ipoSellPricePerShare: 'IPO-myynnin hinta / osake',
+        ipoSellCostPerShare: 'IPO-myynnin kulu / osake',
         otherAnnualCapitalGainsOrLosses: 'Muut luovutusvoitot tai tappiot',
         cashDistributionDate: (id) => `Varojenjako ${id} p\xE4iv\xE4`,
         cashDistributionAmountPerShare: (id) => `Varojenjako ${id} \u20AC/osake`,
@@ -7815,11 +7972,13 @@
         ipoSellAmountExceedsEstimatedSecondary:
           'Myyntim\xE4\xE4r\xE4 ylitt\xE4\xE4 arvioidun secondary-myyntim\xE4\xE4r\xE4n koko yhti\xF6n tasolla.',
         vestingBlockedWithoutIpoDate:
-          'IPO-p\xE4iv\xE4 puuttuu, joten ansaintajakson rajoittamia merkint\xE4eri\xE4 ei voitu ottaa mukaan myyntiin.',
+          'Listautumisp\xE4iv\xE4 puuttuu, joten ansaintajakson rajoittamia merkint\xE4eri\xE4 ei voitu ottaa mukaan myyntiin.',
       },
       errors: {
+        ipoSellPricePerShareRequired:
+          'IPO-hinta / osake pit\xE4\xE4 sy\xF6tt\xE4\xE4 ennen kuin IPO-myynnin arvot voidaan laskea.',
         ipoSellAmountExceedsSellable: (shares) =>
-          `Myyt\xE4vien osakkeiden m\xE4\xE4r\xE4 ylitt\xE4\xE4 IPO-p\xE4iv\xE4n\xE4 myyt\xE4viss\xE4 olevien osakkeiden m\xE4\xE4r\xE4n (${shares}).`,
+          `Myyt\xE4vien osakkeiden m\xE4\xE4r\xE4 ylitt\xE4\xE4 listautumisp\xE4iv\xE4n\xE4 myyt\xE4viss\xE4 olevien osakkeiden m\xE4\xE4r\xE4n (${shares}).`,
       },
     },
   }
@@ -7856,6 +8015,18 @@
       done: 'Done',
       remove: 'Remove',
     },
+    company: {
+      title: 'Company details',
+      help: 'Choose whether the company is currently unlisted or listed. The optional became-listed date acts as the IPO date cutoff in this calculator for distributions and the IPO sale.',
+      fields: {
+        listingStatus: 'Company status',
+        becameListedDate: 'Became listed date',
+      },
+      options: {
+        unlisted: 'Unlisted',
+        listed: 'Listed',
+      },
+    },
     assumptions: {
       title: 'Calculation assumptions',
       items: [
@@ -7881,13 +8052,13 @@
       },
       groups: {
         subscriptionsAndSales: {
-          title: '1. Share subscriptions and sales',
+          title: '2. Share subscriptions and sales',
           summary: 'Includes: Share subscriptions, Share sales.',
         },
         distributionsAndCorporateActions: {
-          title: '2. Distributions, demergers, and splits',
+          title: '1. Company details: distributions, demergers, and splits',
           summary:
-            'Includes: Dividends and capital repayments, Company demerger by acquisition-cost allocation, Share splits.',
+            'Includes: Company status and became-listed date, Dividends and capital repayments, Company demerger by acquisition-cost allocation, Share splits.',
         },
         taxReturns: {
           title: '3. Tax returns',
@@ -7895,7 +8066,7 @@
         },
         ipoCalculator: {
           title: '4. IPO calculator',
-          summary: 'Includes: IPO details and summary, IPO sell details.',
+          summary: 'Includes: IPO details and estimation, IPO sell details.',
         },
       },
     },
@@ -7903,6 +8074,7 @@
       title: 'Share subscriptions',
       help: 'Enter all subscription lots in acquisition order. FIFO is used for sales, and a vesting period ending after the IPO date blocks that lot from being sold.',
       fields: {
+        purchaseDate: 'Purchase date',
         originalShareCount: 'Shares originally',
         remainingShareCountCurrentDate: (date) => `Shares remaining (${date})`,
         vestingEndsOn: 'Vesting ends',
@@ -7921,25 +8093,6 @@
           `${date}: split ${beforeShares} shares x ${multiplier2} = ${afterShares} shares`,
         totalPricePerShareTooltipResult: (total, shares, perShare) =>
           `Final: ${total} / ${shares} shares = ${perShare}`,
-        totalReimbursements: 'Capital repayments total',
-        totalReimbursementsHelp:
-          'In this calculator, a pre-IPO distribution from the invested unrestricted equity reserve is treated as capital repayment only to the extent it returns the same shareholder\u2019s own capital investment made within the previous 10 years. The capital repayment reduces the remaining actual acquisition cost only up to that amount. The deemed acquisition cost is not used for capital repayments. On the IPO date and after it, distributions are treated as dividends in this calculator.',
-        totalReimbursementsTooltipIntro: 'Built from these applied capital repayments:',
-        totalReimbursementsTooltipLine: (date, amountPerShare, shares, total) =>
-          `${date}: ${amountPerShare} / share x ${shares} shares = ${total}`,
-        capitalRepaymentPerShare: 'Capital repayment / share',
-        capitalRepaymentPerShareTooltipIntro: 'Built from these capital-repayment rows:',
-        capitalRepaymentPerShareTooltipAppliedLine: (date, inputPerShare, shares, appliedPerShare, appliedTotal) =>
-          `${date}: input ${inputPerShare} / share x ${shares} shares -> used as capital repayment ${appliedPerShare} / share = ${appliedTotal}`,
-        capitalRepaymentPerShareTooltipDividendLine: (
-          date,
-          inputPerShare,
-          shares,
-          dividendPerShare,
-          dividendTotal,
-          reason
-        ) =>
-          `${date}: input ${inputPerShare} / share x ${shares} shares -> treated as dividend ${dividendPerShare} / share = ${dividendTotal} (${reason})`,
         capitalRepaymentPerShareTooltipReasonTooOld: 'more than 10 years since subscription',
         capitalRepaymentPerShareTooltipReasonNoRemainingCost: 'remaining acquisition cost is 0',
         capitalRepaymentPerShareTooltipReasonRemainingCostLimit:
@@ -8046,8 +8199,8 @@
       help: 'Enter completed sales in chronological order. A sale reduces remaining shares and acquisition cost on later dates using FIFO.',
       fields: {
         shareCount: 'Shares sold',
-        sellPrice: 'Sale price total',
         pricePerShare: 'Sale price / share',
+        otherTotalSellCosts: 'Other costs',
       },
       actions: {
         add: 'Add sale',
@@ -8058,6 +8211,8 @@
       help: 'Enter the split date and multiplier. A multiplier of 2 means one old share becomes two. A multiplier of 0.5 means two old shares are combined into one.',
       fields: {
         multiplier: 'Shares / old share',
+        exampleEffect: 'Example',
+        exampleEffectValue: (multiplier2) => `100 shares -> ${multiplier2} shares`,
       },
       actions: {
         add: 'Add split',
@@ -8068,15 +8223,22 @@
       help: 'Enter the demerger date and the decimal portion of acquisition cost that remains with the old company tracked in this calculator. For example, 0.72 means 72% of the acquisition cost remains with the old company and the rest moves to the new company. Use the allocation ratio given by the company or tax guidance: it is usually based on the net-asset ratio, but if that differs materially from the share fair-value ratio, the fair-value ratio is used.',
       fields: {
         oldCompanyRatio: 'Old company share of acquisition cost',
+        exampleEffect: 'Example',
+        exampleEffectValue: (ratio, oldCompany, newCompany) =>
+          `10.00 EUR -> old company ${oldCompany}, new company ${newCompany}`,
       },
       actions: {
         add: 'Add demerger',
       },
     },
     ipo: {
-      title: 'IPO details and summary',
+      title: 'IPO details and estimation',
+      sections: {
+        currentCompany: 'Current details of the unlisted company',
+        sharePriceEstimate: 'Share price estimate based on company value',
+        ipoCostEstimate: 'IPO cost per share estimate',
+      },
       fields: {
-        ipoDate: 'IPO date',
         totalShareCount: 'Total share count',
         totalIpoCost: 'Total IPO costs',
         currentShareValue: 'Current share value',
@@ -8089,8 +8251,6 @@
       },
       help: {
         secondary: 'Used to allocate IPO cost per sold share.',
-        dateFormat:
-          'Format dd.mm.yyyy. The same date is used when checking eligibility for the 10-year deemed acquisition cost.',
       },
     },
     mathematicalShareValues: {
@@ -8125,6 +8285,9 @@
         title: 'IPO sell details',
         fields: {
           sharesToSell: 'Number of shares to sell',
+          sharesToSellShareOfSellable: (share) => `${share} sellable at IPO`,
+          ipoPricePerShare: 'IPO price / share',
+          ipoCostPerShare: 'IPO cost / share',
           ipoPriceTotal: 'Total IPO price',
           actualCosts: 'Actual costs',
           hmo: 'Deemed acquisition cost',
@@ -8177,21 +8340,29 @@
         cashReserve: {
           title: 'Cash you can keep and amount to reserve for taxes',
           otherAnnualCapitalGainsOrLosses: 'Other capital gains or losses',
-          otherAnnualCapitalGainsOrLossesHelp: 'Enter any other possible capital gains and losses in this field',
+          otherAnnualCapitalGainsOrLossesHelp:
+            'Enter any other possible capital gains and losses and their combined amount in this field',
           annualAdjustmentTitle: 'Effect of other capital gains or losses over the tax year',
           annualAdjustedKeepAfterTaxes: 'Can stay in your account over the tax year',
           annualAdjustedReserveForTaxes: 'Reserve for taxes over the tax year',
           keepAfterTaxes: 'Can stay in your account',
+          remainingShares: 'Unsold shares',
+          remainingSharesTotalLine: (shares, value) => `Total: ${shares} shares, value ${value}`,
+          remainingSharesVestedLine: (shares, value) => `Vested now: ${shares} shares, value ${value}`,
+          remainingSharesUnvestedLine: (shares, ipoValue, originalAcquisitionCost) =>
+            `Unvested now: ${shares} shares, value at IPO price ${ipoValue}, original acquisition cost ${originalAcquisitionCost}`,
           reserveForTaxes: 'Reserve for taxes',
-          taxEffectFromOtherAnnualCapital: 'Effect of other annual capital gains or losses on tax',
+          taxEffectFromOtherAnnualCapital: 'Effect of other annual capital gains or losses on tax amount',
           taxPaymentStatus: 'Is tax withheld automatically?',
           taxPaymentManual: 'Usually not automatically',
           keepAfterTaxesHelp: (cash, tax, kept) =>
             `Amount left in your account = cash ${cash} - amount reserved for taxes ${tax} = ${kept}.`,
+          remainingSharesHelp: (shareValue, totalValue) =>
+            `Value ${totalValue} is calculated using the IPO price ${shareValue} / share.`,
           reserveForTaxesHelp: (tax) =>
             `It is prudent to reserve the estimated tax ${tax} separately so annual taxation does not create an unexpected payment.`,
           taxEffectFromOtherAnnualCapitalHelp: (other, reduction, increase) =>
-            `Enter the combined effect of your other annual capital gains or capital losses here. Entered change ${other}. A negative value reduces the tax estimate by ${reduction}. A positive value increases the tax estimate by ${increase}. Selling shares that are down can reduce tax, but an immediate buyback should not be done solely for tax reasons without professional advice.`,
+            `Entered change ${other}. A negative value reduces the tax estimate by ${reduction}. A positive value increases the tax estimate by ${increase}. Selling shares that are down can reduce tax, but an immediate buyback should not be done solely for tax reasons without professional advice.`,
           annualAdjustedKeepAfterTaxesHelp: (cash, tax, kept) =>
             `Over the tax year, the amount left in your account = cash ${cash} - tax amount to reserve over the tax year ${tax} = ${kept}.`,
           annualAdjustedReserveForTaxesHelp: (tax) =>
@@ -8202,10 +8373,9 @@
         saleResultComparison: {
           title: 'Subscription cost and net result',
           cardTitle: 'Acquisition cost of sold shares and net result',
-          value: (before, after, gain, percent) =>
-            `Before reimbursements ${before}, after reimbursements ${after}, net result ${gain} (${percent}).`,
-          help: (before, after, kept, gain, percent) =>
-            `The acquisition cost of the subscription lots used in the sale is ${before} before reimbursements and ${after} after reimbursements. You can keep ${kept}, so the net result against the sold subscription lots is ${gain} (${percent}).`,
+          value: (original, gain, percent) => `Original acquisition cost ${original}, net result ${gain} (${percent}).`,
+          help: (original, kept, gain, percent) =>
+            `The original acquisition cost of the subscription lots used in the sale is ${original}. You can keep ${kept}, so the net result against the sold subscription lots is ${gain} (${percent}).`,
         },
         ipoCostEffects: {
           title: 'Effect of IPO costs',
@@ -8374,13 +8544,15 @@
         subscriptionVestingEndsOn: (id) => `Subscription ${id} vesting ends`,
         mathematicalShareValueYear: (id) => `Mathematical value year ${id}`,
         mathematicalShareValuePerShare: (id) => `Mathematical value/share ${id}`,
-        ipoDate: 'IPO date',
+        becameListedDate: 'Became listed date',
         totalShareCount: 'Total share count',
         totalIpoCost: 'Total IPO costs',
         currentShareValue: 'Current share value',
         estimatedPreIpoValue: 'Estimated pre-IPO value',
         estimatedSecondaryShareSellPercentage: 'Estimated secondary sell percentage',
         ipoSellAmount: 'Number of shares to sell',
+        ipoSellPricePerShare: 'IPO sell price / share',
+        ipoSellCostPerShare: 'IPO sell cost / share',
         otherAnnualCapitalGainsOrLosses: 'Other capital gains or losses',
         cashDistributionDate: (id) => `Distribution ${id} date`,
         cashDistributionAmountPerShare: (id) => `Distribution ${id} EUR/share`,
@@ -8399,11 +8571,12 @@
         ipoSellAmountExceedsEstimatedSecondary:
           'Sell amount exceeds the estimated secondary sell amount at whole-company level.',
         vestingBlockedWithoutIpoDate:
-          'IPO date is missing, so vesting-restricted subscription lots were excluded from the sale.',
+          'The became-listed date is missing, so vesting-restricted subscription lots were excluded from the sale.',
       },
       errors: {
+        ipoSellPricePerShareRequired: 'IPO price / share must be entered before the IPO sell values can be calculated.',
         ipoSellAmountExceedsSellable: (shares) =>
-          `The number of shares to sell exceeds the shares sellable on the IPO date (${shares}).`,
+          `The number of shares to sell exceeds the shares sellable on the became-listed date (${shares}).`,
       },
     },
   }
@@ -8429,6 +8602,7 @@
   }
   function createCompanyDataPayload(data2) {
     return {
+      company: data2.company,
       cashDistributions: data2.cashDistributions.map((cashDistribution) => ({
         id: cashDistribution.id,
         date: cashDistribution.date,
@@ -8453,6 +8627,10 @@
     return normalizeOsakkeetFormData(
       {
         ...emptyForm,
+        company: {
+          ...emptyForm.company,
+          ...(data2.company || {}),
+        },
         cashDistributions: data2.cashDistributions || [],
         shareSplits: data2.shareSplits || [],
         demergers: data2.demergers || [],
@@ -8966,6 +9144,7 @@
     mainSectionContent: styles({ display: 'flex', flexDirection: 'column', gap: '22px' }),
     field: styles({ display: 'flex', flexDirection: 'column', gap: '6px' }),
     compactField: styles({ width: '140px' }),
+    mediumCompactField: styles({ width: '220px' }),
     compactTable: styles({ width: 'auto', maxWidth: 'fit-content', tableLayout: 'auto' }),
     rowButtons: styles({ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }),
     rowActionButtons: styles({ display: 'inline-flex', gap: '8px', flexWrap: 'nowrap', alignItems: 'center' }),
@@ -9121,6 +9300,12 @@
     mismatchRow: styles({
       backgroundColor: 'rgba(254, 226, 226, 0.45)',
     }),
+    highlightedColumn: styles({
+      backgroundColor: 'rgba(187, 247, 208, 0.45)',
+    }),
+    highlightedHeaderColumn: styles({
+      backgroundColor: 'rgba(187, 247, 208, 0.45)',
+    }),
     rowErrorText: styles({
       color: 'rgb(153, 27, 27)',
       fontSize: '12px',
@@ -9145,6 +9330,53 @@
   }
 
   // src/osakkeet/osakkeetUiDataSections.ts
+  function createCompanySection(dataState, pageReadState, localizedTextNodes) {
+    const formBinder = createFormBinder(dataState)
+    const companyTextNodes = localizedTextNodes.company
+    const mathematicalShareValuesEditor = createMathematicalShareValuesEditor(
+      dataState,
+      pageReadState,
+      localizedTextNodes
+    )
+    const listingStatusSelect = createOptionBoundSelect(dataState.get().company.listingStatus, [], (listingStatus) => {
+      dataState.set((current) => ({
+        ...current,
+        company: {
+          ...current.company,
+          listingStatus,
+        },
+      }))
+    })
+    setStyle(listingStatusSelect.node, pageStyles.input)
+    const becameListedDateInput = finnishDateInput(pageStyles.input, '')
+    formBinder.bindInputs([{ path: ['company', 'becameListedDate'], node: becameListedDateInput }])
+    const root = section(
+      { class: 'card' },
+      h2(companyTextNodes.title),
+      p({ class: 'muted' }, companyTextNodes.help),
+      div(
+        pageStyles.gridTwo,
+        div(
+          pageStyles.field,
+          label(companyTextNodes.fields.listingStatus),
+          div(pageStyles.mediumCompactField, listingStatusSelect.node)
+        ),
+        div(
+          pageStyles.field,
+          label(companyTextNodes.fields.becameListedDate),
+          div(pageStyles.mediumCompactField, becameListedDateInput)
+        )
+      ),
+      mathematicalShareValuesEditor.root
+    )
+    return createSectionController(root, ({ formData, texts }) => {
+      listingStatusSelect.setOptions([
+        { value: 'unlisted', label: texts.company.options.unlisted },
+        { value: 'listed', label: texts.company.options.listed },
+      ])
+      listingStatusSelect.setValue(formData.company.listingStatus === 'listed' ? 'listed' : 'unlisted')
+    })
+  }
   function createSellsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes) {
     const counter = createSectionCounter()
     const sellTextNodes = localizedTextNodes.sells
@@ -9164,16 +9396,16 @@
         const shareCountInput = numberInput(pageStyles.input, row.shareCount, (value) => {
           sells.patch(row.id, { shareCount: value })
         })
-        const sellPriceInput = numberInput(pageStyles.input, row.sellPrice, (value) => {
-          sells.patch(row.id, { sellPrice: value })
-        })
         const pricePerShareInput = numberInput(pageStyles.input, row.pricePerShare || '', (value) => {
           sells.patch(row.id, { pricePerShare: value })
         })
+        const otherTotalSellCostsInput = numberInput(pageStyles.input, row.otherTotalSellCosts || '', (value) => {
+          sells.patch(row.id, { otherTotalSellCosts: value })
+        })
         const dateCell = td()
         const shareCountCell = td()
-        const sellPriceCell = td()
         const pricePerShareCell = td()
+        const otherTotalSellCostsCell = td()
         const bindings = [
           {
             cell: dateCell,
@@ -9188,16 +9420,16 @@
             setEditValue: (nextRow) => setInputValue(shareCountInput, nextRow.shareCount),
           },
           {
-            cell: sellPriceCell,
-            editNode: div(pageStyles.compactField, sellPriceInput),
-            readValue: (nextRow) => nextRow.sellPrice,
-            setEditValue: (nextRow) => setInputValue(sellPriceInput, nextRow.sellPrice),
-          },
-          {
             cell: pricePerShareCell,
             editNode: div(pageStyles.compactField, pricePerShareInput),
             readValue: (nextRow) => nextRow.pricePerShare || '',
             setEditValue: (nextRow) => setInputValue(pricePerShareInput, nextRow.pricePerShare || ''),
+          },
+          {
+            cell: otherTotalSellCostsCell,
+            editNode: div(pageStyles.compactField, otherTotalSellCostsInput),
+            readValue: (nextRow) => nextRow.otherTotalSellCosts || '',
+            setEditValue: (nextRow) => setInputValue(otherTotalSellCostsInput, nextRow.otherTotalSellCosts || ''),
           },
         ]
         const editableRow = createEditableRowManager(row, editingRowIds, bindings, (labelNode, variant, onClick) =>
@@ -9207,8 +9439,8 @@
         const rowNode = tr(
           dateCell,
           shareCountCell,
-          sellPriceCell,
           pricePerShareCell,
+          otherTotalSellCostsCell,
           td(
             { class: 'no-print' },
             createRowActionButtons(editableRow.editButton, removeButton, pageStyles.rowActionButtons)
@@ -9228,8 +9460,8 @@
       () => ({
         date: '',
         shareCount: '',
-        sellPrice: '',
         pricePerShare: '',
+        otherTotalSellCosts: '',
       }),
       (labelNode, variant, onClick) => createActionButton(pageStyles.smallButton, labelNode, variant, onClick)
     )
@@ -9243,8 +9475,8 @@
           tr(
             th(commonTextNodes.date),
             th(sellTextNodes.fields.shareCount),
-            th(sellTextNodes.fields.sellPrice),
             th(sellTextNodes.fields.pricePerShare),
+            th(sellTextNodes.fields.otherTotalSellCosts),
             th({ class: 'no-print' }, '')
           )
         ),
@@ -9256,7 +9488,7 @@
       counter.setCount(osakkeetCalculation.formData.sells.length, texts.common.rows)
     })
   }
-  function createSubscriptionsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes) {
+  function createSubscriptionsSection(dataState, pageReadState, localizedTextNodes) {
     const openHistorySubscriptionIds = /* @__PURE__ */ new Set()
     const counter = createSectionCounter()
     const subscriptionTextNodes = localizedTextNodes.subscriptions
@@ -9273,15 +9505,9 @@
       subscriptionTextNodes.fields.otherTotalAcquisitionCosts,
       ''
     )
-    const totalReimbursementsHeaderNode = withHoverInfo(
-      pageStyles.hoverInfo,
-      pageStyles.hoverInfoIcon,
-      subscriptionTextNodes.fields.totalReimbursements,
-      ''
-    )
-    const remainingShareCountHeaderNode = th()
+    const remainingShareCountHeaderNode = th(pageStyles.highlightedHeaderColumn)
     replaceChildrenFromState(pageReadState, remainingShareCountHeaderNode, ({ texts }) => [
-      texts.subscriptions.fields.remainingShareCountCurrentDate(formatDateLabel(/* @__PURE__ */ new Date())),
+      b(texts.subscriptions.fields.remainingShareCountCurrentDate(formatDateLabel(/* @__PURE__ */ new Date()))),
     ])
     const rowsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
       withSummaryRows(
@@ -9316,16 +9542,14 @@
             subscriptions.patch(row.id, { otherTotalAcquisitionCosts: value })
           }
         )
-        const dateCell = td()
+        const dateCell = td(pageStyles.highlightedColumn)
         const vestingEndsOnCell = td()
         const amountCell = td()
-        const remainingShareCountCell = td()
+        const remainingShareCountCell = td(pageStyles.highlightedColumn)
         const pricePerShareCell = td()
         const otherTotalAcquisitionCostsCell = td()
         const totalPricePerShareCell = td()
-        const capitalRepaymentPerShareCell = td()
-        const remainingCostPerShareCell = td()
-        const capitalRepaymentTotalCell = td()
+        const remainingCostPerShareCell = td(pageStyles.highlightedColumn)
         const toggleHistory = (subscriptionId) => {
           toggleSetMembership(openHistorySubscriptionIds, subscriptionId)
         }
@@ -9363,7 +9587,7 @@
           },
         ]
         const historyContainer = div()
-        const detailRow = tr(td({ colSpan: 12 }, pageStyles.historyCell, historyContainer))
+        const detailRow = tr(td({ colSpan: 10 }, pageStyles.historyCell, historyContainer))
         const syncSummaryCells = (nextRow) => {
           replaceChildren(remainingShareCountCell, nextRow.summary ? amount(nextRow.summary.shareCount) : '-')
           replaceChildren(
@@ -9373,20 +9597,6 @@
                   nextRow.summary.shareCount.gt(0)
                     ? nextRow.summary.baseShareAcquisitionCost.div(nextRow.summary.shareCount)
                     : nextRow.summary.baseShareAcquisitionCost.mul(0)
-                )
-              : '-'
-          )
-          replaceChildren(
-            capitalRepaymentTotalCell,
-            nextRow.summary ? euro(nextRow.summary.capitalRepaymentTotal) : '-'
-          )
-          replaceChildren(
-            capitalRepaymentPerShareCell,
-            nextRow.summary
-              ? euro(
-                  nextRow.summary.shareCount.gt(0)
-                    ? nextRow.summary.capitalRepaymentTotal.div(nextRow.summary.shareCount)
-                    : nextRow.summary.capitalRepaymentTotal.mul(0)
                 )
               : '-'
           )
@@ -9420,6 +9630,7 @@
           }
         )
         const rowNode = tr(
+          td({ class: 'no-print' }, historyButton),
           dateCell,
           vestingEndsOnCell,
           amountCell,
@@ -9427,10 +9638,7 @@
           pricePerShareCell,
           otherTotalAcquisitionCostsCell,
           totalPricePerShareCell,
-          capitalRepaymentPerShareCell,
           remainingCostPerShareCell,
-          capitalRepaymentTotalCell,
-          td({ class: 'no-print' }, historyButton),
           td(
             { class: 'no-print' },
             createRowActionButtons(editableRow.editButton, removeButton, pageStyles.rowActionButtons)
@@ -9510,17 +9718,15 @@
       table(
         thead(
           tr(
-            th(commonTextNodes.date),
+            th({ class: 'no-print' }, ''),
+            th(pageStyles.highlightedHeaderColumn, b(subscriptionTextNodes.fields.purchaseDate)),
             th(vestingEndsOnHeaderNode),
             th(subscriptionTextNodes.fields.originalShareCount),
             remainingShareCountHeaderNode,
             th(subscriptionTextNodes.fields.pricePerShare),
             th(otherTotalAcquisitionCostsHeaderNode),
             th(subscriptionTextNodes.fields.totalPricePerShare),
-            th(subscriptionTextNodes.fields.capitalRepaymentPerShare),
-            th(subscriptionTextNodes.fields.remainingCostPerShare),
-            th(totalReimbursementsHeaderNode),
-            th({ class: 'no-print' }, subscriptionTextNodes.history.show),
+            th(pageStyles.highlightedHeaderColumn, b(subscriptionTextNodes.fields.remainingCostPerShare)),
             th({ class: 'no-print' }, '')
           )
         ),
@@ -9543,7 +9749,6 @@
       counter.setCount(current.subscriptions.length, texts.common.rows)
       vestingEndsOnHeaderNode.title = texts.subscriptions.fields.vestingEndsOnHelp
       otherTotalAcquisitionCostsHeaderNode.title = texts.subscriptions.fields.otherTotalAcquisitionCostsHelp
-      totalReimbursementsHeaderNode.title = texts.subscriptions.fields.totalReimbursementsHelp
     })
   }
   function createCashDistributionsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes) {
@@ -9828,7 +10033,12 @@
     const counter = createSectionCounter()
     const shareSplitTextNodes = localizedTextNodes.shareSplits
     const rowsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
-      withRowActionLabels(sortRowsByDate(osakkeetCalculation.formData.shareSplits), texts)
+      withRowActionLabels(sortRowsByDate(osakkeetCalculation.formData.shareSplits), texts).map((row) => ({
+        ...row,
+        exampleEffectText: Number.isFinite(Number(row.multiplier.trim()))
+          ? texts.shareSplits.fields.exampleEffectValue((100 * Number(row.multiplier.trim())).toFixed(2))
+          : '-',
+      }))
     )
     const shareSplits = createStateCollectionEditor(dataState, ['shareSplits'])
     const editingRowIds = /* @__PURE__ */ new Set()
@@ -9845,6 +10055,7 @@
         })
         const dateCell = td()
         const multiplierCell = td()
+        const explanationCell = td()
         const bindings = [
           {
             cell: dateCell,
@@ -9862,10 +10073,15 @@
         const editableRow = createEditableRowManager(row, editingRowIds, bindings, (labelNode, variant, onClick) =>
           createActionButton(pageStyles.smallButton, labelNode, variant, onClick)
         )
+        const syncExplanation = (nextRow) => {
+          replaceChildren(explanationCell, nextRow.exampleEffectText)
+        }
+        syncExplanation(row)
         editableRow.sync(row)
         const rowNode = tr(
           dateCell,
           multiplierCell,
+          explanationCell,
           td(
             { class: 'no-print' },
             createRowActionButtons(editableRow.editButton, removeButton, pageStyles.rowActionButtons)
@@ -9874,7 +10090,10 @@
         editableRow.attachDoubleClickEdit(rowNode)
         return {
           node: rowNode,
-          set: editableRow.set,
+          set(nextRow) {
+            editableRow.set(nextRow)
+            syncExplanation(nextRow)
+          },
         }
       },
     })
@@ -9891,7 +10110,14 @@
       p({ class: 'muted' }, shareSplitTextNodes.help),
       table(
         pageStyles.compactTable,
-        thead(tr(th(commonTextNodes.date), th(shareSplitTextNodes.fields.multiplier), th({ class: 'no-print' }, ''))),
+        thead(
+          tr(
+            th(commonTextNodes.date),
+            th(shareSplitTextNodes.fields.multiplier),
+            th(shareSplitTextNodes.fields.exampleEffect),
+            th({ class: 'no-print' }, '')
+          )
+        ),
         tbodyNode
       ),
       div({ class: 'no-print' }, pageStyles.rowButtons, addButton)
@@ -9904,7 +10130,19 @@
     const counter = createSectionCounter()
     const demergerTextNodes = localizedTextNodes.demergers
     const rowsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
-      withRowActionLabels(sortRowsByDate(osakkeetCalculation.formData.demergers), texts)
+      withRowActionLabels(sortRowsByDate(osakkeetCalculation.formData.demergers), texts).map((row) => {
+        const ratioValue = Number(row.oldCompanyRatio.trim())
+        return {
+          ...row,
+          exampleEffectText: Number.isFinite(ratioValue)
+            ? texts.demergers.fields.exampleEffectValue(
+                row.oldCompanyRatio.trim(),
+                euro(10 * ratioValue),
+                euro(10 * (1 - ratioValue))
+              )
+            : '-',
+        }
+      })
     )
     const demergers = createStateCollectionEditor(dataState, ['demergers'])
     const editingRowIds = /* @__PURE__ */ new Set()
@@ -9921,6 +10159,7 @@
         })
         const dateCell = td()
         const oldCompanyRatioCell = td()
+        const explanationCell = td()
         const bindings = [
           {
             cell: dateCell,
@@ -9938,10 +10177,15 @@
         const editableRow = createEditableRowManager(row, editingRowIds, bindings, (labelNode, variant, onClick) =>
           createActionButton(pageStyles.smallButton, labelNode, variant, onClick)
         )
+        const syncExplanation = (nextRow) => {
+          replaceChildren(explanationCell, nextRow.exampleEffectText)
+        }
+        syncExplanation(row)
         editableRow.sync(row)
         const rowNode = tr(
           dateCell,
           oldCompanyRatioCell,
+          explanationCell,
           td(
             { class: 'no-print' },
             createRowActionButtons(editableRow.editButton, removeButton, pageStyles.rowActionButtons)
@@ -9950,7 +10194,10 @@
         editableRow.attachDoubleClickEdit(rowNode)
         return {
           node: rowNode,
-          set: editableRow.set,
+          set(nextRow) {
+            editableRow.set(nextRow)
+            syncExplanation(nextRow)
+          },
         }
       },
     })
@@ -9968,7 +10215,12 @@
       table(
         pageStyles.compactTable,
         thead(
-          tr(th(commonTextNodes.date), th(demergerTextNodes.fields.oldCompanyRatio), th({ class: 'no-print' }, ''))
+          tr(
+            th(commonTextNodes.date),
+            th(demergerTextNodes.fields.oldCompanyRatio),
+            th(demergerTextNodes.fields.exampleEffect),
+            th({ class: 'no-print' }, '')
+          )
         ),
         tbodyNode
       ),
@@ -9980,6 +10232,40 @@
   }
 
   // src/osakkeet/osakkeetUiSummarySections.ts
+  function buildRemainingShareBreakdown(osakkeetCalculation) {
+    const soldAmountByLotId = /* @__PURE__ */ new Map()
+    for (const lot of osakkeetCalculation.ipoSell.usedLots) {
+      soldAmountByLotId.set(lot.lotId, (soldAmountByLotId.get(lot.lotId) || new decimal_default(0)).add(lot.soldAmount))
+    }
+    const now = /* @__PURE__ */ new Date()
+    const zero6 = osakkeetCalculation.ipo.currentShareValue.mul(0)
+    let totalShares = zero6
+    let vestedShares = zero6
+    let unvestedShares = zero6
+    let unvestedOriginalAcquisitionCost = zero6
+    for (const lot of osakkeetCalculation.subscriptions) {
+      const remainingShares = decimal_default.max(lot.shareCount.minus(soldAmountByLotId.get(lot.id) || zero6), zero6)
+      if (remainingShares.lte(0)) continue
+      totalShares = totalShares.add(remainingShares)
+      const isVestedAtCurrentDate = !lot.vestingEndsOnValue || now.getTime() >= lot.vestingEndsOnValue.getTime()
+      if (isVestedAtCurrentDate) {
+        vestedShares = vestedShares.add(remainingShares)
+      } else {
+        unvestedShares = unvestedShares.add(remainingShares)
+        unvestedOriginalAcquisitionCost = unvestedOriginalAcquisitionCost.add(lot.originalShareAcquisitionCost)
+      }
+    }
+    const currentShareValue = osakkeetCalculation.ipo.currentShareValue
+    return {
+      totalShares,
+      totalValue: totalShares.mul(currentShareValue),
+      vestedShares,
+      vestedValue: vestedShares.mul(currentShareValue),
+      unvestedShares,
+      unvestedValue: unvestedShares.mul(currentShareValue),
+      unvestedOriginalAcquisitionCost,
+    }
+  }
   function renderAssetsTable(assets, t) {
     if (!assets) return false
     return table(
@@ -10052,6 +10338,15 @@
       )
     )
   }
+  function renderDistributionTypeLabel(row, t) {
+    if (row.type === 'dividend') {
+      return t.cashDistributions.types.dividend
+    }
+    if (row.dividendTotal.gt(0)) {
+      return `${t.cashDistributions.types.capitalReturn} / ${t.cashDistributions.types.dividend}`
+    }
+    return t.cashDistributions.types.capitalReturn
+  }
   function renderTaxTable(sectionSummary, showAllocationDetails, styles2, renderers, t) {
     if (!sectionSummary) return false
     const { entries, totals, mode } = sectionSummary
@@ -10087,7 +10382,7 @@
         entries.flatMap((row) => [
           tr(
             td(row.date),
-            td(row.type === 'dividend' ? t.cashDistributions.types.dividend : t.cashDistributions.types.capitalReturn),
+            td(renderDistributionTypeLabel(row, t)),
             td(renderDistributionSharesCell(row, styles2, t)),
             td(euro(row.paidInCash)),
             td(euro(row.withholdingToTaxOffice)),
@@ -10151,9 +10446,14 @@
       contentRoot
     )
   }
-  function renderIpoSaleTable(ipoSale, t) {
-    if (!ipoSale) return false
-    const { summary: summary2 } = ipoSale
+  function renderSalesTable(sales, t) {
+    if (sales.length === 0) return false
+    const saleRows = sales.flatMap((sale) =>
+      sale.summary.usedLots.map((row) => ({
+        ...row,
+        sellDate: sale.sellDate,
+      }))
+    )
     return table(
       thead(
         tr(
@@ -10169,10 +10469,10 @@
         )
       ),
       tbody(
-        summary2.usedLots.map((row) =>
+        saleRows.map((row) =>
           tr(
             td(row.lotDate),
-            td(ipoSale.sellDate),
+            td(row.sellDate),
             td(amount(row.soldAmount)),
             td(euro(row.gross)),
             td(euro(row.actualDeduction)),
@@ -10189,13 +10489,13 @@
         tr(
           td(b(t.summary.totalRow)),
           td(),
-          td(amount(sumDecimals(summary2.usedLots.map((row) => row.soldAmount)))),
-          td(euro(summary2.grossTotal)),
-          td(euro(sumDecimals(summary2.usedLots.map((row) => row.actualDeduction)))),
-          td(euro(sumDecimals(summary2.usedLots.map((row) => row.hankintamenoOlettaDeduction)))),
+          td(amount(sumDecimals(saleRows.map((row) => row.soldAmount)))),
+          td(euro(sumDecimals(sales.map((sale) => sale.summary.grossTotal)))),
+          td(euro(sumDecimals(saleRows.map((row) => row.actualDeduction)))),
+          td(euro(sumDecimals(saleRows.map((row) => row.hankintamenoOlettaDeduction)))),
           td(),
-          td(euro(summary2.selectedDeductionTotal)),
-          td(euro(summary2.taxableGainTotal))
+          td(euro(sumDecimals(sales.map((sale) => sale.summary.selectedDeductionTotal)))),
+          td(euro(sumDecimals(sales.map((sale) => sale.summary.taxableGainTotal))))
         )
       )
     )
@@ -10229,31 +10529,16 @@
             ),
           yearSummary.listed &&
             renderTaxSectionWithToggle(t.taxReturns.sections.listed, yearSummary.listed, styles2, renderers, t),
-          yearSummary.ipoSale &&
-            div(
-              styles2.denseStack,
-              h3(t.taxReturns.sections.ipoSale),
-              renderIpoSaleTable(yearSummary.ipoSale, t),
-              div(
-                styles2.summaryGrid,
-                renderers.infoCard(
-                  t.summary.ipoSell.cards.ipoCostsAllocated,
-                  euro(yearSummary.ipoSale.summary.totalAllocatedSellCost)
-                ),
-                renderers.infoCard(t.summary.ipoSell.cards.taxMan, euro(yearSummary.ipoSale.summary.estimatedTax)),
-                renderers.infoCard(
-                  t.summary.ipoSell.cards.netCash,
-                  euro(yearSummary.ipoSale.summary.netAfterTaxAndSellCost)
-                )
-              )
-            )
+          yearSummary.sales &&
+            yearSummary.sales.length > 0 &&
+            div(styles2.denseStack, h3(t.taxReturns.sections.ipoSale), renderSalesTable(yearSummary.sales, t))
         )
       )
     )
   }
   function createSellOverviewCards(osakkeetCalculation, texts, infoCard2) {
     const sharePercent = createSharePercent(osakkeetCalculation.vesting.totalShares)
-    const ipoDate = osakkeetCalculation.formData.ipo.ipoDate
+    const ipoDate = osakkeetCalculation.formData.company.becameListedDate
     return [
       infoCard2(
         ipoDate
@@ -10383,6 +10668,25 @@
     ]
   }
   function createCashReserveCards(osakkeetCalculation, texts, infoCard2) {
+    const remainingShares = buildRemainingShareBreakdown(osakkeetCalculation)
+    const ipoSharePrice = osakkeetCalculation.ipoSell.amount.gt(0)
+      ? osakkeetCalculation.ipoSell.grossTotal.div(osakkeetCalculation.ipoSell.amount)
+      : osakkeetCalculation.ipo.currentShareValue.mul(0)
+    const remainingSharesCardValue = [
+      texts.summary.ipoSell.cashReserve.remainingSharesTotalLine(
+        amount(remainingShares.totalShares),
+        euro(remainingShares.totalShares.mul(ipoSharePrice))
+      ),
+      texts.summary.ipoSell.cashReserve.remainingSharesVestedLine(
+        amount(remainingShares.vestedShares),
+        euro(remainingShares.vestedShares.mul(ipoSharePrice))
+      ),
+      texts.summary.ipoSell.cashReserve.remainingSharesUnvestedLine(
+        amount(remainingShares.unvestedShares),
+        euro(remainingShares.unvestedShares.mul(ipoSharePrice)),
+        euro(remainingShares.unvestedOriginalAcquisitionCost)
+      ),
+    ].join('\n')
     const keepAfterTaxesPercentage = osakkeetCalculation.ipoSell.grossTotal.gt(0)
       ? ` (${percentage(osakkeetCalculation.ipoSell.netAfterTaxAndSellCost.div(osakkeetCalculation.ipoSell.grossTotal).mul(100))})`
       : ''
@@ -10406,14 +10710,23 @@
         texts.summary.ipoSell.cashReserve.taxPaymentManual,
         texts.summary.ipoSell.cashReserve.taxPaymentStatusHelp
       ),
+      infoCard2(
+        texts.summary.ipoSell.cashReserve.remainingShares,
+        remainingSharesCardValue,
+        texts.summary.ipoSell.cashReserve.remainingSharesHelp(
+          euro(ipoSharePrice),
+          euro(remainingShares.totalShares.mul(ipoSharePrice))
+        )
+      ),
     ]
   }
   function createSaleResultComparisonCards(osakkeetCalculation, texts, infoCard2) {
-    const netResultPercent = osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal.gt(0)
+    const netResultAgainstOriginalAcquisitionCost = osakkeetCalculation.ipoSell.netAfterTaxAndSellCost.minus(
+      osakkeetCalculation.ipoSell.soldShareOriginalCostTotal
+    )
+    const netResultPercent = osakkeetCalculation.ipoSell.soldShareOriginalCostTotal.gt(0)
       ? percentage(
-          osakkeetCalculation.ipoSell.netResultAgainstAcquisitionCost
-            .div(osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal)
-            .mul(100)
+          netResultAgainstOriginalAcquisitionCost.div(osakkeetCalculation.ipoSell.soldShareOriginalCostTotal).mul(100)
         )
       : '0.00 %'
     return [
@@ -10421,15 +10734,13 @@
         texts.summary.ipoSell.saleResultComparison.cardTitle,
         texts.summary.ipoSell.saleResultComparison.value(
           euro(osakkeetCalculation.ipoSell.soldShareOriginalCostTotal),
-          euro(osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal),
-          euro(osakkeetCalculation.ipoSell.netResultAgainstAcquisitionCost),
+          euro(netResultAgainstOriginalAcquisitionCost),
           netResultPercent
         ),
         texts.summary.ipoSell.saleResultComparison.help(
           euro(osakkeetCalculation.ipoSell.soldShareOriginalCostTotal),
-          euro(osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal),
           euro(osakkeetCalculation.ipoSell.netAfterTaxAndSellCost),
-          euro(osakkeetCalculation.ipoSell.netResultAgainstAcquisitionCost),
+          euro(netResultAgainstOriginalAcquisitionCost),
           netResultPercent
         )
       ),
@@ -10461,7 +10772,7 @@
       taxEffect: infoCard2(
         texts.summary.ipoSell.cashReserve.taxEffectFromOtherAnnualCapital,
         osakkeetCalculation.ipoSell.taxReductionFromOtherLosses.gt(0)
-          ? euro(osakkeetCalculation.ipoSell.taxReductionFromOtherLosses)
+          ? euro(osakkeetCalculation.ipoSell.taxReductionFromOtherLosses.mul(-1))
           : osakkeetCalculation.ipoSell.annualTaxChange.gt(0)
             ? `+${euro(osakkeetCalculation.ipoSell.annualTaxChange)}`
             : euro(zeroMoney),
@@ -10509,18 +10820,17 @@
     const estimatedPreIpoValueInput = numberInput(pageStyles.input, '')
     const totalIpoCostInput = numberInput(pageStyles.input, '')
     const secondarySellPercentInput = numberInput(pageStyles.input, '')
-    const ipoDateInput = finnishDateInput(pageStyles.input, '')
     formBinder.bindInputs([
       { path: ['ipo', 'currentShareValue'], node: currentShareValueInput },
       { path: ['ipo', 'totalShareCount'], node: totalShareCountInput },
       { path: ['ipo', 'estimatedPreIpoValue'], node: estimatedPreIpoValueInput },
       { path: ['ipo', 'totalIpoCost'], node: totalIpoCostInput },
       { path: ['ipo', 'estimatedSecondaryShareSellPercentage'], node: secondarySellPercentInput },
-      { path: ['ipo', 'ipoDate'], node: ipoDateInput },
     ])
     const root = section(
       { class: 'card' },
       h2(ipoTextNodes.title),
+      h3(ipoTextNodes.sections.currentCompany),
       div(
         pageStyles.gridTwo,
         div(pageStyles.field, label(ipoTextNodes.fields.currentShareValue), currentShareValueInput),
@@ -10528,6 +10838,7 @@
         div(pageStyles.field, label(ipoTextNodes.fields.currentTotalValue), b(valueNodes.currentTotalValue)),
         div(pageStyles.field, label(summaryCardTextNodes.subscribedShares), b(valueNodes.subscribedShares))
       ),
+      h3(ipoTextNodes.sections.sharePriceEstimate),
       div(
         pageStyles.gridTwo,
         div(pageStyles.field, label(ipoTextNodes.fields.estimatedPreIpoValue), estimatedPreIpoValueInput),
@@ -10535,6 +10846,7 @@
         div(pageStyles.field, label(ipoTextNodes.fields.increasePercent), b(valueNodes.increasePercent)),
         div(pageStyles.field, label(ipoTextNodes.fields.increaseMultiplier), b(valueNodes.increaseMultiplier))
       ),
+      h3(ipoTextNodes.sections.ipoCostEstimate),
       div(
         pageStyles.gridTwo,
         div(pageStyles.field, label(ipoTextNodes.fields.totalIpoCost), totalIpoCostInput),
@@ -10550,17 +10862,6 @@
           b(valueNodes.ipoCostPerSecondaryShare)
         ),
         div(pageStyles.field, label(summaryCardTextNodes.secondarySharesTotal), b(valueNodes.secondarySharesTotal))
-      ),
-      div(
-        pageStyles.gridTwo,
-        div(
-          pageStyles.field,
-          label(ipoTextNodes.fields.ipoDate),
-          ipoDateInput,
-          span({ class: 'muted' }, ipoTextNodes.help.dateFormat)
-        ),
-        div(),
-        div()
       )
     )
     return createSectionController(root, () => {})
@@ -10568,13 +10869,24 @@
   function createResultsSection(dataState, pageReadState, localizedTextNodes) {
     const formBinder = createFormBinder(dataState)
     const warningRoot = div()
-    const ipoSellContentRoot = div(pageStyles.denseStack)
     const summaryTextNodes = localizedTextNodes.summary
     const annualAdjustmentTaxEffectRoot = div()
     const annualAdjustmentReserveRoot = div()
     const annualAdjustmentKeepRoot = div()
     const sellInput = numberInput(pageStyles.input, '')
+    const sellPricePerShareInput = numberInput(pageStyles.input, '')
+    const sellCostPerShareInput = numberInput(pageStyles.input, '')
     const otherAnnualCapitalInput = numberInput(pageStyles.input, '')
+    const ipoSellInputHelpNodes = createComputedTextState(pageReadState, ({ osakkeetCalculation, texts }) => ({
+      sharesToSellShareOfSellable: texts.summary.ipoSell.fields.sharesToSellShareOfSellable(
+        osakkeetCalculation.vesting.vestedShares.gt(0)
+          ? percentage(osakkeetCalculation.ipoSell.amount.div(osakkeetCalculation.vesting.vestedShares).mul(100))
+          : '0.00 %'
+      ),
+    })).textNodes
+    const ipoSellOverviewRoot = div()
+    const ipoSellDetailsRoot = div(pageStyles.denseStack)
+    const annualAdjustmentSectionRoot = div()
     const annualAdjustmentCardsState = pageReadState.map(({ osakkeetCalculation, texts }) =>
       createAnnualAdjustmentCards(osakkeetCalculation, texts, (title2, value, help) =>
         infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
@@ -10582,6 +10894,8 @@
     )
     formBinder.bindInputs([
       { path: ['ipoSell', 'amount'], node: sellInput },
+      { path: ['ipoSell', 'pricePerShare'], node: sellPricePerShareInput },
+      { path: ['ipoSell', 'costPerShare'], node: sellCostPerShareInput },
       { path: ['ipoSell', 'otherAnnualCapitalGainsOrLosses'], node: otherAnnualCapitalInput },
     ])
     const annualAdjustmentInputCard = div(
@@ -10604,6 +10918,7 @@
         annualAdjustmentKeepRoot
       )
     )
+    annualAdjustmentSectionRoot.append(annualAdjustmentRoot)
     replaceChildrenFromState(pageReadState, warningRoot, ({ osakkeetCalculation, texts }) => [
       osakkeetCalculation.errors.length > 0 &&
         div(
@@ -10618,53 +10933,62 @@
           ul(osakkeetCalculation.warnings.map((warning) => li(warning)))
         ),
     ])
-    replaceChildrenFromState(pageReadState, ipoSellContentRoot, ({ osakkeetCalculation, texts }) => {
+    replaceChildrenFromState(pageReadState, ipoSellOverviewRoot, ({ osakkeetCalculation, texts }) => [
+      div(
+        pageStyles.summaryGrid,
+        createSellOverviewCards(osakkeetCalculation, texts, (title2, value, help) =>
+          infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
+        )
+      ),
+    ])
+    replaceChildrenFromState(pageReadState, ipoSellDetailsRoot, ({ osakkeetCalculation, texts }) => {
+      const hasUsableIpoSellCalculation = osakkeetCalculation.ipoSell.usedLots.length > 0
       return [
-        div(
-          pageStyles.summaryGrid,
-          createSellOverviewCards(osakkeetCalculation, texts, (title2, value, help) =>
-            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
-          )
-        ),
-        h3(texts.summary.allocationByLot.title),
-        createSellAllocationTable(osakkeetCalculation, texts, (content, tooltip) =>
-          withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, content, tooltip)
-        ),
-        h3(texts.summary.ipoSell.explanations.title),
-        div(
-          pageStyles.summaryGrid,
-          createSellExplanationCards(osakkeetCalculation, texts, (title2, value, help) =>
-            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
-          )
-        ),
-        h3(texts.summary.ipoSell.capitalGainAnnualTax.title),
-        div(
-          pageStyles.summaryGrid,
-          createCapitalGainCards(osakkeetCalculation, texts, (title2, value, help) =>
-            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
-          )
-        ),
-        h3(texts.summary.ipoSell.cashReserve.title),
-        div(
-          pageStyles.summaryGrid,
-          createCashReserveCards(osakkeetCalculation, texts, (title2, value, help) =>
-            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
-          )
-        ),
-        h3(texts.summary.ipoSell.saleResultComparison.title),
-        div(
-          pageStyles.summaryGrid,
-          createSaleResultComparisonCards(osakkeetCalculation, texts, (title2, value, help) =>
-            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
-          )
-        ),
-        h3(texts.summary.ipoSell.ipoCostEffects.title),
-        div(
-          pageStyles.summaryGrid,
-          createIpoCostEffectCards(osakkeetCalculation, texts, (title2, value, help) =>
-            infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
-          )
-        ),
+        hasUsableIpoSellCalculation && h3(texts.summary.allocationByLot.title),
+        hasUsableIpoSellCalculation &&
+          createSellAllocationTable(osakkeetCalculation, texts, (content, tooltip) =>
+            withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, content, tooltip)
+          ),
+        hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.explanations.title),
+        hasUsableIpoSellCalculation &&
+          div(
+            pageStyles.summaryGrid,
+            createSellExplanationCards(osakkeetCalculation, texts, (title2, value, help) =>
+              infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
+            )
+          ),
+        hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.capitalGainAnnualTax.title),
+        hasUsableIpoSellCalculation &&
+          div(
+            pageStyles.summaryGrid,
+            createCapitalGainCards(osakkeetCalculation, texts, (title2, value, help) =>
+              infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
+            )
+          ),
+        hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.cashReserve.title),
+        hasUsableIpoSellCalculation &&
+          div(
+            pageStyles.summaryGrid,
+            createCashReserveCards(osakkeetCalculation, texts, (title2, value, help) =>
+              infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
+            )
+          ),
+        hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.saleResultComparison.title),
+        hasUsableIpoSellCalculation &&
+          div(
+            pageStyles.summaryGrid,
+            createSaleResultComparisonCards(osakkeetCalculation, texts, (title2, value, help) =>
+              infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
+            )
+          ),
+        hasUsableIpoSellCalculation && h3(texts.summary.ipoSell.ipoCostEffects.title),
+        hasUsableIpoSellCalculation &&
+          div(
+            pageStyles.summaryGrid,
+            createIpoCostEffectCards(osakkeetCalculation, texts, (title2, value, help) =>
+              infoCard(pageStyles.summaryItem, pageStyles.cardMutedText, title2, value, help)
+            )
+          ),
       ]
     })
     replaceChildrenFromState(annualAdjustmentCardsState, annualAdjustmentTaxEffectRoot, (cards) => cards.taxEffect)
@@ -10675,19 +10999,35 @@
       section(
         { class: 'card' },
         h2(summaryTextNodes.ipoSell.title),
+        ipoSellOverviewRoot,
         div(
           pageStyles.gridTwo,
           div(
             pageStyles.compactField,
-            div(pageStyles.field, label(summaryTextNodes.ipoSell.fields.sharesToSell), sellInput)
+            div(
+              pageStyles.field,
+              label(summaryTextNodes.ipoSell.fields.sharesToSell),
+              sellInput,
+              span({ class: 'muted' }, ipoSellInputHelpNodes.sharesToSellShareOfSellable)
+            )
+          ),
+          div(
+            pageStyles.compactField,
+            div(pageStyles.field, label(summaryTextNodes.ipoSell.fields.ipoPricePerShare), sellPricePerShareInput)
+          ),
+          div(
+            pageStyles.compactField,
+            div(pageStyles.field, label(summaryTextNodes.ipoSell.fields.ipoCostPerShare), sellCostPerShareInput)
           )
         ),
         warningRoot,
-        ipoSellContentRoot,
-        annualAdjustmentRoot
+        ipoSellDetailsRoot,
+        annualAdjustmentSectionRoot
       )
     )
-    return createSectionController(root, () => {})
+    return createSectionController(root, ({ osakkeetCalculation }) => {
+      annualAdjustmentRoot.style.display = osakkeetCalculation.ipoSell.usedLots.length > 0 ? '' : 'none'
+    })
   }
 
   // src/osakkeet/browserUtils.ts
@@ -10778,6 +11118,10 @@
   var DEFAULT_EXAMPLE_PRESET = 'medium8y'
   var examplePresetConfigs = {
     small2y: {
+      company: {
+        listingStatus: 'unlisted',
+        becameListedDate: '15.09.2026',
+      },
       subscriptions: [
         {
           date: '15.04.2024',
@@ -10803,16 +11147,24 @@
         { year: '2026', valuePerShare: '10.20' },
       ],
       ipo: {
-        ipoDate: '15.09.2026',
         totalShareCount: '850000',
         totalIpoCost: '95000',
         currentShareValue: '10.20',
         estimatedPreIpoValue: '9000000',
         estimatedSecondaryShareSellPercentage: '3',
       },
-      ipoSell: { amount: '900', otherAnnualCapitalGainsOrLosses: '' },
+      ipoSell: {
+        amount: '900',
+        pricePerShare: '10.58823529411764705882352941',
+        costPerShare: '3.725490196078431372549019608',
+        otherAnnualCapitalGainsOrLosses: '',
+      },
     },
     medium8y: {
+      company: {
+        listingStatus: 'unlisted',
+        becameListedDate: '15.09.2026',
+      },
       subscriptions: [
         {
           date: '20.05.2018',
@@ -10846,16 +11198,24 @@
         { year: '2026', valuePerShare: '41.00' },
       ],
       ipo: {
-        ipoDate: '15.09.2026',
         totalShareCount: '1960000',
         totalIpoCost: '320000',
         currentShareValue: '20.50',
         estimatedPreIpoValue: '40000000',
         estimatedSecondaryShareSellPercentage: '10',
       },
-      ipoSell: { amount: '18000', otherAnnualCapitalGainsOrLosses: '-12000' },
+      ipoSell: {
+        amount: '18000',
+        pricePerShare: '20.40816326530612244897959184',
+        costPerShare: '1.632653061224489795918367347',
+        otherAnnualCapitalGainsOrLosses: '-12000',
+      },
     },
     large16y: {
+      company: {
+        listingStatus: 'unlisted',
+        becameListedDate: '15.09.2026',
+      },
       subscriptions: [
         {
           date: '15.03.2010',
@@ -10891,19 +11251,24 @@
         { year: '2026', valuePerShare: '63.00' },
       ],
       ipo: {
-        ipoDate: '15.09.2026',
         totalShareCount: '1050000',
         totalIpoCost: '720000',
         currentShareValue: '63.00',
         estimatedPreIpoValue: '66000000',
         estimatedSecondaryShareSellPercentage: '12',
       },
-      ipoSell: { amount: '90000', otherAnnualCapitalGainsOrLosses: '25000' },
+      ipoSell: {
+        amount: '90000',
+        pricePerShare: '62.85714285714285714285714286',
+        costPerShare: '5.714285714285714285714285714',
+        otherAnnualCapitalGainsOrLosses: '25000',
+      },
     },
   }
   function createExampleOsakkeetFormData(preset, createId3) {
     const config2 = examplePresetConfigs[preset]
     return {
+      company: { ...config2.company },
       subscriptions: config2.subscriptions.map((row) => ({ id: createId3('sub'), ...row })),
       sells: config2.sells.map((row) => ({ id: createId3('sell'), ...row })),
       cashDistributions: config2.cashDistributions.map((row) => ({ id: createId3('distribution'), ...row })),
@@ -11242,13 +11607,8 @@
       refreshStorageButtons()
     })
   }
-  function createTaxSummarySection(dataState, pageReadState, localizedTextNodes) {
+  function createTaxSummarySection(pageReadState, localizedTextNodes) {
     const taxReturnsTextNodes = localizedTextNodes.taxReturns
-    const mathematicalShareValuesEditor = createMathematicalShareValuesEditor(
-      dataState,
-      pageReadState,
-      localizedTextNodes
-    )
     const resultsRoot = div(pageStyles.denseStack)
     replaceChildrenFromState(pageReadState, resultsRoot, ({ osakkeetCalculation, texts }) =>
       createTaxSummaryContent(osakkeetCalculation, texts, pageStyles, {
@@ -11260,18 +11620,21 @@
           withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, content, tooltip),
       })
     )
-    const root = section(
-      { class: 'card' },
-      h2(taxReturnsTextNodes.title),
-      mathematicalShareValuesEditor.root,
-      resultsRoot
-    )
+    const root = section({ class: 'card' }, h2(taxReturnsTextNodes.title), resultsRoot)
     return createSectionController(root, () => {})
   }
 
   // src/osakkeet/osakkeetUi.ts
   function currentModificationTimestamp() {
     return /* @__PURE__ */ new Date().toISOString()
+  }
+  function isIpoCalculatorVisible(formData) {
+    if (formData.company.listingStatus !== 'unlisted') return false
+    const becameListedDate = parseSupportedDate(formData.company.becameListedDate.trim())
+    if (!becameListedDate || Number.isNaN(becameListedDate.getTime())) return true
+    const now = /* @__PURE__ */ new Date()
+    const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    return becameListedDate.getTime() >= todayUtc.getTime()
   }
   function createCompanyDataSignature(data2) {
     return JSON.stringify(createCompanyDataPayload(normalizeOsakkeetFormData(data2, createId2)))
@@ -11499,12 +11862,8 @@
       localizedTextNodes,
       initialStatus
     )
-    const subscriptionsSection = createSubscriptionsSection(
-      dataState,
-      pageReadState,
-      localizedTextNodes,
-      commonTextNodes
-    )
+    const companySection = createCompanySection(dataState, pageReadState, localizedTextNodes)
+    const subscriptionsSection = createSubscriptionsSection(dataState, pageReadState, localizedTextNodes)
     const sellsSection = createSellsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes)
     const cashDistributionsSection = createCashDistributionsSection(
       dataState,
@@ -11514,20 +11873,20 @@
     )
     const demergersSection = createDemergersSection(dataState, pageReadState, localizedTextNodes, commonTextNodes)
     const shareSplitsSection = createShareSplitsSection(dataState, pageReadState, localizedTextNodes, commonTextNodes)
-    const taxSummarySectionController = createTaxSummarySection(dataState, pageReadState, localizedTextNodes)
+    const taxSummarySectionController = createTaxSummarySection(pageReadState, localizedTextNodes)
     const ipoSection = createIpoSection(dataState, pageReadState, localizedTextNodes)
     const resultsSection = createResultsSection(dataState, pageReadState, localizedTextNodes)
+    const distributionsAndCorporateActionsSection = createMainSectionGroup(
+      'distributionsAndCorporateActions',
+      pageReadState,
+      localizedTextNodes,
+      [companySection, cashDistributionsSection, demergersSection, shareSplitsSection]
+    )
     const subscriptionsAndSalesSection = createMainSectionGroup(
       'subscriptionsAndSales',
       pageReadState,
       localizedTextNodes,
       [subscriptionsSection, sellsSection]
-    )
-    const distributionsAndCorporateActionsSection = createMainSectionGroup(
-      'distributionsAndCorporateActions',
-      pageReadState,
-      localizedTextNodes,
-      [cashDistributionsSection, demergersSection, shareSplitsSection]
     )
     const taxReturnsSection = createMainSectionGroup('taxReturns', pageReadState, localizedTextNodes, [
       taxSummarySectionController,
@@ -11539,6 +11898,7 @@
     const root = div(pageStyles.stack)
     const applyPageReadModel = (pageReadModel) => {
       topSection.set(pageReadModel)
+      companySection.set(pageReadModel)
       subscriptionsSection.set(pageReadModel)
       sellsSection.set(pageReadModel)
       cashDistributionsSection.set(pageReadModel)
@@ -11547,10 +11907,11 @@
       taxSummarySectionController.set(pageReadModel)
       ipoSection.set(pageReadModel)
       resultsSection.set(pageReadModel)
-      subscriptionsAndSalesSection.set(pageReadModel)
       distributionsAndCorporateActionsSection.set(pageReadModel)
+      subscriptionsAndSalesSection.set(pageReadModel)
       taxReturnsSection.set(pageReadModel)
       ipoCalculatorSection.set(pageReadModel)
+      ipoCalculatorSection.root.style.display = isIpoCalculatorVisible(pageReadModel.formData) ? '' : 'none'
     }
     pageReadState.onValueChange(applyPageReadModel)
     const initialPageReadModel = pageReadState.get()
@@ -11558,8 +11919,8 @@
     replaceChildren(
       root,
       topSection.root,
-      subscriptionsAndSalesSection.root,
       distributionsAndCorporateActionsSection.root,
+      subscriptionsAndSalesSection.root,
       taxReturnsSection.root,
       ipoCalculatorSection.root
     )

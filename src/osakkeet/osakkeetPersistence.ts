@@ -12,6 +12,7 @@ export const shareUrlQueryKey = 'osakkeet'
 export type ShareableOsakkeetUrlData = Pick<
   OsakkeetFormData,
   | 'cashDistributions'
+  | 'company'
   | 'shareSplits'
   | 'demergers'
   | 'mathematicalShareValues'
@@ -39,6 +40,7 @@ function requireCreateId(createId?: (prefix: string) => string) {
 
 export function createCompanyDataPayload(data: OsakkeetFormData): CompanyDataPayload {
   return {
+    company: data.company,
     cashDistributions: data.cashDistributions.map((cashDistribution) => ({
       id: cashDistribution.id,
       date: cashDistribution.date,
@@ -68,6 +70,10 @@ function fromShareableOsakkeetUrlData(
   return normalizeOsakkeetFormData(
     {
       ...emptyForm,
+      company: {
+        ...emptyForm.company,
+        ...(data.company || {}),
+      },
       cashDistributions: data.cashDistributions || [],
       shareSplits: data.shareSplits || [],
       demergers: data.demergers || [],

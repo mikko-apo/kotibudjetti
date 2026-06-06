@@ -20,7 +20,6 @@ import {
   type SavedOsakkeetFileData,
 } from './osakkeetPersistence'
 import { createTaxSummaryContent } from './osakkeetUiSummarySections'
-import { createMathematicalShareValuesEditor } from './osakkeetUiDataSections'
 import type { OsakkeetCalculation } from './osakkeetUiCalculator'
 import type { OsakkeetFormData } from './osakkeetTypes'
 import { createActionButton, infoCard, setButtonAttention, setButtonVariant, withHoverInfo } from './osakkeetUiUtils'
@@ -354,16 +353,10 @@ export function createTopSection(
 }
 
 export function createTaxSummarySection(
-  dataState: State<OsakkeetFormData>,
   pageReadState: State<OsakkeetPageReadModel>,
   localizedTextNodes: LocalizedTextNodes
 ) {
   const taxReturnsTextNodes = localizedTextNodes.taxReturns
-  const mathematicalShareValuesEditor = createMathematicalShareValuesEditor(
-    dataState,
-    pageReadState,
-    localizedTextNodes
-  )
   const resultsRoot = div(pageStyles.denseStack)
   replaceChildrenFromState(pageReadState, resultsRoot, ({ osakkeetCalculation, texts }) =>
     createTaxSummaryContent(osakkeetCalculation, texts, pageStyles, {
@@ -374,12 +367,7 @@ export function createTaxSummarySection(
         withHoverInfo(pageStyles.hoverInfo, pageStyles.hoverInfoIcon, content, tooltip),
     })
   )
-  const root = section(
-    { class: 'card' },
-    h2(taxReturnsTextNodes.title),
-    mathematicalShareValuesEditor.root,
-    resultsRoot
-  )
+  const root = section({ class: 'card' }, h2(taxReturnsTextNodes.title), resultsRoot)
 
   return createSectionController(root, () => {})
 }

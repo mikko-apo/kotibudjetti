@@ -17,10 +17,10 @@ import {
   type ParsedSubscription,
   type WorkingLot,
 } from './osakkeetParsedData'
-import type { SellSummary } from './osakkeetSellCalculator'
+import { calculateSellSummary, type SellSummary } from './osakkeetSellCalculator'
 import type {
   TaxReturnAssetSummary,
-  TaxReturnIpoSaleSummary,
+  TaxReturnSaleSummary,
   TaxReturnSectionSummary,
   TaxReturnTotals,
   TaxReturnYearSummary,
@@ -603,8 +603,8 @@ function buildTaxReturnAssetSummary(
 
 function buildTaxReturnYearSummaries(
   cashDistributions: CashDistributionSummary[],
+  sales: TaxReturnSaleSummary[],
   ipoDate: Date | undefined,
-  ipoSell: SellSummary,
   mathematicalShareValuesByYear: Map<number, Decimal>,
   shareCalculator: ShareCalculator
 ) {
@@ -618,9 +618,7 @@ function buildTaxReturnYearSummaries(
     if (ipoYear != null && year >= ipoYear) continue
     yearSet.add(year)
   }
-  if (ipoYear && ipoSell.grossTotal.gt(0)) {
-    yearSet.add(ipoYear)
-  }
+  sales.forEach((sale) => yearSet.add(sale.year))
 
   const years = [...yearSet].sort((a, b) => a - b)
   return years.map((year) => {
@@ -660,15 +658,64 @@ function buildTaxReturnYearSummaries(
               totals: createTaxReturnTotals(listedEntries),
             } satisfies TaxReturnSectionSummary<CashDistributionSummary>)
           : undefined,
-      ipoSale:
-        ipoYear === year && ipoSell.grossTotal.gt(0)
-          ? ({
-              sellDate: ipoDate!.toISOString().slice(0, 10),
-              summary: ipoSell,
-            } satisfies TaxReturnIpoSaleSummary)
-          : undefined,
+      sales: sales.filter((sale) => sale.year === year),
     } satisfies TaxReturnYearSummary<CashDistributionSummary>
   })
+}
+
+function buildTaxReturnSaleSummaries(
+  sells: ReturnType<typeof parseOsakkeetCalculatorInputs>['parsed']['sells'],
+  baseLots: WorkingLot[],
+  shareCalculator: ShareCalculator,
+  ipoDate: Date | undefined,
+  ipoSell: SellSummary,
+  effectiveRules: OsakkeetTaxRules,
+  useYearlyRules: boolean
+) {
+  const historicalSales: TaxReturnSaleSummary[] = sells.flatMap((sell) => {
+    if (!sell.parsedTimestamp) return []
+    const sellDate = new Date(sell.parsedTimestamp.timestampMs)
+    const sellableLots = baseLots
+      .map((lot) => deriveWorkingLot(lot, shareCalculator, { atDate: sellDate, inclusive: false }))
+      .filter((lot) => lot.shareCount.gt(0))
+    const totalTrackedShares = sumDecimals(sellableLots.map((lot) => lot.shareCount))
+    const sellRules = resolveYearlyTaxRules(sellDate.getUTCFullYear(), effectiveRules, useYearlyRules)
+    const summary = calculateSellSummary({
+      sellableLots,
+      totalTrackedShares,
+      sellShareCalculator: shareCalculator,
+      sellId: sell.id,
+      sellAmount: sell.shareCount,
+      otherAnnualCapitalGainsOrLosses: zero,
+      sellDate,
+      sellPricePerShare: sell.pricePerShare,
+      sellCostPerShare: sell.shareCount.gt(0) ? sell.otherTotalSellCosts.div(sell.shareCount) : zero,
+      sellRules,
+    })
+
+    return summary.grossTotal.gt(0)
+      ? [
+          {
+            year: sellDate.getUTCFullYear(),
+            sellDate: sell.date,
+            summary,
+          } satisfies TaxReturnSaleSummary,
+        ]
+      : []
+  })
+
+  if (!ipoDate || !ipoSell.grossTotal.gt(0)) {
+    return historicalSales
+  }
+
+  return [
+    ...historicalSales,
+    {
+      year: ipoDate.getUTCFullYear(),
+      sellDate: ipoDate.toISOString().slice(0, 10),
+      summary: ipoSell,
+    } satisfies TaxReturnSaleSummary,
+  ]
 }
 
 export function calculateOsakkeet(
@@ -687,7 +734,7 @@ export function calculateOsakkeet(
   const baseLots = sortedSubscriptions.map((subscription) => createLot(subscription))
   const totalSubscribedCost = sumDecimals(baseLots.map((lot) => lot.baseShareAcquisitionCost))
   const { mathematicalShareValuesByYear } = parsed
-  const { ipoDate } = parsedIpo
+  const ipoDate = parsed.company.becameListedDate
   const { shareCalculator: baseShareCalculator, errors: baseShareCalculatorErrors } = createShareCalculator(
     {
       subscriptions: sortedSubscriptions,
@@ -737,7 +784,7 @@ export function calculateOsakkeet(
   )
   const sellableLotIds = new Set(vesting.sellableLots.map((lot) => lot.id))
   const ipoRelevantSells = ipoDate
-    ? sortedSells.filter((sell) => compareDateStrings(sell.date, parsedIpo.ipo.ipoDateText) <= 0)
+    ? sortedSells.filter((sell) => compareDateStrings(sell.date, parsed.company.becameListedDateText) <= 0)
     : sortedSells
   const { shareCalculator: sellShareCalculator, errors: sellShareCalculatorErrors } = createShareCalculator(
     {
@@ -749,11 +796,12 @@ export function calculateOsakkeet(
               {
                 kind: 'sell' as const,
                 id: 'ipo-sell',
-                date: parsedIpo.ipo.ipoDateText,
-                parsedTimestamp: parseEventTimestamp(parsedIpo.ipo.ipoDateText),
+                date: parsed.company.becameListedDateText,
+                parsedTimestamp: parseEventTimestamp(parsed.company.becameListedDateText),
                 shareCount: ipoSellAmount,
                 sellPrice: ipoSellAmount.mul(ipo.ipoPricePerShare),
                 pricePerShare: ipo.ipoPricePerShare,
+                otherTotalSellCosts: zero,
               },
             ]
           : ipoRelevantSells,
@@ -769,6 +817,8 @@ export function calculateOsakkeet(
     vesting.sellableLots,
     sellShareCalculator,
     ipoSellAmount,
+    parsedIpo.ipoSell.pricePerShare,
+    parsedIpo.ipoSell.costPerShare,
     otherAnnualCapitalGainsOrLosses,
     vesting,
     ipo,
@@ -776,6 +826,15 @@ export function calculateOsakkeet(
     errors,
     warnings,
     localization
+  )
+  const taxReturnSales = buildTaxReturnSaleSummaries(
+    sortedSells,
+    baseLots,
+    baseShareCalculator,
+    ipoDate,
+    ipoSell,
+    effectiveRules,
+    useYearlyRules
   )
 
   return {
@@ -791,8 +850,8 @@ export function calculateOsakkeet(
     taxReturns: {
       years: buildTaxReturnYearSummaries(
         cashDistributions,
+        taxReturnSales,
         ipoDate,
-        ipoSell,
         mathematicalShareValuesByYear,
         baseShareCalculator
       ),

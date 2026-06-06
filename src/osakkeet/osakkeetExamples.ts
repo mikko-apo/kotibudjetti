@@ -18,6 +18,10 @@ export const DEFAULT_EXAMPLE_PRESET: ExamplePreset = 'medium8y'
 
 const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
   small2y: {
+    company: {
+      listingStatus: 'unlisted',
+      becameListedDate: '15.09.2026',
+    },
     subscriptions: [
       {
         date: '15.04.2024',
@@ -43,16 +47,24 @@ const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
       { year: '2026', valuePerShare: '10.20' },
     ],
     ipo: {
-      ipoDate: '15.09.2026',
       totalShareCount: '850000',
       totalIpoCost: '95000',
       currentShareValue: '10.20',
       estimatedPreIpoValue: '9000000',
       estimatedSecondaryShareSellPercentage: '3',
     },
-    ipoSell: { amount: '900', otherAnnualCapitalGainsOrLosses: '' },
+    ipoSell: {
+      amount: '900',
+      pricePerShare: '10.58823529411764705882352941',
+      costPerShare: '3.725490196078431372549019608',
+      otherAnnualCapitalGainsOrLosses: '',
+    },
   },
   medium8y: {
+    company: {
+      listingStatus: 'unlisted',
+      becameListedDate: '15.09.2026',
+    },
     subscriptions: [
       {
         date: '20.05.2018',
@@ -86,16 +98,24 @@ const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
       { year: '2026', valuePerShare: '41.00' },
     ],
     ipo: {
-      ipoDate: '15.09.2026',
       totalShareCount: '1960000',
       totalIpoCost: '320000',
       currentShareValue: '20.50',
       estimatedPreIpoValue: '40000000',
       estimatedSecondaryShareSellPercentage: '10',
     },
-    ipoSell: { amount: '18000', otherAnnualCapitalGainsOrLosses: '-12000' },
+    ipoSell: {
+      amount: '18000',
+      pricePerShare: '20.40816326530612244897959184',
+      costPerShare: '1.632653061224489795918367347',
+      otherAnnualCapitalGainsOrLosses: '-12000',
+    },
   },
   large16y: {
+    company: {
+      listingStatus: 'unlisted',
+      becameListedDate: '15.09.2026',
+    },
     subscriptions: [
       {
         date: '15.03.2010',
@@ -131,14 +151,18 @@ const examplePresetConfigs: Record<ExamplePreset, ExamplePresetConfig> = {
       { year: '2026', valuePerShare: '63.00' },
     ],
     ipo: {
-      ipoDate: '15.09.2026',
       totalShareCount: '1050000',
       totalIpoCost: '720000',
       currentShareValue: '63.00',
       estimatedPreIpoValue: '66000000',
       estimatedSecondaryShareSellPercentage: '12',
     },
-    ipoSell: { amount: '90000', otherAnnualCapitalGainsOrLosses: '25000' },
+    ipoSell: {
+      amount: '90000',
+      pricePerShare: '62.85714285714285714285714286',
+      costPerShare: '5.714285714285714285714285714',
+      otherAnnualCapitalGainsOrLosses: '25000',
+    },
   },
 }
 
@@ -147,6 +171,7 @@ type CreateId = (prefix: string) => string
 export function createExampleOsakkeetFormData(preset: ExamplePreset, createId: CreateId): OsakkeetFormData {
   const config = examplePresetConfigs[preset]
   return {
+    company: { ...config.company },
     subscriptions: config.subscriptions.map((row) => ({ id: createId('sub'), ...row })),
     sells: config.sells.map((row) => ({ id: createId('sell'), ...row })),
     cashDistributions: config.cashDistributions.map((row) => ({ id: createId('distribution'), ...row })),

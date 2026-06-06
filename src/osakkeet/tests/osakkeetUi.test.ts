@@ -101,6 +101,12 @@ function mainSectionMetricTexts(key: string) {
   )
 }
 
+function mainSectionTitles() {
+  return [...document.querySelectorAll('.osakkeet-main-section > div > div > h2')].map(
+    (node) => node.textContent?.replace(/\s+/g, ' ').trim() || ''
+  )
+}
+
 function findSectionCard(sectionTitle: string) {
   const sectionCard = [...document.querySelectorAll('section.card')].find(
     (node) => node.querySelector('h2')?.textContent?.trim() === sectionTitle
@@ -200,6 +206,15 @@ describe('osakkeet UI', () => {
     expect(normalizedText()).toContain('Osakkeiden myynnit1 riviä')
   })
 
+  it('does not show capital-repayment columns in the subscriptions table', async () => {
+    await renderOsakkeetPage()
+    toggleMainSection('subscriptionsAndSales')
+
+    const sectionText = findSectionCard('Osakemerkinnät').textContent?.replace(/\s+/g, ' ').trim() || ''
+    expect(sectionText).not.toContain('Pääomanpalautus / osake')
+    expect(sectionText).not.toContain('Pääomanpalautukset yhteensä')
+  })
+
   it('shows tax-return reimbursement details by subscription lot when toggled open', async () => {
     await renderOsakkeetPage()
     clickButton('Medium, 8v')
@@ -249,10 +264,17 @@ describe('osakkeet UI', () => {
 
   it('renders four collapsible main sections with summaries', async () => {
     await renderOsakkeetPage()
-    expect(normalizedText()).toContain('1. Osakemerkinnät ja myynnit')
-    expect(normalizedText()).toContain('2. Varojenjako, jakautuminen ja splitit')
+    expect(normalizedText()).toContain('1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit')
+    expect(normalizedText()).toContain('2. Osakemerkinnät ja myynnit')
     expect(normalizedText()).toContain('3. Veroilmoitukset')
     expect(normalizedText()).toContain('4. IPO-laskuri')
+    expect(mainSectionTitles()).toEqual([
+      '1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit',
+      '2. Osakemerkinnät ja myynnit',
+      '3. Veroilmoitukset',
+      '4. IPO-laskuri',
+    ])
+    expect(findSectionCard('Yrityksen tiedot')).toBeDefined()
     expect(normalizedText()).not.toContain('Sisältää:')
     expect(mainSectionMetricTexts('subscriptionsAndSales').some((text) => text.includes('Osakemerkinnät'))).toBe(true)
     expect(mainSectionMetricTexts('subscriptionsAndSales').some((text) => text.includes('osaketta'))).toBe(true)
@@ -278,6 +300,369 @@ describe('osakkeet UI', () => {
 
     toggleMainSection('subscriptionsAndSales')
     expect(subscriptionsAndSalesContent.style.display).toBe('none')
+  })
+
+  it('shows mathematical share values under company details instead of tax returns', async () => {
+    await renderOsakkeetPage()
+    toggleMainSection('distributionsAndCorporateActions')
+    toggleMainSection('taxReturns')
+
+    const companySectionText = findSectionCard('Yrityksen tiedot').textContent?.replace(/\s+/g, ' ').trim() || ''
+    const taxSectionText =
+      findSectionCard('Yhteenveto veroilmoituksista').textContent?.replace(/\s+/g, ' ').trim() || ''
+
+    expect(companySectionText).toContain('Matemaattinen arvo / osake tunnetuille vuosille')
+    expect(taxSectionText).not.toContain('Matemaattinen arvo / osake tunnetuille vuosille')
+  })
+
+  it('hides the ipo calculator for listed companies', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        company: {
+          listingStatus: 'listed',
+          becameListedDate: '01.01.2025',
+        },
+        subscriptions: [],
+        sells: [],
+        cashDistributions: [],
+        shareSplits: [{ id: 'split-1', date: '01.01.2026', multiplier: '2' }],
+        demergers: [],
+        mathematicalShareValues: [],
+        ipo: {
+          totalShareCount: '',
+          totalIpoCost: '',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+
+    expect(findMainSection('ipoCalculator').style.display).toBe('none')
+  })
+
+  it('hides the ipo calculator after the became-listed date has passed', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-03T12:00:00Z'))
+
+    try {
+      sessionStorage.setItem(
+        'osakkeet-ipo-laskuri-window',
+        JSON.stringify({
+          company: {
+            listingStatus: 'unlisted',
+            becameListedDate: '2026-04-01',
+          },
+          subscriptions: [],
+          sells: [],
+          cashDistributions: [],
+          shareSplits: [],
+          demergers: [],
+          mathematicalShareValues: [],
+          ipo: {
+            totalShareCount: '',
+            totalIpoCost: '',
+            currentShareValue: '',
+            estimatedPreIpoValue: '',
+            estimatedSecondaryShareSellPercentage: '',
+          },
+          ipoSell: {
+            amount: '',
+            otherAnnualCapitalGainsOrLosses: '',
+          },
+        })
+      )
+
+      await renderOsakkeetPage()
+
+      expect(findMainSection('ipoCalculator').style.display).toBe('none')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows sellable IPO shares before the sell inputs and displays the sellable-share percentage', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '17.06.2026',
+        },
+        subscriptions: [
+          {
+            id: 'sub-1',
+            date: '01.01.2024',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        sells: [],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        ipo: {
+          totalShareCount: '100',
+          totalIpoCost: '10',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1000',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+        ipoSell: {
+          amount: '25',
+          pricePerShare: '10',
+          costPerShare: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('ipoCalculator')
+
+    const sectionText = findSectionCard('IPO-myynnin tiedot').textContent?.replace(/\s+/g, ' ').trim() || ''
+    expect(sectionText.indexOf('Myytävissä IPOssa (17.06.2026)')).toBeLessThan(
+      sectionText.indexOf('Myytävien osakkeiden määrä')
+    )
+    expect(sectionText).toContain('25.00 % myytävissä IPOssa')
+  })
+
+  it('hides sale allocation by lot when IPO sell values cannot be calculated', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '17.06.2026',
+        },
+        subscriptions: [
+          {
+            id: 'sub-1',
+            date: '01.01.2024',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        sells: [],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        ipo: {
+          totalShareCount: '100',
+          totalIpoCost: '10',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1000',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+        ipoSell: {
+          amount: '25',
+          pricePerShare: '',
+          costPerShare: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('ipoCalculator')
+
+    const sectionText = findSectionCard('IPO-myynnin tiedot').textContent?.replace(/\s+/g, ' ').trim() || ''
+    expect(sectionText).toContain('IPO-hinta / osake pitää syöttää ennen kuin IPO-myynnin arvot voidaan laskea.')
+    expect(sectionText).not.toContain('Myynnin kohdistus merkintäerille')
+    expect(sectionText).not.toContain('Osakkeiden myyntihinta ja kulut')
+    expect(sectionText).not.toContain('Luovutusvoiton laskeminen ja verottaminen vuositasolla')
+    expect(sectionText).not.toContain('Tilille jäävä raha ja veroihin varattava osuus')
+    expect(sectionText).not.toContain('Merkintäkulut ja nettotulos')
+    expect(sectionText).not.toContain('IPO-kulujen vaikutus')
+    const annualAdjustmentSection = [...findSectionCard('IPO-myynnin tiedot').querySelectorAll('h3')].find(
+      (node) => node.textContent?.trim() === 'Muiden luovutusvoittojen tai -tappioiden vaikutus vuositasolla'
+    )?.parentElement as HTMLElement | undefined
+    expect(annualAdjustmentSection?.style.display).toBe('none')
+  })
+
+  it('shows remaining unsold share breakdown and compares net result against original acquisition cost', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '17.06.2026',
+        },
+        subscriptions: [
+          {
+            id: 'sub-1',
+            date: '01.01.2024',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 'sub-2',
+            date: '01.01.2025',
+            vestingEndsOn: '31.12.2026',
+            amount: '50',
+            pricePerShare: '2',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        sells: [],
+        cashDistributions: [{ id: 'dist-1', type: 'capital_return', date: '02.01.2025', amountPerShare: '0.5' }],
+        shareSplits: [{ id: 'split-1', date: '01.01.2026', multiplier: '2' }],
+        demergers: [],
+        mathematicalShareValues: [],
+        ipo: {
+          totalShareCount: '150',
+          totalIpoCost: '0',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1500',
+          estimatedSecondaryShareSellPercentage: '50',
+        },
+        ipoSell: {
+          amount: '75',
+          pricePerShare: '10',
+          costPerShare: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('ipoCalculator')
+
+    const sectionText = findSectionCard('IPO-myynnin tiedot').textContent?.replace(/\s+/g, ' ').trim() || ''
+    expect(sectionText).toContain('Myymättä jäävät osakkeet')
+    expect(sectionText).toContain('Yhteensä: 225.00 osaketta, arvo 2250.00 €')
+    expect(sectionText).toContain('Myytävissä nyt: 125.00 osaketta, arvo 1250.00 €')
+    expect(sectionText).toContain(
+      'Ansaintajakson piirissä: 100.00 osaketta, arvo IPO-hinnalla 1000.00 €, alkuperäinen hankintameno 100.00 €'
+    )
+    expect(sectionText).toContain('Alkuperäinen hankintameno 37.50 €')
+    expect(sectionText).not.toContain('jälkeen pääomanpalautusten')
+  })
+
+  it('keeps focus in other annual capital gains or losses input while typing', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '17.06.2026',
+        },
+        subscriptions: [
+          {
+            id: 'sub-1',
+            date: '01.01.2024',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        sells: [],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        ipo: {
+          totalShareCount: '100',
+          totalIpoCost: '0',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1000',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+        ipoSell: {
+          amount: '25',
+          pricePerShare: '10',
+          costPerShare: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('ipoCalculator')
+
+    const sectionCard = findSectionCard('IPO-myynnin tiedot')
+    const inputs = [...sectionCard.querySelectorAll('input')] as HTMLInputElement[]
+    const otherAnnualCapitalInput = inputs[inputs.length - 1]
+    otherAnnualCapitalInput.focus()
+    otherAnnualCapitalInput.value = '1'
+    otherAnnualCapitalInput.dispatchEvent(new window.Event('input', { bubbles: true }))
+
+    expect(document.activeElement).toBe(otherAnnualCapitalInput)
+  })
+
+  it('shows renamed annual-capital text and negative tax effect for losses', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '01.06.2026',
+        },
+        subscriptions: [
+          {
+            id: 'sub-1',
+            date: '01.01.2013',
+            vestingEndsOn: '',
+            amount: '100',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 'sub-2',
+            date: '01.01.2022',
+            vestingEndsOn: '',
+            amount: '50',
+            pricePerShare: '4',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        sells: [],
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        ipo: {
+          totalShareCount: '150',
+          totalIpoCost: '30',
+          currentShareValue: '12',
+          estimatedPreIpoValue: '1500',
+          estimatedSecondaryShareSellPercentage: '20',
+        },
+        ipoSell: {
+          amount: '120',
+          pricePerShare: '10',
+          costPerShare: '',
+          otherAnnualCapitalGainsOrLosses: '-200',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('ipoCalculator')
+
+    const sectionText = findSectionCard('IPO-myynnin tiedot').textContent?.replace(/\s+/g, ' ').trim() || ''
+    expect(sectionText).toContain('Syötä kenttään muut mahdolliset luovutusvoitot ja tappiot ja niiden yhteisarvo')
+    expect(sectionText).toContain('Muiden luovutusvoittojen tai -tappioiden vaikutus veron määrään')
+    expect(sectionText).toContain('-60.00 €')
+    expect(sectionText).not.toContain(
+      'Anna tähän vuoden muiden luovutusvoittojen tai luovutustappioiden yhteisvaikutus.'
+    )
   })
 
   it('orders all dated collections by ascending date in view mode', async () => {
@@ -359,8 +744,11 @@ describe('osakkeet UI', () => {
           },
         ],
         mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
         ipo: {
-          ipoDate: '',
           totalShareCount: '',
           totalIpoCost: '',
           currentShareValue: '',
@@ -378,7 +766,7 @@ describe('osakkeet UI', () => {
     toggleMainSection('subscriptionsAndSales')
     toggleMainSection('distributionsAndCorporateActions')
 
-    expect(firstColumnTexts('Osakemerkinnät')).toEqual(['04.02.2025', '05.02.2025'])
+    expect(tableColumnTexts('Osakemerkinnät', 2)).toEqual(['04.02.2025', '05.02.2025'])
     expect(firstColumnTexts('Osakkeiden myynnit')).toEqual(['06.02.2025', '07.02.2025'])
     expect(firstColumnTexts('Osingot ja pääomanpalautukset')).toEqual(['04.02.2025', '05.02.2025'])
     expect(firstColumnTexts('Osakesplitit')).toEqual(['08.02.2025', '09.02.2025'])
@@ -420,8 +808,11 @@ describe('osakkeet UI', () => {
         shareSplits: [],
         demergers: [],
         mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
         ipo: {
-          ipoDate: '',
           totalShareCount: '',
           totalIpoCost: '',
           currentShareValue: '',
@@ -476,8 +867,11 @@ describe('osakkeet UI', () => {
         shareSplits: [],
         demergers: [],
         mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
         ipo: {
-          ipoDate: '',
           totalShareCount: '',
           totalIpoCost: '',
           currentShareValue: '',
@@ -494,9 +888,46 @@ describe('osakkeet UI', () => {
     await renderOsakkeetPage()
     toggleMainSection('taxReturns')
 
+    expect(normalizedText()).toContain('Pääomanpalautus / Osinko')
     expect(normalizedText()).toContain('Yhteensä: 25.00')
     expect(normalizedText()).toContain('Pääomanpalautus: 15.00')
     expect(normalizedText()).toContain('Osinko: 10.00')
+  })
+
+  it('shows historical sells in the yearly tax-return summary', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        subscriptions: [{ id: 'sub-1', date: '01.01.2024', amount: '10', pricePerShare: '1' }],
+        sells: [{ id: 'sell-1', date: '06.02.2025', shareCount: '5', pricePerShare: '10', otherTotalSellCosts: '2' }],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
+        ipo: {
+          totalShareCount: '',
+          totalIpoCost: '',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('taxReturns')
+
+    expect(normalizedText()).toContain('Luovutusvoitot ja -tappiot')
+    expect(normalizedText()).toContain('06.02.2025')
+    expect(normalizedText()).toContain('50.00')
   })
 
   it('shows inputs only while a row is being edited', async () => {
@@ -517,8 +948,11 @@ describe('osakkeet UI', () => {
         shareSplits: [],
         demergers: [],
         mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
         ipo: {
-          ipoDate: '',
           totalShareCount: '',
           totalIpoCost: '',
           currentShareValue: '',
@@ -577,8 +1011,11 @@ describe('osakkeet UI', () => {
         shareSplits: [],
         demergers: [],
         mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
         ipo: {
-          ipoDate: '',
           totalShareCount: '',
           totalIpoCost: '',
           currentShareValue: '',
@@ -629,8 +1066,11 @@ describe('osakkeet UI', () => {
         shareSplits: [],
         demergers: [],
         mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
         ipo: {
-          ipoDate: '',
           totalShareCount: '',
           totalIpoCost: '',
           currentShareValue: '',
@@ -682,7 +1122,7 @@ describe('osakkeet UI', () => {
     expect(sectionCard.querySelectorAll('tbody input')).toHaveLength(0)
   })
 
-  it('uses current date in subscription vesting summary and ipo date in ipo summary', async () => {
+  it('uses current date in subscription vesting summary and became-listed date in ipo summary', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-03T12:00:00Z'))
 
@@ -694,7 +1134,7 @@ describe('osakkeet UI', () => {
             {
               id: 'sub-1',
               date: '01.01.2026',
-              vestingEndsOn: '01.05.2026',
+              vestingEndsOn: '10.06.2026',
               amount: '10',
               pricePerShare: '1',
               otherTotalAcquisitionCosts: '',
@@ -705,8 +1145,11 @@ describe('osakkeet UI', () => {
           shareSplits: [],
           demergers: [],
           mathematicalShareValues: [],
+          company: {
+            listingStatus: 'unlisted',
+            becameListedDate: '2026-06-05',
+          },
           ipo: {
-            ipoDate: '2026-04-01',
             totalShareCount: '100',
             totalIpoCost: '10',
             currentShareValue: '2',
@@ -725,10 +1168,10 @@ describe('osakkeet UI', () => {
       toggleMainSection('ipoCalculator')
 
       const textContent = normalizedText()
-      expect(textContent).toContain('Ansaintajakson päättäneet osakkeet (03.06.2026)10.00 (100.00 %)')
-      expect(textContent).toContain('Ansaintajakson piirissä olevat osakkeet (03.06.2026)0.00 (0.00 %)')
-      expect(textContent).toContain('Myytävissä IPOssa (2026-04-01)0.00 (0.00 %)')
-      expect(textContent).toContain('Ei myytävissä IPOssa (2026-04-01)10.00 (100.00 %)')
+      expect(textContent).toContain('Ansaintajakson päättäneet osakkeet (03.06.2026)0.00 (0.00 %)')
+      expect(textContent).toContain('Ansaintajakson piirissä olevat osakkeet (03.06.2026)10.00 (100.00 %)')
+      expect(textContent).toContain('Myytävissä IPOssa (2026-06-05)0.00 (0.00 %)')
+      expect(textContent).toContain('Ei myytävissä IPOssa (2026-06-05)10.00 (100.00 %)')
     } finally {
       vi.useRealTimers()
     }

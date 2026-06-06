@@ -2,7 +2,12 @@ import Decimal from 'decimal.js'
 import type { OsakkeetLocalization } from './osakkeetLocalizations'
 import type { ParsedIpoInputs, ParsedIpoSellInputs, WorkingLot } from './osakkeetParsedData'
 import type { ShareCalculator } from './shareCalculator'
-import { calculateSellSummary, type SellSummary, type SellTaxRules } from './osakkeetSellCalculator'
+import {
+  calculateSellSummary,
+  createEmptySellSummary,
+  type SellSummary,
+  type SellTaxRules,
+} from './osakkeetSellCalculator'
 import { sumDecimals } from './osakkeetUtils'
 
 const zero = new Decimal(0)
@@ -126,6 +131,8 @@ export function calculateIpoSellSummary(
   sellableLots: WorkingLot[],
   sellShareCalculator: ShareCalculator,
   ipoSellAmount: Decimal,
+  ipoSellPricePerShare: Decimal,
+  ipoSellCostPerShare: Decimal,
   otherAnnualCapitalGainsOrLosses: Decimal,
   vestingSummary: VestingSummary,
   ipoSummary: IpoSummary,
@@ -143,6 +150,14 @@ export function calculateIpoSellSummary(
   if (ipoSummary.estimatedSecondaryShareCount.gt(0) && ipoSellAmount.gt(ipoSummary.estimatedSecondaryShareCount)) {
     warnings.push(localization.calculator.warnings.ipoSellAmountExceedsEstimatedSecondary)
   }
+  if (ipoSellAmount.gt(0) && ipoSellPricePerShare.lte(0)) {
+    errors.push(localization.calculator.errors.ipoSellPricePerShareRequired)
+    return createEmptySellSummary({
+      amount: ipoSellAmount,
+      otherAnnualCapitalGainsOrLosses,
+      remainingUnsoldShares: ipoSummary.totalSubscribedShares,
+    })
+  }
 
   return calculateSellSummary({
     sellableLots,
@@ -152,8 +167,8 @@ export function calculateIpoSellSummary(
     sellAmount: ipoSellAmount,
     otherAnnualCapitalGainsOrLosses,
     sellDate: ipoSummary.ipoDate,
-    sellPricePerShare: ipoSummary.ipoPricePerShare,
-    sellCostPerShare: ipoSummary.ipoCostPerShare,
+    sellPricePerShare: ipoSellPricePerShare,
+    sellCostPerShare: ipoSellCostPerShare,
     sellRules,
   })
 }

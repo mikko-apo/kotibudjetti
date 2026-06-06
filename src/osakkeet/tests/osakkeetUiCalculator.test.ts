@@ -15,7 +15,7 @@ function calculate(form: OsakkeetFormData, rules?: OsakkeetTaxRules) {
 }
 
 function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetFormData {
-  return {
+  const base: OsakkeetFormData = {
     subscriptions: [
       {
         id: 's1',
@@ -43,8 +43,11 @@ function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetForm
       { id: 'm2', year: '2025', valuePerShare: '20' },
       { id: 'm3', year: '2026', valuePerShare: '20' },
     ],
+    company: {
+      listingStatus: 'unlisted',
+      becameListedDate: '2026-06-01',
+    },
     ipo: {
-      ipoDate: '2026-06-01',
       totalShareCount: '150',
       totalIpoCost: '30',
       currentShareValue: '12',
@@ -53,9 +56,26 @@ function createBaseForm(overrides: Partial<OsakkeetFormData> = {}): OsakkeetForm
     },
     ipoSell: {
       amount: '0',
+      pricePerShare: '10',
+      costPerShare: '1',
       otherAnnualCapitalGainsOrLosses: '',
     },
+  }
+  return {
+    ...base,
     ...overrides,
+    company: {
+      ...base.company,
+      ...overrides.company,
+    },
+    ipo: {
+      ...base.ipo,
+      ...overrides.ipo,
+    },
+    ipoSell: {
+      ...base.ipoSell,
+      ...overrides.ipoSell,
+    },
   }
 }
 
@@ -303,8 +323,11 @@ describe(calculateOsakkeet, () => {
           },
         ],
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '2026-06-01',
+        },
         ipo: {
-          ipoDate: '2026-06-01',
           totalShareCount: '50',
           totalIpoCost: '0',
           currentShareValue: '12',
@@ -358,6 +381,10 @@ describe(calculateOsakkeet, () => {
     expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('20.00')
     expect(result.vesting.totalShares.toFixed(2)).toBe('70.00')
     expect(result.ipoSell.usedLots).toHaveLength(2)
+    const year2024 = result.taxReturns.years.find((year) => year.year === 2024)
+    expect(year2024?.sales).toHaveLength(1)
+    expect(year2024?.sales?.[0].sellDate).toBe('2024-01-01')
+    expect(year2024?.sales?.[0].summary.grossTotal.toFixed(2)).toBe('800.00')
     expect(result.ipoSell.usedLots[0].lotId).toBe('s1')
     expect(result.ipoSell.usedLots[0].soldAmount.toFixed(2)).toBe('20.00')
     expect(result.ipoSell.usedLots[1].lotId).toBe('s2')
@@ -381,8 +408,11 @@ describe(calculateOsakkeet, () => {
         shareSplits: [{ id: 'split1', date: '2024-01-01', multiplier: '2' }],
         demergers: [],
         cashDistributions: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '2026-06-01',
+        },
         ipo: {
-          ipoDate: '2026-06-01',
           totalShareCount: '',
           totalIpoCost: '0',
           currentShareValue: '12',
@@ -447,8 +477,11 @@ describe(calculateOsakkeet, () => {
         ],
         shareSplits: [{ id: 'split1', date: '2024-01-01', multiplier: '2' }],
         demergers: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '2026-06-01',
+        },
         ipo: {
-          ipoDate: '2026-06-01',
           totalShareCount: '',
           totalIpoCost: '0',
           currentShareValue: '12',
@@ -514,8 +547,11 @@ describe(calculateOsakkeet, () => {
         ],
         demergers: [{ id: 'dmg1', date: '2024-01-01', oldCompanyRatio: '0.72' }],
         cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-06-01', amountPerShare: '8' }],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '2026-06-01',
+        },
         ipo: {
-          ipoDate: '2026-06-01',
           totalShareCount: '',
           totalIpoCost: '0',
           currentShareValue: '12',
@@ -659,18 +695,19 @@ describe(calculateOsakkeet, () => {
     expect(year2025?.assets?.date).toBe('31.12.2025')
     expect(year2025?.assets?.shareholderMathematicalValue.toFixed(2)).toBe('3000.00')
     expect(year2026?.assets).toBeUndefined()
-    expect(year2026?.ipoSale?.summary.usedLots).toHaveLength(2)
-    expect(year2026?.ipoSale?.summary.usedLots[0].lotDate).toBe('01.01.2013')
-    expect(year2026?.ipoSale?.sellDate).toBe('2026-06-01')
+    expect(year2026?.sales).toHaveLength(1)
+    expect(year2026?.sales?.[0].summary.usedLots).toHaveLength(2)
+    expect(year2026?.sales?.[0].summary.usedLots[0].lotDate).toBe('01.01.2013')
+    expect(year2026?.sales?.[0].sellDate).toBe('2026-06-01')
     expect(
-      year2026?.ipoSale?.summary.usedLots
+      year2026?.sales?.[0].summary.usedLots
         .map((entry) => entry.soldAmount)
         .reduce((acc, value) => acc.add(value))
         .toFixed(2)
     ).toBe('120.00')
-    expect(year2026?.ipoSale?.summary.grossTotal.toFixed(2)).toBe('1200.00')
-    expect(year2026?.ipoSale?.summary.selectedDeductionTotal.toFixed(2)).toBe('500.00')
-    expect(year2026?.ipoSale?.summary.taxableGainTotal.toFixed(2)).toBe('700.00')
+    expect(year2026?.sales?.[0].summary.grossTotal.toFixed(2)).toBe('1200.00')
+    expect(year2026?.sales?.[0].summary.selectedDeductionTotal.toFixed(2)).toBe('500.00')
+    expect(year2026?.sales?.[0].summary.taxableGainTotal.toFixed(2)).toBe('700.00')
   })
 
   it('uses fifo lots and picks the more beneficial deduction method per lot', () => {
@@ -707,15 +744,18 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '50',
           },
         ],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '2026-06-01',
+        },
         ipo: {
-          ipoDate: '2026-06-01',
           totalShareCount: '100',
           totalIpoCost: '0',
           currentShareValue: '12',
           estimatedPreIpoValue: '200',
           estimatedSecondaryShareSellPercentage: '100',
         },
-        ipoSell: { amount: '100' },
+        ipoSell: { amount: '100', pricePerShare: '2', costPerShare: '0' },
       })
     )
 
@@ -759,7 +799,7 @@ describe(calculateOsakkeet, () => {
     expect(result.vesting.vestedShares.toFixed(2)).toBe('50.00')
     expect(result.vesting.unvestedShares.toFixed(2)).toBe('100.00')
     expect(result.errors).toContain(
-      'Myytävien osakkeiden määrä ylittää IPO-päivänä myytävissä olevien osakkeiden määrän (50).'
+      'Myytävien osakkeiden määrä ylittää listautumispäivänä myytävissä olevien osakkeiden määrän (50).'
     )
   })
 
@@ -784,8 +824,11 @@ describe(calculateOsakkeet, () => {
             otherTotalAcquisitionCosts: '',
           },
         ],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '2026-06-01',
+        },
         ipo: {
-          ipoDate: '2026-06-01',
           totalShareCount: '150',
           totalIpoCost: '30',
           currentShareValue: '12',
@@ -800,7 +843,7 @@ describe(calculateOsakkeet, () => {
     expect(result.ipoSell.usedLots[0].lotId).toBe('s1')
     expect(result.vesting.totalShares.toFixed(2)).toBe('100.00')
     expect(result.errors).toContain(
-      'Myytävien osakkeiden määrä ylittää IPO-päivänä myytävissä olevien osakkeiden määrän (100).'
+      'Myytävien osakkeiden määrä ylittää listautumispäivänä myytävissä olevien osakkeiden määrän (100).'
     )
   })
 
@@ -853,6 +896,44 @@ describe(calculateOsakkeet, () => {
     expect(result.ipoSell.taxReductionFromOtherLosses.toFixed(2)).toBe('60.00')
   })
 
+  it('does not calculate ipo sell values without explicit ipo price per share', () => {
+    const result = calculate(
+      createBaseForm({
+        ipoSell: {
+          amount: '120',
+          pricePerShare: '',
+          costPerShare: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    expect(result.errors).toContain('IPO-hinta / osake pitää syöttää ennen kuin IPO-myynnin arvot voidaan laskea.')
+    expect(result.ipoSell.usedLots).toEqual([])
+    expect(result.ipoSell.grossTotal.toFixed(2)).toBe('0.00')
+    expect(result.ipoSell.taxableGainTotal.toFixed(2)).toBe('0.00')
+    expect(result.ipoSell.remainingUnsoldShares.toFixed(2)).toBe('150.00')
+  })
+
+  it('treats empty ipo sell cost per share as zero instead of using the estimated ipo cost', () => {
+    const result = calculate(
+      createBaseForm({
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2024-01-01', amountPerShare: '2' }],
+        ipoSell: {
+          amount: '120',
+          pricePerShare: '10',
+          costPerShare: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.ipo.ipoCostPerShare.toFixed(2)).toBe('1.00')
+    expect(result.ipoSell.totalAllocatedSellCost.toFixed(2)).toBe('0.00')
+    expect(result.ipoSell.cashAfterSellCosts.toFixed(2)).toBe('1200.00')
+  })
+
   it('matches snapshot for mixed reimbursements dividends vesting and fifo sale', () => {
     expect(
       snapshotCalculation({
@@ -897,8 +978,11 @@ describe(calculateOsakkeet, () => {
           { id: 'm3', year: '2025', valuePerShare: '1.60' },
           { id: 'm4', year: '2026', valuePerShare: '1.90' },
         ],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '15.08.2026',
+        },
         ipo: {
-          ipoDate: '15.08.2026',
           totalShareCount: '3500000',
           totalIpoCost: '1500000',
           currentShareValue: '42',
@@ -907,6 +991,8 @@ describe(calculateOsakkeet, () => {
         },
         ipoSell: {
           amount: '135000',
+          pricePerShare: '30',
+          costPerShare: '6.122448979591836734693877551',
         },
       })
     ).toMatchSnapshot()
@@ -950,8 +1036,11 @@ describe(calculateOsakkeet, () => {
           { id: 'm2', year: '2025', valuePerShare: '2.40' },
           { id: 'm3', year: '2026', valuePerShare: '2.60' },
         ],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '20.09.2026',
+        },
         ipo: {
-          ipoDate: '20.09.2026',
           totalShareCount: '500000',
           totalIpoCost: '220000',
           currentShareValue: '95',
@@ -960,6 +1049,8 @@ describe(calculateOsakkeet, () => {
         },
         ipoSell: {
           amount: '175000',
+          pricePerShare: '48',
+          costPerShare: '1.157894736842105263157894737',
         },
       })
     ).toMatchSnapshot()
@@ -994,8 +1085,11 @@ describe(calculateOsakkeet, () => {
           { id: 'd2', type: 'capital_return', date: 'bad-date', amountPerShare: '-1' },
         ],
         mathematicalShareValues: [{ id: 'm1', year: '2024', valuePerShare: '1.5' }],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
         ipo: {
-          ipoDate: '',
           totalShareCount: '80',
           totalIpoCost: '100',
           currentShareValue: '10',

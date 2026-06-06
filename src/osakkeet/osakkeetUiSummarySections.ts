@@ -25,6 +25,44 @@ type SummarySectionRenderers = {
   withHoverInfo: (content: string | Text | Node, tooltip: string) => Node
 }
 
+function buildRemainingShareBreakdown(osakkeetCalculation: OsakkeetCalculation) {
+  const soldAmountByLotId = new Map<string, Decimal>()
+  for (const lot of osakkeetCalculation.ipoSell.usedLots) {
+    soldAmountByLotId.set(lot.lotId, (soldAmountByLotId.get(lot.lotId) || new Decimal(0)).add(lot.soldAmount))
+  }
+
+  const now = new Date()
+  const zero = osakkeetCalculation.ipo.currentShareValue.mul(0)
+  let totalShares = zero
+  let vestedShares = zero
+  let unvestedShares = zero
+  let unvestedOriginalAcquisitionCost = zero
+
+  for (const lot of osakkeetCalculation.subscriptions) {
+    const remainingShares = Decimal.max(lot.shareCount.minus(soldAmountByLotId.get(lot.id) || zero), zero)
+    if (remainingShares.lte(0)) continue
+    totalShares = totalShares.add(remainingShares)
+    const isVestedAtCurrentDate = !lot.vestingEndsOnValue || now.getTime() >= lot.vestingEndsOnValue.getTime()
+    if (isVestedAtCurrentDate) {
+      vestedShares = vestedShares.add(remainingShares)
+    } else {
+      unvestedShares = unvestedShares.add(remainingShares)
+      unvestedOriginalAcquisitionCost = unvestedOriginalAcquisitionCost.add(lot.originalShareAcquisitionCost)
+    }
+  }
+
+  const currentShareValue = osakkeetCalculation.ipo.currentShareValue
+  return {
+    totalShares,
+    totalValue: totalShares.mul(currentShareValue),
+    vestedShares,
+    vestedValue: vestedShares.mul(currentShareValue),
+    unvestedShares,
+    unvestedValue: unvestedShares.mul(currentShareValue),
+    unvestedOriginalAcquisitionCost,
+  }
+}
+
 function renderAssetsTable(
   assets: OsakkeetCalculation['taxReturns']['years'][number]['assets'],
   t: OsakkeetLocalization
@@ -107,6 +145,16 @@ function renderAllocationTable(
   )
 }
 
+function renderDistributionTypeLabel(row: TaxReturnDistributionSection['entries'][number], t: OsakkeetLocalization) {
+  if (row.type === 'dividend') {
+    return t.cashDistributions.types.dividend
+  }
+  if (row.dividendTotal.gt(0)) {
+    return `${t.cashDistributions.types.capitalReturn} / ${t.cashDistributions.types.dividend}`
+  }
+  return t.cashDistributions.types.capitalReturn
+}
+
 function renderTaxTable(
   sectionSummary: TaxReturnDistributionSection | undefined,
   showAllocationDetails: boolean,
@@ -149,7 +197,7 @@ function renderTaxTable(
       entries.flatMap((row) => [
         tr(
           td(row.date),
-          td(row.type === 'dividend' ? t.cashDistributions.types.dividend : t.cashDistributions.types.capitalReturn),
+          td(renderDistributionTypeLabel(row, t)),
           td(renderDistributionSharesCell(row, styles, t)),
           td(euro(row.paidInCash)),
           td(euro(row.withholdingToTaxOffice)),
@@ -215,12 +263,17 @@ function renderTaxSectionWithToggle(
   return div(styles.denseStack, h3(title), div({ class: 'no-print' }, styles.rowButtons, toggleButton), contentRoot)
 }
 
-function renderIpoSaleTable(
-  ipoSale: OsakkeetCalculation['taxReturns']['years'][number]['ipoSale'],
+function renderSalesTable(
+  sales: NonNullable<OsakkeetCalculation['taxReturns']['years'][number]['sales']>,
   t: OsakkeetLocalization
 ) {
-  if (!ipoSale) return false
-  const { summary } = ipoSale
+  if (sales.length === 0) return false
+  const saleRows = sales.flatMap((sale) =>
+    sale.summary.usedLots.map((row) => ({
+      ...row,
+      sellDate: sale.sellDate,
+    }))
+  )
   return table(
     thead(
       tr(
@@ -236,10 +289,10 @@ function renderIpoSaleTable(
       )
     ),
     tbody(
-      summary.usedLots.map((row) =>
+      saleRows.map((row) =>
         tr(
           td(row.lotDate),
-          td(ipoSale.sellDate),
+          td(row.sellDate),
           td(amount(row.soldAmount)),
           td(euro(row.gross)),
           td(euro(row.actualDeduction)),
@@ -256,13 +309,13 @@ function renderIpoSaleTable(
       tr(
         td(b(t.summary.totalRow)),
         td(),
-        td(amount(sumDecimals(summary.usedLots.map((row) => row.soldAmount)))),
-        td(euro(summary.grossTotal)),
-        td(euro(sumDecimals(summary.usedLots.map((row) => row.actualDeduction)))),
-        td(euro(sumDecimals(summary.usedLots.map((row) => row.hankintamenoOlettaDeduction)))),
+        td(amount(sumDecimals(saleRows.map((row) => row.soldAmount)))),
+        td(euro(sumDecimals(sales.map((sale) => sale.summary.grossTotal)))),
+        td(euro(sumDecimals(saleRows.map((row) => row.actualDeduction)))),
+        td(euro(sumDecimals(saleRows.map((row) => row.hankintamenoOlettaDeduction)))),
         td(),
-        td(euro(summary.selectedDeductionTotal)),
-        td(euro(summary.taxableGainTotal))
+        td(euro(sumDecimals(sales.map((sale) => sale.summary.selectedDeductionTotal)))),
+        td(euro(sumDecimals(sales.map((sale) => sale.summary.taxableGainTotal))))
       )
     )
   )
@@ -303,24 +356,9 @@ export function createTaxSummaryContent(
           ),
         yearSummary.listed &&
           renderTaxSectionWithToggle(t.taxReturns.sections.listed, yearSummary.listed, styles, renderers, t),
-        yearSummary.ipoSale &&
-          div(
-            styles.denseStack,
-            h3(t.taxReturns.sections.ipoSale),
-            renderIpoSaleTable(yearSummary.ipoSale, t),
-            div(
-              styles.summaryGrid,
-              renderers.infoCard(
-                t.summary.ipoSell.cards.ipoCostsAllocated,
-                euro(yearSummary.ipoSale.summary.totalAllocatedSellCost)
-              ),
-              renderers.infoCard(t.summary.ipoSell.cards.taxMan, euro(yearSummary.ipoSale.summary.estimatedTax)),
-              renderers.infoCard(
-                t.summary.ipoSell.cards.netCash,
-                euro(yearSummary.ipoSale.summary.netAfterTaxAndSellCost)
-              )
-            )
-          )
+        yearSummary.sales &&
+          yearSummary.sales.length > 0 &&
+          div(styles.denseStack, h3(t.taxReturns.sections.ipoSale), renderSalesTable(yearSummary.sales, t))
       )
     )
   )
@@ -332,7 +370,7 @@ export function createSellOverviewCards(
   infoCard: SummarySectionRenderers['infoCard']
 ) {
   const sharePercent = createSharePercent(osakkeetCalculation.vesting.totalShares)
-  const ipoDate = osakkeetCalculation.formData.ipo.ipoDate
+  const ipoDate = osakkeetCalculation.formData.company.becameListedDate
   return [
     infoCard(
       ipoDate ? texts.summary.ipoSell.cards.sellableSharesAtDate(ipoDate) : texts.summary.ipoSell.cards.sellableShares,
@@ -476,6 +514,25 @@ export function createCashReserveCards(
   texts: OsakkeetLocalization,
   infoCard: SummarySectionRenderers['infoCard']
 ) {
+  const remainingShares = buildRemainingShareBreakdown(osakkeetCalculation)
+  const ipoSharePrice = osakkeetCalculation.ipoSell.amount.gt(0)
+    ? osakkeetCalculation.ipoSell.grossTotal.div(osakkeetCalculation.ipoSell.amount)
+    : osakkeetCalculation.ipo.currentShareValue.mul(0)
+  const remainingSharesCardValue = [
+    texts.summary.ipoSell.cashReserve.remainingSharesTotalLine(
+      amount(remainingShares.totalShares),
+      euro(remainingShares.totalShares.mul(ipoSharePrice))
+    ),
+    texts.summary.ipoSell.cashReserve.remainingSharesVestedLine(
+      amount(remainingShares.vestedShares),
+      euro(remainingShares.vestedShares.mul(ipoSharePrice))
+    ),
+    texts.summary.ipoSell.cashReserve.remainingSharesUnvestedLine(
+      amount(remainingShares.unvestedShares),
+      euro(remainingShares.unvestedShares.mul(ipoSharePrice)),
+      euro(remainingShares.unvestedOriginalAcquisitionCost)
+    ),
+  ].join('\n')
   const keepAfterTaxesPercentage = osakkeetCalculation.ipoSell.grossTotal.gt(0)
     ? ` (${percentage(osakkeetCalculation.ipoSell.netAfterTaxAndSellCost.div(osakkeetCalculation.ipoSell.grossTotal).mul(100))})`
     : ''
@@ -499,6 +556,14 @@ export function createCashReserveCards(
       texts.summary.ipoSell.cashReserve.taxPaymentManual,
       texts.summary.ipoSell.cashReserve.taxPaymentStatusHelp
     ),
+    infoCard(
+      texts.summary.ipoSell.cashReserve.remainingShares,
+      remainingSharesCardValue,
+      texts.summary.ipoSell.cashReserve.remainingSharesHelp(
+        euro(ipoSharePrice),
+        euro(remainingShares.totalShares.mul(ipoSharePrice))
+      )
+    ),
   ]
 }
 
@@ -507,11 +572,12 @@ export function createSaleResultComparisonCards(
   texts: OsakkeetLocalization,
   infoCard: SummarySectionRenderers['infoCard']
 ) {
-  const netResultPercent = osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal.gt(0)
+  const netResultAgainstOriginalAcquisitionCost = osakkeetCalculation.ipoSell.netAfterTaxAndSellCost.minus(
+    osakkeetCalculation.ipoSell.soldShareOriginalCostTotal
+  )
+  const netResultPercent = osakkeetCalculation.ipoSell.soldShareOriginalCostTotal.gt(0)
     ? percentage(
-        osakkeetCalculation.ipoSell.netResultAgainstAcquisitionCost
-          .div(osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal)
-          .mul(100)
+        netResultAgainstOriginalAcquisitionCost.div(osakkeetCalculation.ipoSell.soldShareOriginalCostTotal).mul(100)
       )
     : '0.00 %'
   return [
@@ -519,15 +585,13 @@ export function createSaleResultComparisonCards(
       texts.summary.ipoSell.saleResultComparison.cardTitle,
       texts.summary.ipoSell.saleResultComparison.value(
         euro(osakkeetCalculation.ipoSell.soldShareOriginalCostTotal),
-        euro(osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal),
-        euro(osakkeetCalculation.ipoSell.netResultAgainstAcquisitionCost),
+        euro(netResultAgainstOriginalAcquisitionCost),
         netResultPercent
       ),
       texts.summary.ipoSell.saleResultComparison.help(
         euro(osakkeetCalculation.ipoSell.soldShareOriginalCostTotal),
-        euro(osakkeetCalculation.ipoSell.soldShareAcquisitionCostTotal),
         euro(osakkeetCalculation.ipoSell.netAfterTaxAndSellCost),
-        euro(osakkeetCalculation.ipoSell.netResultAgainstAcquisitionCost),
+        euro(netResultAgainstOriginalAcquisitionCost),
         netResultPercent
       )
     ),
@@ -569,7 +633,7 @@ export function createAnnualAdjustmentCards(
     taxEffect: infoCard(
       texts.summary.ipoSell.cashReserve.taxEffectFromOtherAnnualCapital,
       osakkeetCalculation.ipoSell.taxReductionFromOtherLosses.gt(0)
-        ? euro(osakkeetCalculation.ipoSell.taxReductionFromOtherLosses)
+        ? euro(osakkeetCalculation.ipoSell.taxReductionFromOtherLosses.mul(-1))
         : osakkeetCalculation.ipoSell.annualTaxChange.gt(0)
           ? `+${euro(osakkeetCalculation.ipoSell.annualTaxChange)}`
           : euro(zeroMoney),
