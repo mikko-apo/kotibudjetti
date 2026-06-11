@@ -458,6 +458,54 @@ describe('osakkeet UI', () => {
     expect(findButtons('Sulje tapahtumat')).toHaveLength(0)
   })
 
+  it('shows dividend events in subscription history log', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        subscriptions: [
+          {
+            id: 'sub-1',
+            date: '01.01.2024',
+            vestingEndsOn: '',
+            amount: '10',
+            pricePerShare: '2',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        sells: [],
+        cashDistributions: [{ id: 'dist-1', type: 'dividend', date: '01.02.2025', amountPerShare: '1.5' }],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
+        ipo: {
+          totalShareCount: '',
+          totalIpoCost: '',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('subscriptionsAndSales')
+
+    clickButton('Tapahtumat')
+
+    const sectionText = findSectionCard('Osakemerkinnät').textContent?.replace(/\s+/g, ' ').trim() || ''
+    expect(sectionText).toContain('Osinko')
+    expect(sectionText).toContain('01.02.2025')
+    expect(sectionText).toContain('Osinko 1.50 € / osake x 10.00 osaketta = 15.00 €.')
+  })
+
   it('renders four collapsible main sections with summaries', async () => {
     await renderOsakkeetPage()
     expect(normalizedText()).toContain(
@@ -1037,6 +1085,82 @@ describe('osakkeet UI', () => {
         3
       )
     ).toEqual(['25.00'])
+  })
+
+  it('shows lot-level events for cash distributions', async () => {
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        subscriptions: [
+          {
+            id: 'sub-old',
+            date: '01.01.2013',
+            vestingEndsOn: '',
+            amount: '10',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 'sub-new',
+            date: '01.01.2020',
+            vestingEndsOn: '',
+            amount: '15',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        sells: [],
+        cashDistributions: [
+          {
+            id: 'distribution-1',
+            type: 'capital_return',
+            date: '01.02.2025',
+            amountPerShare: '0.5',
+            shareCount: '',
+          },
+        ],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
+        ipo: {
+          totalShareCount: '',
+          totalIpoCost: '',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('distributionsAndCorporateActions')
+
+    const sectionTitle =
+      'Yrityksen osingot ja pääomanpalautukset. Maksut osakkeenomistajalle ja verottajalle ja pääomanpalautus/osinko erottelu'
+
+    expect(findSectionCard(sectionTitle).textContent).not.toContain('Merkintäerittäin')
+
+    clickRowButton(sectionTitle, 0, 'Eräkohtaiset tapahtumat')
+
+    const sectionText = findSectionCard(sectionTitle).textContent?.replace(/\s+/g, ' ').trim() || ''
+    expect(sectionText).toContain('Merkintäerittäin')
+    expect(sectionText).toContain('01.01.2013')
+    expect(sectionText).toContain('01.01.2020')
+    expect(sectionText).toContain('Hankintameno')
+    expect(sectionText).toContain('Hankintameno / osake')
+    expect(sectionText).toContain('Vaikutus')
+    expect(sectionText).not.toContain('Pääomanpalautus 0.50 € / osake * 15.00 osaketta = 7.50 €.')
+    expect(sectionText).toContain('Osinkona 0.50 € / osake = 5.00 € (merkinnästä on yli 10 vuotta).')
+    expect(sectionText).toContain('7.50')
+    expect(sectionText).toContain('5.00')
   })
 
   it('shows grouped header rows in cash distributions', async () => {

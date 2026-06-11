@@ -107,6 +107,20 @@ export function createSubscriptionHistoryRows(
         ),
       }
     }
+    if (entry.kind === 'dividend') {
+      return {
+        date: entry.date,
+        event: texts.subscriptions.history.events.dividend,
+        shareCount: amount(entry.remainingAfter.shareCount),
+        shareCost: euro(entry.remainingAfter.shareAcquisitionCost),
+        pricePerShare,
+        details: texts.subscriptions.history.details.dividend(
+          euro(entry.amountPerShare),
+          amount(entry.shareCountAtEvent),
+          euro(entry.dividendTotal)
+        ),
+      }
+    }
     const appliedPerShare = entry.shareCountAtEvent.gt(0)
       ? entry.appliedShareAcquisitionCost.div(entry.shareCountAtEvent)
       : entry.amountPerShare.mul(0)

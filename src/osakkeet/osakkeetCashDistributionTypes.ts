@@ -9,6 +9,7 @@ export type CashDistributionAllocation = {
   dividend: Decimal
   remainingCostPerShareAfter: Decimal
   eligibleCapitalRepayment: boolean
+  dividendReason?: 'too_old' | 'no_remaining_cost' | 'remaining_cost_limit' | 'listed_dividend'
 }
 
 export type CashDistributionSummary = {

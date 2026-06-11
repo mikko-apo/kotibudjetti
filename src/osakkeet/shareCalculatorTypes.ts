@@ -61,9 +61,21 @@ type ShareCalculatorCapitalRepaymentLogEntry = {
   remainingAfter: ShareCalculatorRemainingValues
 }
 
+type ShareCalculatorDividendLogEntry = {
+  kind: 'dividend'
+  id: string
+  dividendId: string
+  date: string
+  amountPerShare: Decimal
+  shareCountAtEvent: Decimal
+  dividendTotal: Decimal
+  remainingAfter: ShareCalculatorRemainingValues
+}
+
 export type ShareCalculatorLogEntry =
   | ShareCalculatorSubscriptionLogEntry
   | ShareCalculatorSellForThisSubscriptionLogEntry
   | ShareCalculatorCompanyShareCountChangeLogEntry
   | ShareCalculatorCompanyAcquisitionCostChangeLogEntry
   | ShareCalculatorCapitalRepaymentLogEntry
+  | ShareCalculatorDividendLogEntry

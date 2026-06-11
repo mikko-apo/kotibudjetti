@@ -657,6 +657,56 @@ describe(calculateOsakkeet, () => {
     expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('150.00')
   })
 
+  it('treats explicit dividend rows before ipo date fully as dividends', () => {
+    const result = calculate(
+      createBaseForm({
+        cashDistributions: [{ id: 'r1', type: 'dividend', date: '2025-06-01', amountPerShare: '1' }],
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.cashDistributions[0].treatedAsListedDividend).toBe(false)
+    expect(result.cashDistributions[0].type).toBe('dividend')
+    expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('0.00')
+    expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('150.00')
+  })
+
+  it('does not leak same-day capital repayments into dividend rows', () => {
+    const result = calculate(
+      createBaseForm({
+        cashDistributions: [
+          { id: 'r1', type: 'capital_return', date: '2025-06-01', amountPerShare: '1' },
+          { id: 'r2', type: 'dividend', date: '2025-06-01', amountPerShare: '1' },
+        ],
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('50.00')
+    expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('100.00')
+    expect(result.cashDistributions[1].type).toBe('dividend')
+    expect(result.cashDistributions[1].capitalRepaymentTotal.toFixed(2)).toBe('0.00')
+    expect(result.cashDistributions[1].dividendTotal.toFixed(2)).toBe('150.00')
+    expect(
+      result.cashDistributions[1].allocations.map((allocation) => ({
+        subscriptionId: allocation.subscriptionId,
+        capitalRepayment: allocation.capitalRepayment.toFixed(2),
+        dividend: allocation.dividend.toFixed(2),
+      }))
+    ).toEqual([
+      {
+        subscriptionId: 's1',
+        capitalRepayment: '0.00',
+        dividend: '100.00',
+      },
+      {
+        subscriptionId: 's2',
+        capitalRepayment: '0.00',
+        dividend: '50.00',
+      },
+    ])
+  })
+
   it('treats post-IPO capital-return rows as listed dividends in yearly tax calculations', () => {
     const result = calculate(
       createBaseForm({
@@ -675,6 +725,25 @@ describe(calculateOsakkeet, () => {
     expect(result.cashDistributions[0].taxableEarnedDividend.toFixed(2)).toBe('0.00')
     expect(result.cashDistributions[0].taxFreeEarnedDividend.toFixed(2)).toBe('0.00')
     expect(result.cashDistributions[0].withholdingToTaxOffice.toFixed(2)).toBe('38.25')
+  })
+
+  it('treats all capital-return rows as dividends when company is listed and became-listed date is missing', () => {
+    const result = calculate(
+      createBaseForm({
+        company: {
+          listingStatus: 'listed',
+          becameListedDate: '',
+        },
+        mathematicalShareValues: [],
+        cashDistributions: [{ id: 'r1', type: 'capital_return', date: '2025-06-15', amountPerShare: '1' }],
+      })
+    )
+
+    expect(result.errors).toEqual([])
+    expect(result.cashDistributions[0].type).toBe('dividend')
+    expect(result.cashDistributions[0].treatedAsListedDividend).toBe(true)
+    expect(result.cashDistributions[0].capitalRepaymentTotal.toFixed(2)).toBe('0.00')
+    expect(result.cashDistributions[0].dividendTotal.toFixed(2)).toBe('150.00')
   })
 
   it('builds tax-return asset and capital-gain summaries as tables can consume them', () => {

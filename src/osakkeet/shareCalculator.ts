@@ -188,7 +188,7 @@ function recordLogEntry(
 function processEvents(
   events: ParsedEvent[],
   errors: ShareCalculatorError[],
-  options: { capitalReturnCutoffTimestampMs?: number } = {}
+  options: { capitalReturnCutoffTimestampMs?: number; forceTreatCapitalReturnsAsDividends?: boolean } = {}
 ) {
   const internalState: ShareCalculatorInternalState = {
     logsBySubscriptionId: new Map(),
@@ -278,16 +278,38 @@ function processEvents(
     }
 
     if (event.kind === 'capitalRepaymentOrDividend') {
-      if (event.type !== 'capital_return') continue
+      if (event.type === 'dividend') {
+        for (const subscriptionId of lotOrder) {
+          const lot = lotsById.get(subscriptionId)
+          if (!lot || lot.timestampMs > currentEventTimestampMs) continue
+          const beforeShareCount = lot.shareCount
+          if (beforeShareCount.lte(0)) continue
+          recordLogEntry(internalState, subscriptionId, {
+            kind: 'dividend',
+            id: subscriptionId,
+            dividendId: event.id,
+            date: event.date,
+            amountPerShare: event.amountPerShare,
+            shareCountAtEvent: beforeShareCount,
+            dividendTotal: event.amountPerShare.mul(beforeShareCount),
+            remainingAfter: {
+              shareCount: lot.shareCount,
+              shareAcquisitionCost: lot.shareAcquisitionCost,
+            },
+          })
+        }
+        continue
+      }
       for (const subscriptionId of lotOrder) {
         const lot = lotsById.get(subscriptionId)
         if (!lot || lot.timestampMs > currentEventTimestampMs) continue
         const beforeShareCount = lot.shareCount
         if (beforeShareCount.lte(0)) continue
         const isPastCutoff =
-          options.capitalReturnCutoffTimestampMs != null &&
-          !Number.isNaN(options.capitalReturnCutoffTimestampMs) &&
-          currentEventTimestampMs >= options.capitalReturnCutoffTimestampMs
+          options.forceTreatCapitalReturnsAsDividends ||
+          (options.capitalReturnCutoffTimestampMs != null &&
+            !Number.isNaN(options.capitalReturnCutoffTimestampMs) &&
+            currentEventTimestampMs >= options.capitalReturnCutoffTimestampMs)
         const isEligibleByAge = isCapitalRepaymentWithinAgeLimit(lot, event)
         const remainingPerShare = lot.shareCount.gt(0) ? lot.shareAcquisitionCost.div(lot.shareCount) : zero
         const capitalRepaymentPerShare =
@@ -458,6 +480,7 @@ function resolveStateFromLogEntries(
 
 type ShareCalculatorOptions = {
   capitalReturnCutoffDateExclusive?: string | Date
+  forceTreatCapitalReturnsAsDividends?: boolean
 }
 
 export function createShareCalculator(
@@ -479,7 +502,10 @@ export function createShareCalculator(
 
   collectTimestampConflicts(parsedEvents, errors)
 
-  const internalState = processEvents(parsedEvents, errors, { capitalReturnCutoffTimestampMs })
+  const internalState = processEvents(parsedEvents, errors, {
+    capitalReturnCutoffTimestampMs,
+    forceTreatCapitalReturnsAsDividends: options.forceTreatCapitalReturnsAsDividends,
+  })
 
   const shareCalculator: ShareCalculator = {
     sellsForThisSubscriptionLotsBySubscriptionId: internalState.sellsForThisSubscriptionLotsBySubscriptionId,

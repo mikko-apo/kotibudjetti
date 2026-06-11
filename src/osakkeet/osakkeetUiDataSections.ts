@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js'
 import { type State } from '../../../ki-frame/src'
 import {
   b,
@@ -68,6 +69,8 @@ type OsakkeetPageReadModel = {
   texts: OsakkeetLocalization
   osakkeetCalculation: OsakkeetCalculation
 }
+
+const zero = new Decimal(0)
 
 export function createCompanySection(
   dataState: State<OsakkeetFormData>,
@@ -534,6 +537,8 @@ export function createCashDistributionsSection(
   const counter = createSectionCounter()
   const cashDistributionTextNodes = localizedTextNodes.cashDistributions
   const initialTexts = pageReadState.get().texts
+  const openLotEventRowIds = new Set<string>()
+  const lotEventRowSyncs = new Map<string, () => void>()
   const dateHeaderLabel = document.createTextNode(initialTexts.common.date)
   const typeHeaderLabel = document.createTextNode(initialTexts.common.type)
   const shareCountHeaderLabel = document.createTextNode(initialTexts.cashDistributions.fields.shareCount)
@@ -577,6 +582,91 @@ export function createCashDistributionsSection(
   )
   const cashDistributions = createStateCollectionEditor(dataState, ['cashDistributions'])
   const editingRowIds = new Set<string>()
+  const renderLotEventTable = (row: {
+    formRow: OsakkeetFormData['cashDistributions'][number]
+    summary?: OsakkeetCalculation['cashDistributions'][number]
+    texts: OsakkeetLocalization
+  }) => {
+    const getDividendReasonText = (
+      reason: OsakkeetCalculation['cashDistributions'][number]['allocations'][number]['dividendReason']
+    ) => {
+      if (reason === 'too_old') return row.texts.subscriptions.fields.capitalRepaymentPerShareTooltipReasonTooOld
+      if (reason === 'no_remaining_cost') {
+        return row.texts.subscriptions.fields.capitalRepaymentPerShareTooltipReasonNoRemainingCost
+      }
+      if (reason === 'remaining_cost_limit') {
+        return row.texts.subscriptions.fields.capitalRepaymentPerShareTooltipReasonRemainingCostLimit
+      }
+      return row.texts.subscriptions.fields.capitalRepaymentPerShareTooltipReasonListedDividend
+    }
+    const renderAllocationEffect = (allocation: OsakkeetCalculation['cashDistributions'][number]['allocations'][number]) => {
+      const amountPerShare = row.summary?.amountPerShare || zero
+      const appliedPerShare = allocation.shares.gt(0) ? allocation.capitalRepayment.div(allocation.shares) : zero
+      const dividendPerShare = allocation.shares.gt(0) ? allocation.dividend.div(allocation.shares) : zero
+
+      if (row.summary?.type === 'dividend' || row.formRow.type === 'dividend') {
+        return row.texts.subscriptions.history.details.dividend(
+          euro(amountPerShare),
+          amount(allocation.shares),
+          euro(allocation.dividend)
+        )
+      }
+
+      if (allocation.capitalRepayment.gt(0) && allocation.dividend.gt(0)) {
+        return row.texts.subscriptions.history.details.capitalRepaymentAppliedAndDividend(
+          euro(amountPerShare),
+          amount(allocation.shares),
+          euro(appliedPerShare),
+          euro(allocation.capitalRepayment),
+          euro(dividendPerShare),
+          euro(allocation.dividend),
+          row.texts.subscriptions.fields.capitalRepaymentPerShareTooltipReasonRemainingCostLimit
+        )
+      }
+
+      if (allocation.capitalRepayment.gt(0)) {
+        return ''
+      }
+
+      return row.texts.subscriptions.history.details.dividendOnlyWithReason(
+        euro(dividendPerShare),
+        euro(allocation.dividend),
+        getDividendReasonText(allocation.dividendReason)
+      )
+    }
+
+    return (
+    table(
+      pageStyles.compactTable,
+      thead(
+        tr(
+          th(row.texts.taxReturns.fields.subscriptionDate),
+          th(row.texts.taxReturns.fields.allocationShares),
+          th(row.texts.taxReturns.fields.allocationGross),
+          th(row.texts.taxReturns.fields.allocationCapitalRepayment),
+          th(row.texts.taxReturns.fields.allocationDividend),
+          th(row.texts.subscriptions.history.fields.shareCost),
+          th(row.texts.subscriptions.history.fields.pricePerShare),
+          th(row.texts.subscriptions.history.fields.details)
+        )
+      ),
+      tbody(
+        row.summary?.allocations.map((allocation) =>
+          tr(
+            td(allocation.subscriptionDate),
+            td(amount(allocation.shares)),
+            td(euro(allocation.gross)),
+            td(euro(allocation.capitalRepayment)),
+            td(euro(allocation.dividend)),
+            td(euro(allocation.remainingCostPerShareAfter.mul(allocation.shares))),
+            td(euro(allocation.remainingCostPerShareAfter)),
+            td(renderAllocationEffect(allocation))
+          )
+        ) || []
+      )
+    )
+    )
+  }
   const tbodyNode = createEditableCollectionTable({
     rowsState,
     createRemoveButton: (labelNode, remove) => createRemoveButton(pageStyles.smallButton, labelNode, remove),
@@ -608,6 +698,9 @@ export function createCashDistributionsSection(
       const withholdingToTaxOfficeCell = td(pageStyles.highlightedColumn)
       const capitalRepaymentTotalCell = td(pageStyles.blueHighlightedColumn)
       const dividendTotalCell = td(pageStyles.blueHighlightedColumn)
+      const toggleLotEvents = (distributionId: string) => {
+        toggleSetMembership(openLotEventRowIds, distributionId)
+      }
       const bindings: Array<EditableCellBinding<typeof row>> = [
         {
           cell: dateCell,
@@ -680,6 +773,16 @@ export function createCashDistributionsSection(
         }
       )
       editableRow.sync(row)
+      const lotEventButtonLabelNode = document.createTextNode(row.texts.cashDistributions.actions.showLotEvents)
+      const lotEventButton = createActionButton(
+        pageStyles.smallButton,
+        lotEventButtonLabelNode,
+        'secondary',
+        () => {
+          toggleLotEvents(editableRow.getCurrentRow().id)
+          syncDetailRow(editableRow.getCurrentRow())
+        }
+      )
       const rowNode = tr(
         dateCell,
         typeCell,
@@ -692,16 +795,51 @@ export function createCashDistributionsSection(
         dividendTotalCell,
         td(
           { class: 'no-print' },
-          createRowActionButtons(editableRow.editButton, removeButton, pageStyles.rowActionButtons)
+          div(pageStyles.rowActionButtons, lotEventButton, editableRow.editButton, removeButton)
         )
       )
       editableRow.attachDoubleClickEdit(rowNode)
+      const detailContentNode = div()
+      const detailRowNode = tr(td({ colSpan: 10 }, pageStyles.historyCell, detailContentNode))
+      const syncDetailRow = (nextRow: typeof row) => {
+        const shouldShow = openLotEventRowIds.has(nextRow.id) && Boolean(nextRow.summary)
+        lotEventButtonLabelNode.data = shouldShow
+          ? nextRow.texts.cashDistributions.actions.hideLotEvents
+          : nextRow.texts.cashDistributions.actions.showLotEvents
+        detailRowNode.style.display = shouldShow ? '' : 'none'
+        if (!shouldShow || !nextRow.summary) {
+          replaceChildren(detailContentNode)
+          return
+        }
+        replaceChildren(
+          detailContentNode,
+          div(
+            pageStyles.denseStack,
+            b(nextRow.texts.cashDistributions.sections.lotEvents),
+            renderLotEventTable(nextRow)
+          )
+        )
+      }
 
       syncSummaryCells(row)
+      syncDetailRow(row)
+      lotEventRowSyncs.set(row.id, () => {
+        syncDetailRow(editableRow.getCurrentRow())
+      })
+
+      const fragment = document.createDocumentFragment()
+      fragment.append(rowNode, detailRowNode)
 
       return {
-        node: rowNode,
-        set: editableRow.set,
+        node: fragment,
+        set(nextRow) {
+          editableRow.set(nextRow)
+          syncDetailRow(nextRow)
+        },
+        destroy() {
+          openLotEventRowIds.delete(row.id)
+          lotEventRowSyncs.delete(row.id)
+        },
       }
     },
   })
@@ -756,6 +894,7 @@ export function createCashDistributionsSection(
     distributionGroupHeaderLabel.data = texts.cashDistributions.headerGroups.distribution
     paymentBreakdownGroupHeaderLabel.data = texts.cashDistributions.headerGroups.paymentBreakdown
     taxationGroupHeaderLabel.data = texts.cashDistributions.headerGroups.taxation
+    lotEventRowSyncs.forEach((sync) => sync())
     ;(withholdingHeaderNode as HTMLElement).title = texts.cashDistributions.fields.withholdingHelp
     ;(cashPaidHeaderNode as HTMLElement).title = texts.cashDistributions.fields.cashPaidHelp
     ;(capitalRepaymentHeaderNode as HTMLElement).title = texts.cashDistributions.fields.capitalRepaymentHelp
