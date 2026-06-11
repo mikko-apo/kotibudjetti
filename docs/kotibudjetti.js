@@ -7918,7 +7918,10 @@
       shareSplits: data2.shareSplits,
       demergers: data2.demergers,
       mathematicalShareValues: data2.mathematicalShareValues,
-      ipo: data2.ipo
+      ipo: data2.ipo,
+      ipoSell: {
+        pricePerShare: data2.ipoSell.pricePerShare || ""
+      }
     };
   }
   function createShareableOsakkeetUrlData(data2) {
@@ -7945,9 +7948,12 @@
           ...emptyForm.ipo,
           ...data2.ipo || {}
         },
+        ipoSell: {
+          ...emptyForm.ipoSell,
+          ...data2.ipoSell || {}
+        },
         subscriptions: emptyForm.subscriptions,
         sells: emptyForm.sells,
-        ipoSell: emptyForm.ipoSell,
         lastModifiedCompanyData: data2.lastModifiedCompanyData || "",
         lastModifiedUserData: data2.lastModifiedUserData || ""
       },
@@ -8077,6 +8083,10 @@
         ipo: {
           ...current.ipo,
           ...merged.ipo || {}
+        },
+        ipoSell: {
+          ...current.ipoSell,
+          ...merged.ipoSell || {}
         },
         lastModifiedCompanyData: merged.lastModifiedCompanyData || current.lastModifiedCompanyData || "",
         lastModifiedUserData: current.lastModifiedUserData || ""
