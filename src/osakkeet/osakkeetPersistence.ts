@@ -9,6 +9,7 @@ export const storageKeys = {
 
 export const shareUrlQueryKey = 'osakkeet'
 export const fullShareUrlQueryKey = 'osakkeet-full'
+export const mergeShareUrlQueryKey = 'osakkeet-company-merge'
 
 export type ShareableOsakkeetUrlData = Pick<
   OsakkeetFormData,
@@ -186,6 +187,7 @@ export function deserializeOsakkeetFormData(raw: string, createId: (prefix: stri
 export async function buildShareUrl(data: OsakkeetFormData, createId: (prefix: string) => string) {
   const url = new URL(window.location.href)
   url.searchParams.delete(fullShareUrlQueryKey)
+  url.searchParams.delete(mergeShareUrlQueryKey)
   url.searchParams.set(
     shareUrlQueryKey,
     await encodeUrlState(createShareableOsakkeetUrlData(normalizeOsakkeetFormData(data, createId)))
@@ -196,7 +198,19 @@ export async function buildShareUrl(data: OsakkeetFormData, createId: (prefix: s
 export async function buildFullShareUrl(data: OsakkeetFormData, createId: (prefix: string) => string) {
   const url = new URL(window.location.href)
   url.searchParams.delete(shareUrlQueryKey)
+  url.searchParams.delete(mergeShareUrlQueryKey)
   url.searchParams.set(fullShareUrlQueryKey, await encodeUrlState(normalizeOsakkeetFormData(data, createId)))
+  return url.toString()
+}
+
+export async function buildMergeShareUrl(data: OsakkeetFormData, createId: (prefix: string) => string) {
+  const url = new URL(window.location.href)
+  url.searchParams.delete(shareUrlQueryKey)
+  url.searchParams.delete(fullShareUrlQueryKey)
+  url.searchParams.set(
+    mergeShareUrlQueryKey,
+    await encodeUrlState(createShareableOsakkeetUrlData(normalizeOsakkeetFormData(data, createId)))
+  )
   return url.toString()
 }
 
@@ -212,6 +226,33 @@ export function deserializeFullShareableOsakkeetUrlData(
   createId?: (prefix: string) => string
 ) {
   return normalizeOsakkeetFormData(data, requireCreateId(createId))
+}
+
+export function mergeShareableOsakkeetUrlDataIntoForm(
+  current: OsakkeetFormData,
+  merged: Partial<ShareableOsakkeetUrlData>,
+  createId?: (prefix: string) => string
+) {
+  return normalizeOsakkeetFormData(
+    {
+      ...current,
+      company: {
+        ...current.company,
+        ...(merged.company || {}),
+      },
+      cashDistributions: merged.cashDistributions || [],
+      shareSplits: merged.shareSplits || [],
+      demergers: merged.demergers || [],
+      mathematicalShareValues: merged.mathematicalShareValues || [],
+      ipo: {
+        ...current.ipo,
+        ...(merged.ipo || {}),
+      },
+      lastModifiedCompanyData: merged.lastModifiedCompanyData || current.lastModifiedCompanyData || '',
+      lastModifiedUserData: current.lastModifiedUserData || '',
+    },
+    requireCreateId(createId)
+  )
 }
 
 export function deserializeSavedOsakkeetFileData(
