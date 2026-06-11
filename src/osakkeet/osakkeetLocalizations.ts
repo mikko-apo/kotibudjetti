@@ -35,7 +35,7 @@ const FI = {
   },
   company: {
     title: 'Yrityksen tiedot',
-    help: 'Valitse onko yhtiö tällä hetkellä listaamaton vai listattu. Valinnainen listautumispäivä toimii tässä laskurissa IPO-päivänä varojenjaon ja IPO-myynnin rajapäivänä.',
+    help: 'Valitse onko yhtiö tällä hetkellä listaamaton vai listattu. Valinnainen listautumispäivä toimii tässä laskurissa IPO-päivänä varojenjaon ja IPO-myynnin rajapäivänä. Jos yhtiö on merkitty listatuksi eikä listautumispäivää anneta, kaikki varojenjaot käsitellään tässä näkymässä osinkoina.',
     fields: {
       listingStatus: 'Yhtiön tila',
       becameListedDate: 'Listautumispäivä',
@@ -160,6 +160,7 @@ const FI = {
         demerger: 'Yrityksen jakautuminen',
         sell: 'Myynti',
         capitalRepayment: 'Pääomanpalautus',
+        dividend: 'Osinko',
       },
       details: {
         subscription: (shares: string, totalPrice: string, pricePerShare: string) =>
@@ -170,6 +171,10 @@ const FI = {
           `${beforeTotalPrice} x ${ratio} = ${afterTotalPrice}`,
         sell: (soldShares: string, sellPrice: string, pricePerShare: string) =>
           `Myyty ${soldShares} osaketta, myyntihinta yhteensä ${sellPrice} (${pricePerShare} / osake). Osakkeiden määrä pieneni, hankintameno / osake pysyi samana.`,
+        dividend: (amountPerShare: string, shares: string, total: string) =>
+          `Osinko ${amountPerShare} / osake x ${shares} osaketta = ${total}.`,
+        dividendOnlyWithReason: (dividendPerShare: string, dividendTotal: string, reason: string) =>
+          `Osinkona ${dividendPerShare} / osake = ${dividendTotal} (${reason}).`,
         capitalRepaymentAppliedOnly: (
           inputPerShare: string,
           shares: string,
@@ -229,6 +234,11 @@ const FI = {
     },
     actions: {
       add: 'Lisää varojenjako',
+      showLotEvents: 'Eräkohtaiset tapahtumat',
+      hideLotEvents: 'Piilota eräkohtaiset tapahtumat',
+    },
+    sections: {
+      lotEvents: 'Merkintäerittäin',
     },
     types: {
       capitalReturn: 'Pääomanpalautus',
@@ -668,7 +678,7 @@ const EN: typeof FI = {
   },
   company: {
     title: 'Company details',
-    help: 'Choose whether the company is currently unlisted or listed. The optional became-listed date acts as the IPO date cutoff in this calculator for distributions and the IPO sale.',
+    help: 'Choose whether the company is currently unlisted or listed. The optional became-listed date acts as the IPO date cutoff in this calculator for distributions and the IPO sale. If the company is marked listed and no became-listed date is given, all distributions are treated as dividends in this view.',
     fields: {
       listingStatus: 'Company status',
       becameListedDate: 'Became listed date',
@@ -793,6 +803,7 @@ const EN: typeof FI = {
         demerger: 'Demerger',
         sell: 'Sale',
         capitalRepayment: 'Capital repayment',
+        dividend: 'Dividend',
       },
       details: {
         subscription: (shares: string, totalPrice: string, pricePerShare: string) =>
@@ -803,6 +814,10 @@ const EN: typeof FI = {
           `${beforeTotalPrice} x ${ratio} = ${afterTotalPrice}`,
         sell: (soldShares: string, sellPrice: string, pricePerShare: string) =>
           `Sold ${soldShares} shares, sale price total ${sellPrice} (${pricePerShare} / share). Share count decreased, acquisition cost / share stayed the same.`,
+        dividend: (amountPerShare: string, shares: string, total: string) =>
+          `Dividend ${amountPerShare} / share x ${shares} shares = ${total}.`,
+        dividendOnlyWithReason: (dividendPerShare: string, dividendTotal: string, reason: string) =>
+          `As dividend ${dividendPerShare} / share = ${dividendTotal} (${reason}).`,
         capitalRepaymentAppliedOnly: (
           inputPerShare: string,
           shares: string,
@@ -863,6 +878,11 @@ const EN: typeof FI = {
     },
     actions: {
       add: 'Add distribution',
+      showLotEvents: 'Lot-level events',
+      hideLotEvents: 'Hide lot-level events',
+    },
+    sections: {
+      lotEvents: 'By subscription lot',
     },
     types: {
       capitalReturn: 'Capital repayment',

@@ -347,6 +347,7 @@ function applyCashDistributions(
   cashDistributions: ParsedCapitalRepaymentOrDividend[],
   shareCalculator: ShareCalculator,
   ipoDate: Date | undefined,
+  forceTreatAllDistributionsAsListedDividends: boolean,
   mathematicalShareValuesByYear: Map<number, Decimal>,
   rules: OsakkeetTaxRules,
   warnings: string[],
@@ -357,28 +358,38 @@ function applyCashDistributions(
   const grossDividendUsedByYear = new Map<number, Decimal>()
   const summaries: CashDistributionSummary[] = []
   const lotsById = new Map(lots.map((lot) => [lot.id, lot]))
+  const sameDayLotStates = new Map<string, WorkingLotStateSnapshot>()
+  let activeDistributionDayKey: string | undefined
+
+  const getDistributionDayKey = (entry: ParsedCapitalRepaymentOrDividend) =>
+    entry.dateValue ? String(entry.dateValue.getTime()) : `raw:${entry.date}`
 
   for (const entry of [...cashDistributions].sort((a, b) => compareDateStrings(a.date, b.date))) {
     const cashDistributionDate = entry.dateValue
     const amountPerShare = entry.amountPerShare
+    const distributionDayKey = getDistributionDayKey(entry)
+    if (distributionDayKey !== activeDistributionDayKey) {
+      sameDayLotStates.clear()
+      activeDistributionDayKey = distributionDayKey
+    }
     const eligibleLots = lots.filter(
       (lot) => !lot.dateValue || !cashDistributionDate || lot.dateValue.getTime() <= cashDistributionDate.getTime()
     )
-    const lotStates = eligibleLots.map((lot) => ({
-      lot,
-      before: cashDistributionDate
-        ? getLotStateAtOrZero(shareCalculator, lot.id, cashDistributionDate, false)
-        : getLatestLotStateOrZero(shareCalculator, lot.id),
-      after: cashDistributionDate
-        ? getLotStateAtOrZero(shareCalculator, lot.id, cashDistributionDate, true)
-        : getLatestLotStateOrZero(shareCalculator, lot.id),
-    }))
+    const isAfterIpoDate = !!(ipoDate && cashDistributionDate && cashDistributionDate.getTime() >= ipoDate.getTime())
+    const treatedAsListedDividend = forceTreatAllDistributionsAsListedDividends || isAfterIpoDate
+    const effectiveType: CashDistributionSummary['type'] = treatedAsListedDividend ? 'dividend' : entry.type
+    const lotStates = eligibleLots.map((lot) => {
+      const before =
+        sameDayLotStates.get(lot.id) ||
+        (cashDistributionDate
+          ? getLotStateAtOrZero(shareCalculator, lot.id, cashDistributionDate, false)
+          : getLatestLotStateOrZero(shareCalculator, lot.id))
+      return { lot, before }
+    })
     const sharesHeld = sumDecimals(lotStates.map(({ before }) => before.shareCount))
     const expectedTotal = amountPerShare.mul(sharesHeld)
     const grossTotal = expectedTotal
     const effectivePerShare = sharesHeld.gt(0) ? grossTotal.div(sharesHeld) : zero
-    const isAfterIpoDate = !!(ipoDate && cashDistributionDate && cashDistributionDate.getTime() >= ipoDate.getTime())
-    const effectiveType: CashDistributionSummary['type'] = isAfterIpoDate ? 'dividend' : entry.type
     const year = cashDistributionDate?.getUTCFullYear()
     const distributionRules = resolveYearlyTaxRules(year, rules, useYearlyRules)
 
@@ -386,19 +397,46 @@ function applyCashDistributions(
       warnings.push(localization.calculator.warnings.noSharesHeldForDistribution(entry.date))
     }
 
-    const allocations = lotStates.map(({ lot, before, after }) => {
+    const allocations = lotStates.map(({ lot, before }) => {
       const shares = before.shareCount
       const gross = effectivePerShare.mul(shares)
-      const capitalRepayment = Decimal.max(before.shareAcquisitionCost.minus(after.shareAcquisitionCost), zero)
+      const eligibleByAge = isWithinYearsInclusive(
+        lot.dateValue,
+        cashDistributionDate,
+        distributionRules.capitalRepayment.eligibilityYears
+      )
+      const remainingPerShare = shares.gt(0) ? before.shareAcquisitionCost.div(shares) : zero
+      const capitalRepaymentPerShare =
+        effectiveType === 'capital_return' && eligibleByAge && before.shareAcquisitionCost.gt(0)
+          ? Decimal.min(amountPerShare, remainingPerShare)
+          : zero
+      const capitalRepayment = capitalRepaymentPerShare.mul(shares)
+      const after = {
+        ...before,
+        shareAcquisitionCost:
+          effectiveType === 'capital_return'
+            ? Decimal.max(before.shareAcquisitionCost.minus(capitalRepayment), zero)
+            : before.shareAcquisitionCost,
+      } satisfies WorkingLotStateSnapshot
       const dividend = Decimal.max(gross.minus(capitalRepayment), zero)
+      const dividendReason =
+        effectiveType !== 'capital_return'
+          ? entry.type === 'capital_return'
+            ? 'listed_dividend'
+            : undefined
+          : !eligibleByAge
+            ? 'too_old'
+            : dividend.gt(0)
+              ? before.shareAcquisitionCost.lte(0)
+                ? 'no_remaining_cost'
+                : 'remaining_cost_limit'
+              : undefined
       const eligibleCapitalRepayment =
         effectiveType === 'capital_return' &&
-        isWithinYearsInclusive(
-          lot.dateValue,
-          cashDistributionDate,
-          distributionRules.capitalRepayment.eligibilityYears
-        ) &&
+        eligibleByAge &&
         capitalRepayment.gt(0)
+
+      sameDayLotStates.set(lot.id, after)
 
       const targetLot = lotsById.get(lot.id)
       if (targetLot) {
@@ -418,20 +456,6 @@ function applyCashDistributions(
       if (entry.type === 'capital_return' && targetLot && shares.gt(0)) {
         const appliedCapitalRepaymentPerShare = shares.gt(0) ? capitalRepayment.div(shares) : zero
         const directedToDividendPerShare = shares.gt(0) ? dividend.div(shares) : zero
-        const dividendReason =
-          effectiveType !== 'capital_return'
-            ? 'listed_dividend'
-            : !isWithinYearsInclusive(
-                  lot.dateValue,
-                  cashDistributionDate,
-                  distributionRules.capitalRepayment.eligibilityYears
-                )
-              ? 'too_old'
-              : dividend.gt(0)
-                ? before.shareAcquisitionCost.lte(0)
-                  ? 'no_remaining_cost'
-                  : 'remaining_cost_limit'
-                : undefined
 
         targetLot.capitalRepaymentHoverEntries.push({
           distributionDate: entry.date,
@@ -454,6 +478,7 @@ function applyCashDistributions(
         dividend,
         remainingCostPerShareAfter: after.shareCount.gt(0) ? after.shareAcquisitionCost.div(after.shareCount) : zero,
         eligibleCapitalRepayment,
+        dividendReason,
       } satisfies CashDistributionAllocation
     })
 
@@ -478,20 +503,20 @@ function applyCashDistributions(
     )
     const lowCapitalPart = Decimal.min(capitalDividendGross, lowerCapitalDividendRoom)
     const highCapitalPart = Decimal.max(capitalDividendGross.minus(lowCapitalPart), zero)
-    const taxableCapitalIncome = isAfterIpoDate
+    const taxableCapitalIncome = treatedAsListedDividend
       ? dividendTotal.mul(distributionRules.listedDividend.taxableCapitalIncomeRate)
       : lowCapitalPart
           .mul(distributionRules.unlistedDividend.lowCapitalDividendTaxableRate)
           .add(highCapitalPart.mul(distributionRules.unlistedDividend.highCapitalDividendTaxableRate))
-    const taxFreeCapitalIncomePortion = isAfterIpoDate
+    const taxFreeCapitalIncomePortion = treatedAsListedDividend
       ? dividendTotal.mul(distributionRules.listedDividend.taxFreeCapitalIncomeRate)
       : lowCapitalPart
           .mul(distributionRules.unlistedDividend.lowCapitalDividendTaxFreeRate)
           .add(highCapitalPart.mul(distributionRules.unlistedDividend.highCapitalDividendTaxFreeRate))
-    const taxableEarnedDividend = isAfterIpoDate
+    const taxableEarnedDividend = treatedAsListedDividend
       ? zero
       : earnedDividendGross.mul(distributionRules.unlistedDividend.earnedDividendTaxableRate)
-    const taxFreeEarnedDividend = isAfterIpoDate
+    const taxFreeEarnedDividend = treatedAsListedDividend
       ? zero
       : earnedDividendGross.mul(distributionRules.unlistedDividend.earnedDividendTaxFreeRate)
 
@@ -502,14 +527,14 @@ function applyCashDistributions(
     )
     const lowWithholdingPart = Decimal.min(dividendTotal, lowerGrossDividendRoom)
     const highWithholdingPart = Decimal.max(dividendTotal.minus(lowWithholdingPart), zero)
-    const withholdingToTaxOffice = isAfterIpoDate
+    const withholdingToTaxOffice = treatedAsListedDividend
       ? dividendTotal.mul(distributionRules.listedDividend.withholdingRate)
       : lowWithholdingPart
           .mul(distributionRules.unlistedDividend.lowWithholdingRate)
           .add(highWithholdingPart.mul(distributionRules.unlistedDividend.highWithholdingRate))
     const paidInCash = grossTotal.minus(withholdingToTaxOffice)
 
-    if (year && !isAfterIpoDate) {
+    if (year && !treatedAsListedDividend) {
       capitalDividendUsedByYear.set(year, usedCapitalDividend.add(capitalDividendGross))
       grossDividendUsedByYear.set(year, usedGrossDividend.add(dividendTotal))
     }
@@ -542,7 +567,7 @@ function applyCashDistributions(
       taxFreeCapitalIncomePortion,
       taxableEarnedDividend,
       taxFreeEarnedDividend,
-      treatedAsListedDividend: isAfterIpoDate,
+      treatedAsListedDividend,
       allocations,
     } satisfies CashDistributionSummary)
   }
@@ -729,6 +754,8 @@ export function calculateOsakkeet(
   const { parsed: parsedIpo, errors: ipoErrors } = parseOsakkeetIpoCalculatorInputs(form, localization)
   errors.push(...ipoErrors)
   const warnings: string[] = []
+  const forceTreatAllDistributionsAsListedDividends =
+    parsed.company.listingStatus === 'listed' && !parsed.company.becameListedDate
   const sortedSubscriptions = [...parsed.subscriptions].sort((a, b) => compareDateStrings(a.date, b.date))
   const sortedSells = [...parsed.sells].sort((a, b) => compareDateStrings(a.date, b.date))
   const baseLots = sortedSubscriptions.map((subscription) => createLot(subscription))
@@ -743,7 +770,10 @@ export function calculateOsakkeet(
       demergers: parsed.demergers,
       cashDistributions: parsed.cashDistributions,
     },
-    { capitalReturnCutoffDateExclusive: ipoDate }
+    {
+      capitalReturnCutoffDateExclusive: ipoDate,
+      forceTreatCapitalReturnsAsDividends: forceTreatAllDistributionsAsListedDividends,
+    }
   )
   mapShareCalculatorErrors(baseShareCalculatorErrors, errors)
 
@@ -776,6 +806,7 @@ export function calculateOsakkeet(
     parsed.cashDistributions,
     baseShareCalculator,
     ipoDate,
+    forceTreatAllDistributionsAsListedDividends,
     mathematicalShareValuesByYear,
     effectiveRules,
     warnings,
@@ -809,7 +840,10 @@ export function calculateOsakkeet(
       demergers: parsed.demergers,
       cashDistributions: parsed.cashDistributions,
     },
-    { capitalReturnCutoffDateExclusive: ipoDate }
+    {
+      capitalReturnCutoffDateExclusive: ipoDate,
+      forceTreatCapitalReturnsAsDividends: forceTreatAllDistributionsAsListedDividends,
+    }
   )
   mapShareCalculatorErrors(sellShareCalculatorErrors, errors)
   const sellRules = resolveYearlyTaxRules(ipo.ipoDate?.getUTCFullYear(), effectiveRules, useYearlyRules)

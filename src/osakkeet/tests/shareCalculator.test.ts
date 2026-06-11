@@ -74,6 +74,17 @@ describe(createShareCalculator, () => {
     expect(afterSell.remaining.shareCount.toFixed(2)).toBe('140.00')
     expect(afterSell.remaining.shareAcquisitionCost.toFixed(2)).toBe('105.00')
 
+    const afterDividend = shareCalculator.getRemainingCountAndAcquisitionCost('s1', '2024-08-01')
+    expect(afterDividend.remaining.shareCount.toFixed(2)).toBe('200.00')
+    expect(afterDividend.remaining.shareAcquisitionCost.toFixed(2)).toBe('150.00')
+    expect(afterDividend.log.map((entry) => entry.kind)).toEqual([
+      'subscription',
+      'companyShareCountChange',
+      'companyAcquisitionCostChange',
+      'capitalRepayment',
+      'dividend',
+    ])
+
     const sellAllocation = shareCalculator.sellsForThisSubscriptionLotsBySubscriptionId.s1[0]
     expect(sellAllocation.soldShareCount.toFixed(2)).toBe('60.00')
     expect(sellAllocation.soldShareAcquisitionCost.toFixed(2)).toBe('45.00')
