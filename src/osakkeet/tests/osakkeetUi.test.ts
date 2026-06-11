@@ -5,7 +5,7 @@ import {
   DecompressionStream as NodeDecompressionStream,
 } from 'node:stream/web'
 import { setCreateElementContext } from '../../../../ki-frame/src/domBuilder'
-import { buildFullShareUrl, buildMergeShareUrl } from '../osakkeetPersistence'
+import { buildFullShareUrl, buildMergeShareUrl, buildShareUrl } from '../osakkeetPersistence'
 import { createId } from '../osakkeetUiBootstrap'
 import { osakkeetIpoCalculatorPage } from '../osakkeetUi'
 
@@ -384,6 +384,117 @@ describe('osakkeet UI', () => {
       )
     ).toEqual(['07.02.2025'])
     expect(normalizedText()).toContain('Listattu')
+  })
+
+  it('loads IPO price per share from company share URL', async () => {
+    const sharedUrl = await buildShareUrl(
+      {
+        subscriptions: [],
+        sells: [],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
+        ipo: {
+          totalShareCount: '100',
+          totalIpoCost: '10',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '123',
+          pricePerShare: '11.5',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+        lastModifiedCompanyData: '',
+        lastModifiedUserData: '',
+      },
+      createId
+    )
+
+    setOsakkeetDom(sharedUrl)
+
+    await renderOsakkeetPage()
+    toggleMainSection('ipoCalculator')
+
+    const inputs = [...findSectionCard('IPO-myynnin tiedot').querySelectorAll('input')] as HTMLInputElement[]
+    expect(inputs[1]?.value).toBe('11.5')
+  })
+
+  it('merges IPO price per share from company merge URL and keeps user-specific IPO sell fields', async () => {
+    const mergeUrl = await buildMergeShareUrl(
+      {
+        subscriptions: [],
+        sells: [],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
+        ipo: {
+          totalShareCount: '100',
+          totalIpoCost: '10',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '',
+          pricePerShare: '12.25',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+        lastModifiedCompanyData: '',
+        lastModifiedUserData: '',
+      },
+      createId
+    )
+
+    setOsakkeetDom(mergeUrl)
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        subscriptions: [],
+        sells: [],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
+        ipo: {
+          totalShareCount: '',
+          totalIpoCost: '',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '321',
+          pricePerShare: '9',
+          costPerShare: '1.5',
+          otherAnnualCapitalGainsOrLosses: '7',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('ipoCalculator')
+
+    const inputs = [...findSectionCard('IPO-myynnin tiedot').querySelectorAll('input')] as HTMLInputElement[]
+    expect(inputs[0]?.value).toBe('321')
+    expect(inputs[1]?.value).toBe('12.25')
+    expect(inputs[2]?.value).toBe('1.5')
+    expect(inputs[3]?.value).toBe('7')
   })
 
   it('updates the share split section counter when a row is added', async () => {

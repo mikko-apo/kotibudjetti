@@ -21,7 +21,9 @@ export type ShareableOsakkeetUrlData = Pick<
   | 'ipo'
   | 'lastModifiedCompanyData'
   | 'lastModifiedUserData'
->
+> & {
+  ipoSell: Pick<OsakkeetFormData['ipoSell'], 'pricePerShare'>
+}
 
 export type CompanyDataPayload = Omit<ShareableOsakkeetUrlData, 'lastModifiedCompanyData' | 'lastModifiedUserData'>
 
@@ -53,6 +55,9 @@ export function createCompanyDataPayload(data: OsakkeetFormData): CompanyDataPay
     demergers: data.demergers,
     mathematicalShareValues: data.mathematicalShareValues,
     ipo: data.ipo,
+    ipoSell: {
+      pricePerShare: data.ipoSell.pricePerShare || '',
+    },
   }
 }
 
@@ -84,9 +89,12 @@ function fromShareableOsakkeetUrlData(
         ...emptyForm.ipo,
         ...(data.ipo || {}),
       },
+      ipoSell: {
+        ...emptyForm.ipoSell,
+        ...(data.ipoSell || {}),
+      },
       subscriptions: emptyForm.subscriptions,
       sells: emptyForm.sells,
-      ipoSell: emptyForm.ipoSell,
       lastModifiedCompanyData: data.lastModifiedCompanyData || '',
       lastModifiedUserData: data.lastModifiedUserData || '',
     },
@@ -247,6 +255,10 @@ export function mergeShareableOsakkeetUrlDataIntoForm(
       ipo: {
         ...current.ipo,
         ...(merged.ipo || {}),
+      },
+      ipoSell: {
+        ...current.ipoSell,
+        ...(merged.ipoSell || {}),
       },
       lastModifiedCompanyData: merged.lastModifiedCompanyData || current.lastModifiedCompanyData || '',
       lastModifiedUserData: current.lastModifiedUserData || '',
