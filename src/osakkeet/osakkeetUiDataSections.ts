@@ -533,6 +533,17 @@ export function createCashDistributionsSection(
 ) {
   const counter = createSectionCounter()
   const cashDistributionTextNodes = localizedTextNodes.cashDistributions
+  const initialTexts = pageReadState.get().texts
+  const dateHeaderLabel = document.createTextNode(initialTexts.common.date)
+  const typeHeaderLabel = document.createTextNode(initialTexts.common.type)
+  const shareCountHeaderLabel = document.createTextNode(initialTexts.cashDistributions.fields.shareCount)
+  const amountPerShareHeaderLabel = document.createTextNode(initialTexts.cashDistributions.fields.amountPerShare)
+  const totalHeaderLabel = document.createTextNode(initialTexts.common.total)
+  const distributionGroupHeaderLabel = document.createTextNode(initialTexts.cashDistributions.headerGroups.distribution)
+  const paymentBreakdownGroupHeaderLabel = document.createTextNode(
+    initialTexts.cashDistributions.headerGroups.paymentBreakdown
+  )
+  const taxationGroupHeaderLabel = document.createTextNode(initialTexts.cashDistributions.headerGroups.taxation)
   const withholdingHeaderNode = withHoverInfo(
     pageStyles.hoverInfo,
     pageStyles.hoverInfoIcon,
@@ -592,11 +603,11 @@ export function createCashDistributionsSection(
       const typeCell = td()
       const shareCountCell = td()
       const amountPerShareCell = td()
-      const grossTotalCell = td()
-      const paidInCashCell = td()
-      const withholdingToTaxOfficeCell = td()
-      const capitalRepaymentTotalCell = td()
-      const dividendTotalCell = td()
+      const grossTotalCell = td(pageStyles.highlightedColumn)
+      const paidInCashCell = td(pageStyles.highlightedColumn)
+      const withholdingToTaxOfficeCell = td(pageStyles.highlightedColumn)
+      const capitalRepaymentTotalCell = td(pageStyles.blueHighlightedColumn)
+      const dividendTotalCell = td(pageStyles.blueHighlightedColumn)
       const bindings: Array<EditableCellBinding<typeof row>> = [
         {
           cell: dateCell,
@@ -710,15 +721,22 @@ export function createCashDistributionsSection(
     table(
       thead(
         tr(
-          th(commonTextNodes.date),
-          th(commonTextNodes.type),
-          th(cashDistributionTextNodes.fields.shareCount),
-          th(cashDistributionTextNodes.fields.amountPerShare),
-          th(commonTextNodes.total),
-          th(cashPaidHeaderNode),
-          th(withholdingHeaderNode),
-          th(capitalRepaymentHeaderNode),
-          th(dividendHeaderNode),
+          th(''),
+          th({ colSpan: 3 }, distributionGroupHeaderLabel),
+          th({ colSpan: 3 }, pageStyles.highlightedHeaderColumn, paymentBreakdownGroupHeaderLabel),
+          th({ colSpan: 2 }, pageStyles.blueHighlightedHeaderColumn, taxationGroupHeaderLabel),
+          th({ class: 'no-print' }, '')
+        ),
+        tr(
+          th(dateHeaderLabel),
+          th(typeHeaderLabel),
+          th(shareCountHeaderLabel),
+          th(amountPerShareHeaderLabel),
+          th(pageStyles.highlightedHeaderColumn, totalHeaderLabel),
+          th(pageStyles.highlightedHeaderColumn, cashPaidHeaderNode),
+          th(pageStyles.highlightedHeaderColumn, withholdingHeaderNode),
+          th(pageStyles.blueHighlightedHeaderColumn, capitalRepaymentHeaderNode),
+          th(pageStyles.blueHighlightedHeaderColumn, dividendHeaderNode),
           th({ class: 'no-print' }, '')
         )
       ),
@@ -730,6 +748,14 @@ export function createCashDistributionsSection(
   return createSectionController(root, ({ osakkeetCalculation, texts }: OsakkeetPageReadModel) => {
     const current = osakkeetCalculation.formData
     counter.setCount(current.cashDistributions.length, texts.common.rows)
+    dateHeaderLabel.data = texts.common.date
+    typeHeaderLabel.data = texts.common.type
+    shareCountHeaderLabel.data = texts.cashDistributions.fields.shareCount
+    amountPerShareHeaderLabel.data = texts.cashDistributions.fields.amountPerShare
+    totalHeaderLabel.data = texts.common.total
+    distributionGroupHeaderLabel.data = texts.cashDistributions.headerGroups.distribution
+    paymentBreakdownGroupHeaderLabel.data = texts.cashDistributions.headerGroups.paymentBreakdown
+    taxationGroupHeaderLabel.data = texts.cashDistributions.headerGroups.taxation
     ;(withholdingHeaderNode as HTMLElement).title = texts.cashDistributions.fields.withholdingHelp
     ;(cashPaidHeaderNode as HTMLElement).title = texts.cashDistributions.fields.cashPaidHelp
     ;(capitalRepaymentHeaderNode as HTMLElement).title = texts.cashDistributions.fields.capitalRepaymentHelp

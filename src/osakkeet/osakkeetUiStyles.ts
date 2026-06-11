@@ -190,6 +190,12 @@ export const pageStyles = {
   highlightedHeaderColumn: styles({
     backgroundColor: 'rgba(187, 247, 208, 0.45)',
   }),
+  blueHighlightedColumn: styles({
+    backgroundColor: 'rgba(191, 219, 254, 0.45)',
+  }),
+  blueHighlightedHeaderColumn: styles({
+    backgroundColor: 'rgba(191, 219, 254, 0.45)',
+  }),
   rowErrorText: styles({
     color: 'rgb(153, 27, 27)',
     fontSize: '12px',

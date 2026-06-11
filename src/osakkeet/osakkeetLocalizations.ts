@@ -74,7 +74,8 @@ const FI = {
         summary: 'Sisältää: Osakemerkinnät, Osakkeiden myynnit.',
       },
       distributionsAndCorporateActions: {
-        title: '1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit',
+        title:
+          '1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit. Maksut osakkeiden perusteella ja yhteenveto verotuksen näkökulmasta',
         summary:
           'Sisältää: Yrityksen tila ja listautumispäivä, Osingot ja pääomanpalautukset, Yrityksen jakautuminen hankintamenon mukaan, Osakesplitit.',
       },
@@ -200,8 +201,14 @@ const FI = {
     },
   },
   cashDistributions: {
-    title: 'Osingot ja pääomanpalautukset',
+    title:
+      'Yrityksen osingot ja pääomanpalautukset. Maksut osakkeenomistajalle ja verottajalle ja pääomanpalautus/osinko erottelu',
     help: 'Yhteensä ja maksettu käteisenä lasketaan automaattisesti osakekohtaisen määrän, omistuksen ja ennakonpidätyksen perusteella.',
+    headerGroups: {
+      distribution: 'Osinko tai pääomanpalautus:',
+      paymentBreakdown: 'Maksun jakautuminen:',
+      taxation: 'Verotuksessa:',
+    },
     fields: {
       shareCount: 'Osakkeita yhteensä',
       amountPerShare: '€/osake',
@@ -495,6 +502,7 @@ const FI = {
       loadFromBrowserStorage: 'Lataa selaimesta',
       removeFromBrowserStorage: 'Poista selaimesta',
       copyShareUrl: 'Kopioi yrityksen tiedot URL:iin',
+      copyFullShareUrl: 'Kopioi kaikki tiedot URL:iin',
       saveFile: 'Tallenna tiedosto',
       saveCompanyFile: 'Tallenna yrityksen tiedot tiedostoon',
       loadFile: 'Lataa tiedosto',
@@ -696,7 +704,8 @@ const EN: typeof FI = {
         summary: 'Includes: Share subscriptions, Share sales.',
       },
       distributionsAndCorporateActions: {
-        title: '1. Company details: distributions, demergers, and splits',
+        title:
+          '1. Company details: distributions, demergers, and splits. Share-based payments and a tax-focused summary',
         summary:
           'Includes: Company status and became-listed date, Dividends and capital repayments, Company demerger by acquisition-cost allocation, Share splits.',
       },
@@ -822,8 +831,14 @@ const EN: typeof FI = {
     },
   },
   cashDistributions: {
-    title: 'Dividends and capital repayments',
+    title:
+      'Company dividends and capital repayments. Payments to the shareholder and tax authority, with a capital-repayment/dividend breakdown',
     help: 'Total amount and cash paid are calculated automatically from the per-share amount, holdings, and withholding.',
+    headerGroups: {
+      distribution: 'Dividend or capital repayment:',
+      paymentBreakdown: 'Payment breakdown:',
+      taxation: 'In taxation:',
+    },
     fields: {
       shareCount: 'Total shares',
       amountPerShare: 'EUR / share',
@@ -1117,6 +1132,7 @@ const EN: typeof FI = {
       loadFromBrowserStorage: 'Load from browser',
       removeFromBrowserStorage: 'Remove from browser',
       copyShareUrl: 'Copy company details to URL',
+      copyFullShareUrl: 'Copy all data to URL',
       saveFile: 'Save file',
       saveCompanyFile: 'Save company details to file',
       loadFile: 'Load file',
