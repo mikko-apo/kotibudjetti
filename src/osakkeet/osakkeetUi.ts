@@ -21,6 +21,8 @@ import {
   decodeUrlState,
   fullShareUrlQueryKey,
   isUrlCompressionSupported,
+  mergeShareableOsakkeetUrlDataIntoForm,
+  mergeShareUrlQueryKey,
   serializeOsakkeetFormData,
   shareUrlQueryKey,
   storageKeys,
@@ -128,9 +130,37 @@ async function tryLoadFullSharedUrlData(): Promise<OsakkeetFormData | undefined>
   return deserializeFullShareableOsakkeetUrlData(parsed, createId)
 }
 
+async function tryLoadMergedSharedUrlData(current: OsakkeetFormData): Promise<OsakkeetFormData | undefined> {
+  const encoded = new URL(window.location.href).searchParams.get(mergeShareUrlQueryKey)
+  if (!encoded) return undefined
+  const parsed = await decodeUrlState<import('./osakkeetPersistence').ShareableOsakkeetUrlData>(encoded)
+  return mergeShareableOsakkeetUrlDataIntoForm(current, parsed, createId)
+}
+
 async function tryLoadInitialData(texts: OsakkeetLocalization) {
+  const mergeSharedUrlData = new URL(window.location.href).searchParams.get(mergeShareUrlQueryKey)
   const fullSharedUrlData = new URL(window.location.href).searchParams.get(fullShareUrlQueryKey)
   const sharedUrlData = new URL(window.location.href).searchParams.get(shareUrlQueryKey)
+  if (mergeSharedUrlData) {
+    const currentWindowData = tryLoadWindowSavedData() || createOsakkeetFormData(true)
+    try {
+      const mergedSharedData = await tryLoadMergedSharedUrlData(currentWindowData)
+      if (mergedSharedData) {
+        return {
+          data: mergedSharedData,
+          initialStatus: '',
+        }
+      }
+    } catch {
+      return {
+        data: currentWindowData,
+        initialStatus: isUrlCompressionSupported()
+          ? texts.storage.errors.shareUrlLoadFailed
+          : texts.storage.errors.shareUrlUnavailable,
+      }
+    }
+  }
+
   if (fullSharedUrlData) {
     try {
       const fullSharedData = await tryLoadFullSharedUrlData()

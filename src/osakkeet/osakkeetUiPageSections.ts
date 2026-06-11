@@ -12,6 +12,7 @@ import type { Language, OsakkeetLocalization } from './osakkeetLocalizations'
 import { formatLastModifiedTimestamp } from './osakkeetFormat'
 import {
   buildFullShareUrl,
+  buildMergeShareUrl,
   buildShareUrl,
   createSavedOsakkeetFileData,
   createShareableOsakkeetUrlData,
@@ -150,6 +151,21 @@ export function createTopSection(
       }
     })()
   }
+  const copyCurrentMergeShareUrl = () => {
+    void (async () => {
+      try {
+        const copied = await copyTextToClipboard(await buildMergeShareUrl(dataState.get(), createId))
+        setStatus(copied ? currentTexts.storage.status.shareUrlCopied : currentTexts.storage.errors.clipboardFailed)
+      } catch {
+        setStatus(currentTexts.storage.errors.shareUrlUnavailable)
+      }
+    })()
+  }
+  const mergeShareUrlLabelNode = span(
+    storageTextNodes.actions.copyMergeShareUrlPrefix,
+    b(storageTextNodes.actions.copyMergeShareUrlWord),
+    storageTextNodes.actions.copyMergeShareUrlSuffix
+  )
   const createExampleButtonConfig = (labelNode: Text, preset: 'small2y' | 'medium8y' | 'large16y') => ({
     labelNode,
     variant: 'secondary' as const,
@@ -243,6 +259,11 @@ export function createTopSection(
       variant: 'secondary' as const,
       action: copyCurrentFullShareUrl,
     },
+    {
+      labelNode: mergeShareUrlLabelNode,
+      variant: 'secondary' as const,
+      action: copyCurrentMergeShareUrl,
+    },
   ]
   const [
     topSaveFileButton,
@@ -254,6 +275,7 @@ export function createTopSection(
     clearExampleButton,
     copyShareUrlButton,
     copyFullShareUrlButton,
+    copyMergeShareUrlButton,
   ] = buttonConfigs.map(({ labelNode, variant, action }) =>
     createActionButton(pageStyles.smallButton, labelNode, variant, action)
   )
@@ -343,6 +365,7 @@ export function createTopSection(
             pageStyles.topAlignedRowButtons,
             topSaveCompanyFileButton,
             copyShareUrlButton,
+            copyMergeShareUrlButton,
             copyFullShareUrlButton,
             topLoadFileButton
           )

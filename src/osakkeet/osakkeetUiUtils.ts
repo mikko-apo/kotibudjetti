@@ -126,7 +126,7 @@ export function createRemoveButton(smallButtonStyle: StylesObject, labelNode: Te
 
 export function createActionButton(
   smallButtonStyle: StylesObject,
-  labelNode: Text,
+  labelNode: Node,
   variant: 'primary' | 'secondary',
   onClick: () => void
 ) {

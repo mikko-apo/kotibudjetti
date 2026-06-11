@@ -7162,6 +7162,9 @@
         removeFromBrowserStorage: "Poista selaimesta",
         copyShareUrl: "Kopioi yrityksen tiedot URL:iin",
         copyFullShareUrl: "Kopioi kaikki tiedot URL:iin",
+        copyMergeShareUrlPrefix: "Kopioi yrityksen tiedot ",
+        copyMergeShareUrlWord: "merge",
+        copyMergeShareUrlSuffix: " URL:iin",
         saveFile: "Tallenna tiedosto",
         saveCompanyFile: "Tallenna yrityksen tiedot tiedostoon",
         loadFile: "Lataa tiedosto",
@@ -7699,6 +7702,9 @@
         removeFromBrowserStorage: "Remove from browser",
         copyShareUrl: "Copy company details to URL",
         copyFullShareUrl: "Copy all data to URL",
+        copyMergeShareUrlPrefix: "Copy company details to ",
+        copyMergeShareUrlWord: "merge",
+        copyMergeShareUrlSuffix: " URL",
         saveFile: "Save file",
         saveCompanyFile: "Save company details to file",
         loadFile: "Load file",
@@ -7829,6 +7835,7 @@
   };
   var shareUrlQueryKey = "osakkeet";
   var fullShareUrlQueryKey = "osakkeet-full";
+  var mergeShareUrlQueryKey = "osakkeet-company-merge";
   function isCreateId(value) {
     return typeof value === "function";
   }
@@ -7964,6 +7971,7 @@
   async function buildShareUrl(data2, createId3) {
     const url = new URL(window.location.href);
     url.searchParams.delete(fullShareUrlQueryKey);
+    url.searchParams.delete(mergeShareUrlQueryKey);
     url.searchParams.set(
       shareUrlQueryKey,
       await encodeUrlState(createShareableOsakkeetUrlData(normalizeOsakkeetFormData(data2, createId3)))
@@ -7973,7 +7981,18 @@
   async function buildFullShareUrl(data2, createId3) {
     const url = new URL(window.location.href);
     url.searchParams.delete(shareUrlQueryKey);
+    url.searchParams.delete(mergeShareUrlQueryKey);
     url.searchParams.set(fullShareUrlQueryKey, await encodeUrlState(normalizeOsakkeetFormData(data2, createId3)));
+    return url.toString();
+  }
+  async function buildMergeShareUrl(data2, createId3) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete(shareUrlQueryKey);
+    url.searchParams.delete(fullShareUrlQueryKey);
+    url.searchParams.set(
+      mergeShareUrlQueryKey,
+      await encodeUrlState(createShareableOsakkeetUrlData(normalizeOsakkeetFormData(data2, createId3)))
+    );
     return url.toString();
   }
   function deserializeShareableOsakkeetUrlData(data2, createId3) {
@@ -7981,6 +8000,28 @@
   }
   function deserializeFullShareableOsakkeetUrlData(data2, createId3) {
     return normalizeOsakkeetFormData(data2, requireCreateId(createId3));
+  }
+  function mergeShareableOsakkeetUrlDataIntoForm(current, merged, createId3) {
+    return normalizeOsakkeetFormData(
+      {
+        ...current,
+        company: {
+          ...current.company,
+          ...merged.company || {}
+        },
+        cashDistributions: merged.cashDistributions || [],
+        shareSplits: merged.shareSplits || [],
+        demergers: merged.demergers || [],
+        mathematicalShareValues: merged.mathematicalShareValues || [],
+        ipo: {
+          ...current.ipo,
+          ...merged.ipo || {}
+        },
+        lastModifiedCompanyData: merged.lastModifiedCompanyData || current.lastModifiedCompanyData || "",
+        lastModifiedUserData: current.lastModifiedUserData || ""
+      },
+      requireCreateId(createId3)
+    );
   }
   function deserializeSavedOsakkeetFileData(data2, createId3) {
     return fromSavedOsakkeetFileData(data2, requireCreateId(createId3));
@@ -10625,6 +10666,21 @@
         }
       })();
     };
+    const copyCurrentMergeShareUrl = () => {
+      void (async () => {
+        try {
+          const copied = await copyTextToClipboard(await buildMergeShareUrl(dataState.get(), createId2));
+          setStatus(copied ? currentTexts.storage.status.shareUrlCopied : currentTexts.storage.errors.clipboardFailed);
+        } catch {
+          setStatus(currentTexts.storage.errors.shareUrlUnavailable);
+        }
+      })();
+    };
+    const mergeShareUrlLabelNode = span(
+      storageTextNodes.actions.copyMergeShareUrlPrefix,
+      b(storageTextNodes.actions.copyMergeShareUrlWord),
+      storageTextNodes.actions.copyMergeShareUrlSuffix
+    );
     const createExampleButtonConfig = (labelNode, preset) => ({
       labelNode,
       variant: "secondary",
@@ -10716,6 +10772,11 @@
         labelNode: storageTextNodes.actions.copyFullShareUrl,
         variant: "secondary",
         action: copyCurrentFullShareUrl
+      },
+      {
+        labelNode: mergeShareUrlLabelNode,
+        variant: "secondary",
+        action: copyCurrentMergeShareUrl
       }
     ];
     const [
@@ -10727,7 +10788,8 @@
       largeExampleButton,
       clearExampleButton,
       copyShareUrlButton,
-      copyFullShareUrlButton
+      copyFullShareUrlButton,
+      copyMergeShareUrlButton
     ] = buttonConfigs.map(
       ({ labelNode, variant, action }) => createActionButton(pageStyles.smallButton, labelNode, variant, action)
     );
@@ -10819,6 +10881,7 @@
               pageStyles.topAlignedRowButtons,
               topSaveCompanyFileButton,
               copyShareUrlButton,
+              copyMergeShareUrlButton,
               copyFullShareUrlButton,
               topLoadFileButton
             )
@@ -10938,9 +11001,33 @@
     const parsed = await decodeUrlState(encoded);
     return deserializeFullShareableOsakkeetUrlData(parsed, createId2);
   }
+  async function tryLoadMergedSharedUrlData(current) {
+    const encoded = new URL(window.location.href).searchParams.get(mergeShareUrlQueryKey);
+    if (!encoded) return void 0;
+    const parsed = await decodeUrlState(encoded);
+    return mergeShareableOsakkeetUrlDataIntoForm(current, parsed, createId2);
+  }
   async function tryLoadInitialData(texts) {
+    const mergeSharedUrlData = new URL(window.location.href).searchParams.get(mergeShareUrlQueryKey);
     const fullSharedUrlData = new URL(window.location.href).searchParams.get(fullShareUrlQueryKey);
     const sharedUrlData = new URL(window.location.href).searchParams.get(shareUrlQueryKey);
+    if (mergeSharedUrlData) {
+      const currentWindowData = tryLoadWindowSavedData() || createOsakkeetFormData(true);
+      try {
+        const mergedSharedData = await tryLoadMergedSharedUrlData(currentWindowData);
+        if (mergedSharedData) {
+          return {
+            data: mergedSharedData,
+            initialStatus: ""
+          };
+        }
+      } catch {
+        return {
+          data: currentWindowData,
+          initialStatus: isUrlCompressionSupported() ? texts.storage.errors.shareUrlLoadFailed : texts.storage.errors.shareUrlUnavailable
+        };
+      }
+    }
     if (fullSharedUrlData) {
       try {
         const fullSharedData = await tryLoadFullSharedUrlData();

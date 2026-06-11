@@ -5,7 +5,7 @@ import {
   DecompressionStream as NodeDecompressionStream,
 } from 'node:stream/web'
 import { setCreateElementContext } from '../../../../ki-frame/src/domBuilder'
-import { buildFullShareUrl } from '../osakkeetPersistence'
+import { buildFullShareUrl, buildMergeShareUrl } from '../osakkeetPersistence'
 import { createId } from '../osakkeetUiBootstrap'
 import { osakkeetIpoCalculatorPage } from '../osakkeetUi'
 
@@ -177,6 +177,7 @@ describe('osakkeet UI', () => {
     expect(findButton('Lataa tiedosto')).toBeDefined()
     expect(findButton('Tyhjennä')).toBeDefined()
     expect(findButton('Kopioi yrityksen tiedot URL:iin')).toBeDefined()
+    expect(findButton('Kopioi yrityksen tiedot merge URL:iin')).toBeDefined()
     expect(findButton('Kopioi kaikki tiedot URL:iin')).toBeDefined()
     expect(normalizedText()).toContain('Yrityksen tiedot päivitetty')
     expect(normalizedText()).toContain('Käyttäjän tiedot päivitetty')
@@ -269,6 +270,120 @@ describe('osakkeet UI', () => {
 
     expect(tableColumnTexts('Osakemerkinnät', 2)).toEqual(['04.02.2025', '05.02.2025'])
     expect(firstColumnTexts('Osakkeiden myynnit')).toEqual(['06.02.2025'])
+  })
+
+  it('merges company URL data into existing browser state and keeps user-specific rows', async () => {
+    setOsakkeetDom()
+    const mergeUrl = await buildMergeShareUrl(
+      {
+        subscriptions: [],
+        sells: [],
+        cashDistributions: [
+          {
+            id: 'distribution-merge-1',
+            type: 'dividend',
+            date: '07.02.2025',
+            amountPerShare: '3',
+            shareCount: '30',
+          },
+        ],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        company: {
+          listingStatus: 'listed',
+          becameListedDate: '06.02.2025',
+        },
+        ipo: {
+          totalShareCount: '1000',
+          totalIpoCost: '100000',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+        lastModifiedCompanyData: '',
+        lastModifiedUserData: '',
+      },
+      createId
+    )
+
+    setOsakkeetDom(mergeUrl)
+    sessionStorage.setItem(
+      'osakkeet-ipo-laskuri-window',
+      JSON.stringify({
+        subscriptions: [
+          {
+            id: 'sub-1',
+            date: '04.02.2025',
+            vestingEndsOn: '',
+            amount: '10',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 'sub-2',
+            date: '05.02.2025',
+            vestingEndsOn: '',
+            amount: '20',
+            pricePerShare: '2',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        sells: [
+          {
+            id: 'sell-1',
+            date: '06.02.2025',
+            shareCount: '5',
+            pricePerShare: '3',
+            otherTotalSellCosts: '',
+          },
+        ],
+        cashDistributions: [
+          {
+            id: 'distribution-old-1',
+            type: 'dividend',
+            date: '01.02.2025',
+            amountPerShare: '1',
+            shareCount: '10',
+          },
+        ],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
+        ipo: {
+          totalShareCount: '',
+          totalIpoCost: '',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '321',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+      })
+    )
+
+    await renderOsakkeetPage()
+    toggleMainSection('subscriptionsAndSales')
+    toggleMainSection('distributionsAndCorporateActions')
+
+    expect(tableColumnTexts('Osakemerkinnät', 2)).toEqual(['04.02.2025', '05.02.2025'])
+    expect(firstColumnTexts('Osakkeiden myynnit')).toEqual(['06.02.2025'])
+    expect(
+      firstColumnTexts(
+        'Yrityksen osingot ja pääomanpalautukset. Maksut osakkeenomistajalle ja verottajalle ja pääomanpalautus/osinko erottelu'
+      )
+    ).toEqual(['07.02.2025'])
+    expect(normalizedText()).toContain('Listattu')
   })
 
   it('updates the share split section counter when a row is added', async () => {
