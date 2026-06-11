@@ -8,6 +8,7 @@ export const storageKeys = {
 } as const
 
 export const shareUrlQueryKey = 'osakkeet'
+export const fullShareUrlQueryKey = 'osakkeet-full'
 
 export type ShareableOsakkeetUrlData = Pick<
   OsakkeetFormData,
@@ -144,6 +145,9 @@ async function decompressUrlBytes(bytes: Uint8Array) {
 }
 
 function encodeBase64Url(bytes: Uint8Array) {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+  }
   const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join('')
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }
@@ -152,20 +156,23 @@ function decodeBase64Url(value: string) {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
   const paddingLength = (4 - (normalized.length % 4)) % 4
   const padded = normalized.padEnd(normalized.length + paddingLength, '=')
+  if (typeof Buffer !== 'undefined') {
+    return Uint8Array.from(Buffer.from(padded, 'base64'))
+  }
   const binary = atob(padded)
   return Uint8Array.from(binary, (char) => char.charCodeAt(0))
 }
 
-async function encodeUrlState(value: ShareableOsakkeetUrlData) {
+async function encodeUrlState<TValue>(value: TValue) {
   const json = JSON.stringify(value)
   const bytes = new TextEncoder().encode(json)
   return encodeBase64Url(await compressUrlBytes(bytes))
 }
 
-export async function decodeUrlState(value: string) {
+export async function decodeUrlState<TValue>(value: string) {
   const bytes = decodeBase64Url(value)
   const decompressed = await decompressUrlBytes(bytes)
-  return JSON.parse(new TextDecoder().decode(decompressed)) as Partial<ShareableOsakkeetUrlData>
+  return JSON.parse(new TextDecoder().decode(decompressed)) as Partial<TValue>
 }
 
 export function serializeOsakkeetFormData(data: OsakkeetFormData, createId: (prefix: string) => string) {
@@ -178,10 +185,18 @@ export function deserializeOsakkeetFormData(raw: string, createId: (prefix: stri
 
 export async function buildShareUrl(data: OsakkeetFormData, createId: (prefix: string) => string) {
   const url = new URL(window.location.href)
+  url.searchParams.delete(fullShareUrlQueryKey)
   url.searchParams.set(
     shareUrlQueryKey,
     await encodeUrlState(createShareableOsakkeetUrlData(normalizeOsakkeetFormData(data, createId)))
   )
+  return url.toString()
+}
+
+export async function buildFullShareUrl(data: OsakkeetFormData, createId: (prefix: string) => string) {
+  const url = new URL(window.location.href)
+  url.searchParams.delete(shareUrlQueryKey)
+  url.searchParams.set(fullShareUrlQueryKey, await encodeUrlState(normalizeOsakkeetFormData(data, createId)))
   return url.toString()
 }
 
@@ -190,6 +205,13 @@ export function deserializeShareableOsakkeetUrlData(
   createId?: (prefix: string) => string
 ) {
   return fromShareableOsakkeetUrlData(data, requireCreateId(createId))
+}
+
+export function deserializeFullShareableOsakkeetUrlData(
+  data: Partial<OsakkeetFormData>,
+  createId?: (prefix: string) => string
+) {
+  return normalizeOsakkeetFormData(data, requireCreateId(createId))
 }
 
 export function deserializeSavedOsakkeetFileData(

@@ -11,6 +11,7 @@ import {
 import type { Language, OsakkeetLocalization } from './osakkeetLocalizations'
 import { formatLastModifiedTimestamp } from './osakkeetFormat'
 import {
+  buildFullShareUrl,
   buildShareUrl,
   createSavedOsakkeetFileData,
   createShareableOsakkeetUrlData,
@@ -139,6 +140,16 @@ export function createTopSection(
       }
     })()
   }
+  const copyCurrentFullShareUrl = () => {
+    void (async () => {
+      try {
+        const copied = await copyTextToClipboard(await buildFullShareUrl(dataState.get(), createId))
+        setStatus(copied ? currentTexts.storage.status.shareUrlCopied : currentTexts.storage.errors.clipboardFailed)
+      } catch {
+        setStatus(currentTexts.storage.errors.shareUrlUnavailable)
+      }
+    })()
+  }
   const createExampleButtonConfig = (labelNode: Text, preset: 'small2y' | 'medium8y' | 'large16y') => ({
     labelNode,
     variant: 'secondary' as const,
@@ -227,6 +238,11 @@ export function createTopSection(
       variant: 'secondary' as const,
       action: copyCurrentShareUrl,
     },
+    {
+      labelNode: storageTextNodes.actions.copyFullShareUrl,
+      variant: 'secondary' as const,
+      action: copyCurrentFullShareUrl,
+    },
   ]
   const [
     topSaveFileButton,
@@ -237,6 +253,7 @@ export function createTopSection(
     largeExampleButton,
     clearExampleButton,
     copyShareUrlButton,
+    copyFullShareUrlButton,
   ] = buttonConfigs.map(({ labelNode, variant, action }) =>
     createActionButton(pageStyles.smallButton, labelNode, variant, action)
   )
@@ -326,6 +343,7 @@ export function createTopSection(
             pageStyles.topAlignedRowButtons,
             topSaveCompanyFileButton,
             copyShareUrlButton,
+            copyFullShareUrlButton,
             topLoadFileButton
           )
         ),

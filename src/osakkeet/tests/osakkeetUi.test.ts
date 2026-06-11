@@ -5,6 +5,8 @@ import {
   DecompressionStream as NodeDecompressionStream,
 } from 'node:stream/web'
 import { setCreateElementContext } from '../../../../ki-frame/src/domBuilder'
+import { buildFullShareUrl } from '../osakkeetPersistence'
+import { createId } from '../osakkeetUiBootstrap'
 import { osakkeetIpoCalculatorPage } from '../osakkeetUi'
 
 function setOsakkeetDom(url = 'https://example.test/') {
@@ -148,6 +150,20 @@ function tableColumnTexts(sectionTitle: string, columnIndex: number) {
   )
 }
 
+function tableHeaderRowTexts(sectionTitle: string, rowIndex: number) {
+  const headerRow = findSectionCard(sectionTitle).querySelectorAll('thead tr')[rowIndex]
+  if (!headerRow) throw new Error(`Header row not found: ${sectionTitle} #${rowIndex}`)
+  return [...headerRow.querySelectorAll('th')].map((node) => {
+    const clone = node.cloneNode(true) as HTMLElement
+    clone.querySelectorAll('*').forEach((element) => {
+      if (element.children.length === 0 && element.textContent?.trim() === 'i') {
+        element.remove()
+      }
+    })
+    return clone.textContent?.replace(/\s+/g, ' ').trim() || ''
+  })
+}
+
 describe('osakkeet UI', () => {
   beforeEach(() => {
     setOsakkeetDom()
@@ -161,6 +177,7 @@ describe('osakkeet UI', () => {
     expect(findButton('Lataa tiedosto')).toBeDefined()
     expect(findButton('Tyhjennä')).toBeDefined()
     expect(findButton('Kopioi yrityksen tiedot URL:iin')).toBeDefined()
+    expect(findButton('Kopioi kaikki tiedot URL:iin')).toBeDefined()
     expect(normalizedText()).toContain('Yrityksen tiedot päivitetty')
     expect(normalizedText()).toContain('Käyttäjän tiedot päivitetty')
     expect(
@@ -188,6 +205,70 @@ describe('osakkeet UI', () => {
     expect(textContent).toContain('Listattu yhtiö')
     expect(textContent).toContain('Luovutusvoitot ja -tappiot')
     expect(textContent).toContain('Hankintapäivä')
+  })
+
+  it('loads full shared URL data including subscriptions and sells', async () => {
+    const sharedUrl = await buildFullShareUrl(
+      {
+        subscriptions: [
+          {
+            id: 'sub-1',
+            date: '04.02.2025',
+            vestingEndsOn: '',
+            amount: '10',
+            pricePerShare: '1',
+            otherTotalAcquisitionCosts: '',
+          },
+          {
+            id: 'sub-2',
+            date: '05.02.2025',
+            vestingEndsOn: '',
+            amount: '20',
+            pricePerShare: '2',
+            otherTotalAcquisitionCosts: '',
+          },
+        ],
+        sells: [
+          {
+            id: 'sell-1',
+            date: '06.02.2025',
+            shareCount: '5',
+            pricePerShare: '3',
+            otherTotalSellCosts: '',
+          },
+        ],
+        cashDistributions: [],
+        shareSplits: [],
+        demergers: [],
+        mathematicalShareValues: [],
+        company: {
+          listingStatus: 'unlisted',
+          becameListedDate: '',
+        },
+        ipo: {
+          totalShareCount: '',
+          totalIpoCost: '',
+          currentShareValue: '',
+          estimatedPreIpoValue: '',
+          estimatedSecondaryShareSellPercentage: '',
+        },
+        ipoSell: {
+          amount: '123',
+          otherAnnualCapitalGainsOrLosses: '',
+        },
+        lastModifiedCompanyData: '',
+        lastModifiedUserData: '',
+      },
+      createId
+    )
+
+    setOsakkeetDom(sharedUrl)
+
+    await renderOsakkeetPage()
+    toggleMainSection('subscriptionsAndSales')
+
+    expect(tableColumnTexts('Osakemerkinnät', 2)).toEqual(['04.02.2025', '05.02.2025'])
+    expect(firstColumnTexts('Osakkeiden myynnit')).toEqual(['06.02.2025'])
   })
 
   it('updates the share split section counter when a row is added', async () => {
@@ -264,12 +345,14 @@ describe('osakkeet UI', () => {
 
   it('renders four collapsible main sections with summaries', async () => {
     await renderOsakkeetPage()
-    expect(normalizedText()).toContain('1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit')
+    expect(normalizedText()).toContain(
+      '1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit. Maksut osakkeiden perusteella ja yhteenveto verotuksen näkökulmasta'
+    )
     expect(normalizedText()).toContain('2. Osakemerkinnät ja myynnit')
     expect(normalizedText()).toContain('3. Veroilmoitukset')
     expect(normalizedText()).toContain('4. IPO-laskuri')
     expect(mainSectionTitles()).toEqual([
-      '1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit',
+      '1. Yrityksen tiedot: Varojenjako, jakautuminen ja splitit. Maksut osakkeiden perusteella ja yhteenveto verotuksen näkökulmasta',
       '2. Osakemerkinnät ja myynnit',
       '3. Veroilmoitukset',
       '4. IPO-laskuri',
@@ -768,7 +851,11 @@ describe('osakkeet UI', () => {
 
     expect(tableColumnTexts('Osakemerkinnät', 2)).toEqual(['04.02.2025', '05.02.2025'])
     expect(firstColumnTexts('Osakkeiden myynnit')).toEqual(['06.02.2025', '07.02.2025'])
-    expect(firstColumnTexts('Osingot ja pääomanpalautukset')).toEqual(['04.02.2025', '05.02.2025'])
+    expect(
+      firstColumnTexts(
+        'Yrityksen osingot ja pääomanpalautukset. Maksut osakkeenomistajalle ja verottajalle ja pääomanpalautus/osinko erottelu'
+      )
+    ).toEqual(['04.02.2025', '05.02.2025'])
     expect(firstColumnTexts('Osakesplitit')).toEqual(['08.02.2025', '09.02.2025'])
     expect(firstColumnTexts('Yrityksen jakautuminen hankintamenon mukaan')).toEqual(['10.02.2025', '11.02.2025'])
   })
@@ -829,7 +916,40 @@ describe('osakkeet UI', () => {
     await renderOsakkeetPage()
     toggleMainSection('distributionsAndCorporateActions')
 
-    expect(tableColumnTexts('Osingot ja pääomanpalautukset', 3)).toEqual(['25.00'])
+    expect(
+      tableColumnTexts(
+        'Yrityksen osingot ja pääomanpalautukset. Maksut osakkeenomistajalle ja verottajalle ja pääomanpalautus/osinko erottelu',
+        3
+      )
+    ).toEqual(['25.00'])
+  })
+
+  it('shows grouped header rows in cash distributions', async () => {
+    await renderOsakkeetPage()
+    toggleMainSection('distributionsAndCorporateActions')
+
+    const sectionTitle =
+      'Yrityksen osingot ja pääomanpalautukset. Maksut osakkeenomistajalle ja verottajalle ja pääomanpalautus/osinko erottelu'
+
+    expect(tableHeaderRowTexts(sectionTitle, 0)).toEqual([
+      '',
+      'Osinko tai pääomanpalautus:',
+      'Maksun jakautuminen:',
+      'Verotuksessa:',
+      '',
+    ])
+    expect(tableHeaderRowTexts(sectionTitle, 1)).toEqual([
+      'Päivä',
+      'Tyyppi',
+      'Osakkeita yhteensä',
+      '€/osake',
+      'Yhteensä',
+      'Maksettu käteisenä',
+      'Ennakko verottajalle',
+      'Pääomanpalautus',
+      'Osinko',
+      '',
+    ])
   })
 
   it('shows capital-repayment and dividend share counts in tax-return share column when a row splits by eligibility', async () => {

@@ -15,9 +15,11 @@ import { normalizeOsakkeetFormData } from './osakkeetFormData'
 import { getOsakkeetLocalization, type Language, type OsakkeetLocalization } from './osakkeetLocalizations'
 import {
   createCompanyDataPayload,
+  deserializeFullShareableOsakkeetUrlData,
   deserializeOsakkeetFormData,
   deserializeShareableOsakkeetUrlData,
   decodeUrlState,
+  fullShareUrlQueryKey,
   isUrlCompressionSupported,
   serializeOsakkeetFormData,
   shareUrlQueryKey,
@@ -115,12 +117,39 @@ function tryLoadWindowSavedData(): OsakkeetFormData | undefined {
 async function tryLoadSharedUrlData(): Promise<OsakkeetFormData | undefined> {
   const encoded = new URL(window.location.href).searchParams.get(shareUrlQueryKey)
   if (!encoded) return undefined
-  const parsed = await decodeUrlState(encoded)
+  const parsed = await decodeUrlState<import('./osakkeetPersistence').ShareableOsakkeetUrlData>(encoded)
   return deserializeShareableOsakkeetUrlData(parsed, createId)
 }
 
+async function tryLoadFullSharedUrlData(): Promise<OsakkeetFormData | undefined> {
+  const encoded = new URL(window.location.href).searchParams.get(fullShareUrlQueryKey)
+  if (!encoded) return undefined
+  const parsed = await decodeUrlState<OsakkeetFormData>(encoded)
+  return deserializeFullShareableOsakkeetUrlData(parsed, createId)
+}
+
 async function tryLoadInitialData(texts: OsakkeetLocalization) {
+  const fullSharedUrlData = new URL(window.location.href).searchParams.get(fullShareUrlQueryKey)
   const sharedUrlData = new URL(window.location.href).searchParams.get(shareUrlQueryKey)
+  if (fullSharedUrlData) {
+    try {
+      const fullSharedData = await tryLoadFullSharedUrlData()
+      if (fullSharedData) {
+        return {
+          data: fullSharedData,
+          initialStatus: '',
+        }
+      }
+    } catch {
+      return {
+        data: tryLoadWindowSavedData() || createOsakkeetFormData(true),
+        initialStatus: isUrlCompressionSupported()
+          ? texts.storage.errors.shareUrlLoadFailed
+          : texts.storage.errors.shareUrlUnavailable,
+      }
+    }
+  }
+
   if (sharedUrlData) {
     try {
       const sharedData = await tryLoadSharedUrlData()

@@ -182,15 +182,13 @@
       }
 
       .osakkeet-sticky-warning {
-        position: relative;
+        position: sticky;
+        top: 12px;
+        z-index: 45;
       }
 
       .osakkeet-sticky-warning__inner {
-        position: fixed;
-        top: 12px;
-        left: calc(28px + var(--nav-width) + 24px);
-        right: 28px;
-        z-index: 45;
+        position: relative;
       }
 
       .topbar {
@@ -325,9 +323,7 @@
           padding-top: 64px;
         }
 
-        .osakkeet-sticky-warning__inner {
-          left: 16px;
-          right: 16px;
+        .osakkeet-sticky-warning {
           top: 72px;
         }
 
